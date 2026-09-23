@@ -59,7 +59,7 @@
 - [x] P0-8 目录与 `.gitignore` 复核 —— **`.gitignore` 增补 `reports/`、`src/content/_quarantine/`、`agent/data/`、`agent/.env`、`agent/.venv/`；另发现上游 `.github/workflows/deploy.yml` 会在 push `master` 时自动发布到 GitHub Pages（与本站"自建服务器 + Nginx"的决定冲突），已保留文件但在文件头加了醒目警示（当前远端是 Gitee，不会触发）**
 - [x] P0-9 开发服务器冒烟测试 —— **`pnpm dev` 8.6s 就绪；`/` → 200（716KB，23 条 `@font-face`）、`/posts/firefly/` → 200；`/404/` 在 dev 下返回 404 属 Astro 正常行为**
 - [x] P0-10 独立代码审查（子 agent，只读）—— **核对 23 条"文档对代码的断言"，发现 4 条不成立/部分成立，已全部修正进文档；额外产出 20 条耦合/陷阱，其中 15 条整理为 `ARCH.md` §14.3**
-- [ ] P0-11 基线提交 —— **见下方"已完成"表（提交后补哈希）**
+- [x] P0-11 基线提交 —— **`3dbc38d`（562 文件，+88018 行；`git status` 干净；未 push，等你审查）**
 
 ### P1 站点身份与导航改造（R-ID / R-NAV / R-WDG）
 
