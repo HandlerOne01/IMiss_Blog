@@ -1,0 +1,65 @@
+# build output
+dist/
+
+# generated vndb covers
+public/vndb-covers/
+
+# generated types
+.astro/
+
+# dependencies
+node_modules/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# environment variables
+.env
+.env.production
+
+# macOS-specific files
+.DS_Store
+
+.vercel
+
+package-lock.json
+bun.lockb
+yarn.lock
+
+# ide
+.idea
+*.iml
+
+# docs
+Firefly-docs/
+
+# lite 版本
+Firefly-Lite/
+
+cache/
+package/
+.obsidian/
+
+# vibe coding
+.codex*
+.claude
+.mimocode
+
+# ── IMiss Blog 本站新增（见 ARCH.md / PROJECT_STATUS.md）────────────────
+# 内容迁移与校验脚本产出的报告（P4）：reports/import-warnings.json、reports/image-mapping-*.json 等
+reports/
+
+# 被隔离的文章（不含 frontmatter 或引用了不存在的图片），不参与构建
+src/content/_quarantine/
+
+# Agent 的构建期导出产物（P5）：由 `pnpm export:agent` 从站点内容重新生成，不入库
+agent/data/
+
+# Agent 的本地环境变量（含 DEEPSEEK_API_KEY / LANGSMITH_API_KEY）
+# 注意：上面的 `.env` 规则已能匹配任意层级的 .env，这里显式写一份是为了让人一眼看到
+agent/.env
+agent/.venv/
+

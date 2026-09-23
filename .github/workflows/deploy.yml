@@ -1,0 +1,64 @@
+# ⚠️ 上游 CI，本站不使用 —— 本站部署目标是「自建服务器 + Nginx 静态托管」（见 ARCH.md §12）。
+# 本文件会在 push 到 master 时自动发布到 GitHub Pages。
+# 当前远端是 Gitee，因此它不会触发；但若将来把仓库镜像到 GitHub，请先删除或停用本 workflow，
+# 否则会在你不知情的情况下把站点发布到 GitHub Pages。
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+# Pages 部署需要的权限
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 确保只有一个部署任务同时运行
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+          run_install: false
+          
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+      
+      - name: Build site
+        run: pnpm run build
+
+      - name: Create .nojekyll file
+        run: touch dist/.nojekyll
+      
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist  # Astro默认构建输出目录
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
