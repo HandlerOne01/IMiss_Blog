@@ -191,7 +191,11 @@ const COLLECT = `(() => {
           ariaHidden: p.getAttribute("aria-hidden"),
           inert: p.inert === true,
         })),
-        tabs: [...board.querySelectorAll("[data-rank-tab]")].map((t) => ({ kind: t.dataset.rankTab, selected: t.getAttribute("aria-selected") })),
+        tabs: [...board.querySelectorAll("[data-rank-tab]")].map((t) => ({
+          kind: t.dataset.rankTab,
+          selected: t.getAttribute("aria-selected"),
+          tabIndex: t.tabIndex,
+        })),
         rows: rows.map((r) => {
           const badge = r.querySelector(".rank-badge");
           const rr = r.getBoundingClientRect();
@@ -954,12 +958,19 @@ async function main() {
 			`kind=${afterKey?.rank?.kind} 焦点在 ${afterKey?.focusedTab}`,
 		);
 		record("R-RANK-02", "带 ?kind=ep 的链接直接打开单集榜", ep?.kind === "ep" && ep?.panels.find((p) => p.kind === "ep")?.off === false, `kind=${ep?.kind}`);
-		record(
-			"R-RANK-02",
-			"维度按钮带正确的 tab 语义",
-			jp?.tabs.every((t) => t.selected === "true" || t.selected === "false") && jp?.tabs.find((t) => t.kind === "all")?.selected === "true",
-			JSON.stringify(jp?.tabs),
-		);
+		// tab 语义 + roving tabindex：选中的那个 aria-selected=true 且 tabIndex=0，
+		// 其余 false 且 -1（只断言"是 true 或 false"几乎恒真，属于弱断言，这里连 tabindex 一起验）
+		{
+			const tabs = jp?.tabs ?? [];
+			const sel = tabs.find((t) => t.kind === "all");
+			const off = tabs.find((t) => t.kind === "ep");
+			record(
+				"R-RANK-02",
+				"维度按钮的 tab 语义与 roving tabindex 正确",
+				tabs.length === 2 && sel?.selected === "true" && sel?.tabIndex === 0 && off?.selected === "false" && off?.tabIndex === -1,
+				JSON.stringify(tabs),
+			);
+		}
 
 		// 视觉规格：行高 ≈ 内容宽 17.4%、名次列 ≈ 13.7%（ARCH §5.5 的实测值）
 		const r0 = jp?.rows[0];
