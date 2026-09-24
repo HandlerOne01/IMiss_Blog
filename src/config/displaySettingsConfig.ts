@@ -20,8 +20,16 @@ export const displaySettingsConfig: DisplaySettingsConfig =
 		// 除了改这里，也可以在部署平台（Vercel / Cloudflare 等）配置环境变量开启，
 		// 无需改动本文件：PUBLIC_DISPLAY_SETTINGS=true
 		// 环境变量优先级更高，未设置或取值无法识别时使用这里的值
-		// 生产环境建议默认关闭，只在开发调试环境开启用来预览效果
-		enable: false,
+		//
+		// ── IMiss Blog（R-ID-07）──────────────────────────────────
+		// 发起人明确要求**对访客开启**这个面板（原话："肯定要这个啊"），所以这里从上游默认的
+		// false 改成 true，并且**下面所有条目保持开启**（含壁纸模式切换）。
+		// 代价已知且接受：`wallpaperModeSwitchable: true` 会在构建期把各壁纸模式的整套内容
+		// 打进客户端产物（上游注释估计 +33 KB/页；本项目实测值记在 ARCH.md §13）。
+		// 同时注意：面板里的"主题色相"改的就是 `--hue`——siteConfig 里定的 345 只是**默认值**，
+		// 访客拖过之后会写进他自己的 localStorage，刷新仍生效（只影响他本人）。
+		// 若哪天要改成"只自己用"，把这里改回 false，或构建时不要设 PUBLIC_DISPLAY_SETTINGS。
+		enable: true,
 
 		// ── 外观 (Appearance) ──────────────────────────────────
 

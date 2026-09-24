@@ -170,6 +170,9 @@ const COLLECT = `(() => {
     statRows: statsRoot ? statsRoot.querySelectorAll("div.justify-between").length : null,
     statText: txt(statsRoot),
     heatmapExists: !!document.getElementById("heatmap-container"),
+    // R-ID-07：显示设置面板（调色盘 + 界面结构管理）
+    settingsBtn: !!document.querySelector('#display-settings-switch'),
+    settingsPanel: !!document.querySelector('[data-floating-panel-trigger="display-settings-switch"]'),
     infoText: txt(infoRoot),
     favicons: [...document.querySelectorAll('link[rel*="icon"]')].map((l) => l.getAttribute("href")),
     bodyText: document.body.innerText.replace(/\\s+/g, " ").trim().slice(0, 4000),
@@ -528,6 +531,19 @@ async function main() {
 	record("R-WDG-01", "站点统计不含已删文案", EXPECT_ABSENT_STAT_TEXT.every((t) => !(home.statText ?? "").includes(t)), "运行时长/最后活动/天前 均未出现");
 	record("R-WDG-02", "日历热力图已关闭", home.heatmapExists === false, `#heatmap-container ${home.heatmapExists ? "仍存在" : "不存在"}`);
 	record("R-WDG-03", "站点信息占位模式", (home.infoText ?? "").includes("站点尚未部署") && (home.infoText ?? "").includes("—"), (home.infoText ?? "").slice(0, 80));
+	// R-ID-07：面板对访客开启（enable: true）——按钮与面板都要在
+	record(
+		"R-ID-07",
+		"显示设置面板按钮已渲染（调色盘）",
+		home.settingsBtn === true,
+		`#display-settings-switch ${home.settingsBtn ? "存在" : "不存在"}`,
+	);
+	record(
+		"R-ID-07",
+		"显示设置面板容器已渲染",
+		home.settingsPanel === true,
+		`面板触发属性 ${home.settingsPanel ? "存在" : "不存在"}`,
+	);
 	record("R-CMT-01", "留言页显示装修中占位", (facts["guestbook-1440"].bodyText ?? "").includes("留言板正在装修中"), "");
 	record("R-CMT-02", "留言页副标题已改成本站口吻", (facts["guestbook-1440"].bodyText ?? "").includes("评论区接好之前"), "");
 	record("R-NAV-03", "番剧页显示未配置卡片", (facts["myanimelist-1440"].bodyText ?? "").includes("番剧数据源还没配置"), "");
