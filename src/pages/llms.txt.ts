@@ -3,16 +3,20 @@ import { i18n } from "@i18n/translation";
 import { getSortedPosts } from "@utils/content-utils";
 import { url } from "@utils/url-utils";
 import type { APIRoute } from "astro";
-import { siteConfig } from "@/config";
+import { rankConfig, siteConfig } from "@/config";
 
 export const prerender = true;
 
 const RECENT_POSTS_COUNT = 20;
 
 type KeyPage = {
-	labelKey: I18nKey;
+	/** i18n 标签（与 label 二选一） */
+	labelKey?: I18nKey;
+	/** 直接写字面量标签（本站新增的页面没有对应 i18n key 时用） */
+	label?: string;
 	path: string;
 	descKey?: I18nKey;
+	desc?: string;
 	pageKey?: keyof typeof siteConfig.pages;
 };
 
@@ -87,6 +91,16 @@ const KEY_PAGES: KeyPage[] = [
 		descKey: I18nKey.sponsorDescription,
 		pageKey: "sponsor",
 	},
+	// 排行榜（本站新增，没有对应 i18n key）：
+	// 直接从 rankConfig 生成，榜单改名/加榜时这里自动跟着变。
+	// 站点简介里就写着"定期更新的番剧排行榜"，AI 抓取入口却不提这两个页面说不过去（P2 审查提出）。
+	...Object.values(rankConfig.boards).map(
+		(board): KeyPage => ({
+			label: board.title,
+			path: `/rank/${board.id}/`,
+			desc: board.description,
+		}),
+	),
 ];
 
 export const GET: APIRoute = async ({ site }) => {
@@ -106,9 +120,9 @@ export const GET: APIRoute = async ({ site }) => {
 		"## Key Pages",
 	];
 	for (const pageEntry of enabledPages) {
-		const label = i18n(pageEntry.labelKey);
+		const label = pageEntry.label ?? (pageEntry.labelKey ? i18n(pageEntry.labelKey) : pageEntry.path);
 		const link = abs(pageEntry.path);
-		const desc = pageEntry.descKey ? i18n(pageEntry.descKey) : "";
+		const desc = pageEntry.desc ?? (pageEntry.descKey ? i18n(pageEntry.descKey) : "");
 		lines.push(
 			desc ? `- [${label}](${link}): ${desc}` : `- [${label}](${link})`,
 		);

@@ -16,6 +16,7 @@
  */
 import ImageWrapper from "@/components/common/ImageWrapper.astro";
 import { Icon } from "astro-icon/components";
+import type { ImageMetadata } from "astro";
 import type { RankBoardConfig, RankKind } from "@/types/rankConfig";
 
 interface Props {
@@ -49,6 +50,35 @@ const kinds = Object.keys(kindLabels) as RankKind[];
 const labelOf = (k: RankKind): string => board.labels?.[k] ?? kindLabels[k];
 const initialKind: RankKind = kinds.includes(kind) ? kind : "all";
 
+/**
+ * 自己先判一次配图到底在不在。
+ *
+ * 为什么要自己判：`ImageWrapper` 找不到文件时**什么都不渲染**（只剩一层空壳 div，见 ARCH §14.3 T7）。
+ * 那样这一行在亮色主题下就是一张白卡片 + 白字标题（渐变占位只在 `hasCover === false` 时渲染）
+ * —— 路径写错不该变成"看不见的字"。所以这里用同一套 glob 提前解析：
+ * 解析得到 → 交给 ImageWrapper 正常出图；解析不到 → 退回渐变占位（构建日志里也有 warning）。
+ *
+ * ⚠️ glob 用 `/src/**` 这种**项目根绝对路径**，不要照抄 ImageWrapper 里的 `"../../**"`：
+ * 那种相对写法是相对"当前文件所在目录"的，ImageWrapper 在 `components/common/` 下 `../../` 正好是 `src/`，
+ * 而本文件在 `components/pages/rank/` 下，`../../` 只到 `components/`——第一版就这么写错，
+ * 结果所有配图都被判成"不存在"、全站榜单退化成渐变占位（构建日志里四条 warning 抓出来的）。
+ */
+const coverModules = import.meta.glob<ImageMetadata>(
+	"/src/**/*.{png,jpg,jpeg,webp,avif}",
+	{ import: "default" },
+);
+
+const hasCoverFile = (cover?: string): boolean => {
+	const src = cover?.trim();
+	if (!src) return false;
+	// 以 "/" 开头走 public、以 http(s)/data: 开头是外链 —— 都交给 ImageWrapper 原样引用
+	if (src.startsWith("/") || /^(https?:|data:)/.test(src)) return true;
+	const key = `/src/${src.replace(/^\.\//, "")}`;
+	if (coverModules[key]) return true;
+	console.warn(`[rank] 配图不存在，这一行回落到渐变占位：${src}`);
+	return false;
+};
+
 const panels = kinds.map((k) => {
 	const rows: RankRowView[] = board.data[k].map((entry, index) => ({
 		rank: index + 1,
@@ -57,7 +87,7 @@ const panels = kinds.map((k) => {
 		original: entry.original,
 		note: entry.note,
 		cover: entry.cover,
-		hasCover: Boolean(entry.cover && entry.cover.trim() !== ""),
+		hasCover: hasCoverFile(entry.cover),
 		// 前 4 行预加载（首屏就能看到），其余懒加载
 		loading: index < 4 ? "eager" : "lazy",
 	}));
@@ -75,6 +105,15 @@ const panels = kinds.map((k) => {
   */}
   <script is:inline>
     (function () {
+      // 这个标记告诉 CSS："面板可以按维度隐藏了"。
+      // 为什么不在标记里直接写 hidden 属性：Tailwind 4 的 preflight 是
+      //   @layer base { [hidden]:where(:not([hidden=until-found])) { display: none !important } }
+      // 而**层叠规范规定 !important 声明是"分层优先于不分层"**——自己样式表里写
+      // `.rank-panel[hidden] { display: block !important }` 特异性再高也盖不住它，
+      // 于是"打印时两块榜单都印出来"就 silently 失效了（P2 独立审查实测）。
+      // 改成 class + html 标记后：无 JS 时两块面板都照常显示（class 没有被 CSS 认领），
+      // 打印时用一条普通规则覆盖即可，完全不用跟 preflight 抢 !important。
+      document.documentElement.dataset.rankJs = "1";
       try {
         if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
         document.documentElement.dataset.rankAnim = "1";
@@ -116,16 +155,17 @@ const panels = kinds.map((k) => {
     </div>
   </div>
 
-  {/* 两组面板：都在 DOM 里，靠 hidden 切换 */}
+  {/* 两组面板：都在 DOM 里，靠 `rank-panel--off` 这个 class 切换显隐
+      （不用 `hidden` 属性：见上面内联脚本里的注释，Tailwind preflight 的 layered !important 盖不住） */}
   {
     panels.map((panel) => (
       <div
         id={`rank-panel-${board.id}-${panel.kind}`}
-        class="rank-panel"
+        class:list={["rank-panel", panel.kind !== initialKind && "rank-panel--off"]}
         data-rank-panel={panel.kind}
+        data-rank-label={panel.label}
         role="tabpanel"
         aria-labelledby={`rank-tab-${board.id}-${panel.kind}`}
-        hidden={panel.kind !== initialKind}
       >
         {panel.isEmpty ? (
           <div class="rank-empty">榜单待更新</div>
@@ -174,20 +214,57 @@ const panels = kinds.map((k) => {
       </p>
     )
   }
+
+  {/*
+    无 JS 兜底：没有 JS 时 `rank-panel--off` 不会被 CSS 认领（那条规则挂在 html[data-rank-js="1"] 上），
+    所以两块榜单本来就都看得见——这里只需要把点了没反应的维度按钮藏掉、并给两块榜加个小标题。
+    （打印的情况在 rank.css 的 @media print 里做同一件事；两处规则长得像是因为
+      <noscript> 里没法引用外部样式表，只能各写一份。）
+  */}
+  <noscript>
+    <style>
+      .rank-tabs { display: none; }
+      .rank-panel::before {
+        content: attr(data-rank-label);
+        display: block;
+        margin: 1.1rem 0 0.5rem;
+        font-weight: 700;
+      }
+    </style>
+  </noscript>
 </section>
 
 <script is:inline>
   (function () {
     // Swup 切页会重跑本脚本，所以初始化做成幂等的；只有 document 级监听需要全局守卫
     function initBoard(root) {
+      // ⚠️ 每个 root 只能初始化一次。
+      // 原因：@swup/scripts-plugin 会在换页后重跑容器内的 <script>（这里 initAll() 跑一次），
+      // 紧接着 astro:page-load 事件又跑一次 —— 不加守卫时同一个按钮会被绑上**两个** click，
+      // 点一下 pushState 两次、浏览器后退一次回不到上一个榜单（P2 独立审查实测：监听器 4 → 8）。
+      // 注意 window.__rankTabsInit 只能挡 document 级监听，挡不住这种"同一个 root 绑两遍"。
+      if (root.dataset.rankReady === "1") return;
+      root.dataset.rankReady = "1";
+
       var panels = root.querySelectorAll("[data-rank-panel]");
       var tabs = root.querySelectorAll("[data-rank-tab]");
       if (!panels.length || !tabs.length) return;
 
       function apply(kind, updateUrl) {
+        // 只有"维度真的变了"才写历史：点已经选中的那个按钮不该多出一条历史记录
+        var changed = root.dataset.rankKind !== kind;
         root.dataset.rankKind = kind;
         panels.forEach(function (p) {
-          p.hidden = p.dataset.rankPanel !== kind;
+          var off = p.dataset.rankPanel !== kind;
+          p.classList.toggle("rank-panel--off", off);
+          // 非当前面板对读屏与键盘都要不可达（aria-hidden + inert），
+          // 不能只靠 display:none —— 那是"看得见看不见"，不是"能不能聚焦"
+          if (off) {
+            p.setAttribute("aria-hidden", "true");
+          } else {
+            p.removeAttribute("aria-hidden");
+          }
+          if ("inert" in p) p.inert = off;
         });
         tabs.forEach(function (t) {
           var on = t.dataset.rankTab === kind;
@@ -196,7 +273,7 @@ const panels = kinds.map((k) => {
           // WAI-ARIA tabs 的 roving tabindex：只有选中的那个能 Tab 进来，其余靠方向键
           t.tabIndex = on ? 0 : -1;
         });
-        if (updateUrl) {
+        if (updateUrl && changed) {
           var url = new URL(window.location.href);
           url.searchParams.set("kind", kind);
           // pushState：浏览器后退能回到上一个维度
@@ -214,6 +291,9 @@ const panels = kinds.map((k) => {
 
       // 解析期按 URL 落定：静态输出读不到 ?kind=，只能在这里纠正
       apply(kindFromUrl(), false);
+
+      // 让 document 级的 popstate 监听能复用同一套切换逻辑（否则两处逻辑会各写一遍、迟早走样）
+      root.__rankApply = apply;
 
       tabs.forEach(function (tab) {
         tab.addEventListener("click", function () {
@@ -240,17 +320,8 @@ const panels = kinds.map((k) => {
             var first = r.querySelector("[data-rank-tab]");
             var hit = k ? r.querySelector('[data-rank-tab="' + k + '"]') : null;
             var target = hit ? k : first && first.dataset.rankTab;
-            if (!target) return;
-            r.dataset.rankKind = target;
-            r.querySelectorAll("[data-rank-panel]").forEach(function (p) {
-              p.hidden = p.dataset.rankPanel !== target;
-            });
-            r.querySelectorAll("[data-rank-tab]").forEach(function (t) {
-              var on = t.dataset.rankTab === target;
-              t.setAttribute("aria-selected", on ? "true" : "false");
-              t.classList.toggle("is-active", on);
-              t.tabIndex = on ? 0 : -1;
-            });
+            // 复用面板实例上的 apply（切页后旧节点上的实现随节点一起消失，所以每次都重新取）
+            if (target && r.__rankApply) r.__rankApply(target, false);
           });
         });
       }
@@ -288,11 +359,12 @@ const panels = kinds.map((k) => {
     }
 
     initAll();
-    // Swup 换页后再初始化一次（新 DOM 是新节点，旧监听随节点一起消失）
+    // Swup 换页后再初始化一次（新 DOM 是新节点，旧监听随节点一起消失）。
+    // 只用 astro:page-load：Swup 4.9.2 **没有** swup:contentReplaced 这个事件
+    // （P2 独立审查实测 0 次触发），原来那一行是死代码，已删。
     if (!window.__rankTabsInit) {
       window.__rankTabsInit = true;
       document.addEventListener("astro:page-load", initAll);
-      document.addEventListener("swup:contentReplaced", initAll);
     }
   })();
 </script>

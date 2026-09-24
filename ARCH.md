@@ -1,8 +1,8 @@
-# IMiss Blog 架构与技术设计（ARCH）
+﻿# IMiss Blog 架构与技术设计（ARCH）
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.9 |
+| 文档版本 | v1.10 |
 | 最后更新 | 2026-09-24 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -290,7 +290,7 @@ src/
 | `src/types/rankConfig.ts` | 类型定义 |
 | `src/config/rankConfig.ts` | **唯一需要手工维护的数据文件**（4 组数据 + 文案） |
 | `src/config/index.ts` | 增加 `export { rankConfig } from "./rankConfig";` 与类型导出 |
-| `src/components/pages/rank/RankBoard.astro` | 榜单板渲染（接收 board + kind + kindLabels + dataStatus）；**「全剧 / 单集」切换与入场动效一起写在这个组件的 `<script is:inline>` 里**（原计划的 `RankTabs.svelte` 已放弃，理由见 §5.4） |
+| `src/components/pages/rank/RankBoard.astro` | 榜单板渲染（接收 board + kind + kindLabels + dataStatus）；**「全剧 / 单集」切换、入场动效、配图存在性判定都写在这个组件里**（切换用 `<script is:inline>`，原计划的 `RankTabs.svelte` 已放弃，理由见 §5.4） |
 | `src/styles/pages/rank.css` | 榜单板全部版式（两档名次色、行高/名次列比例、scrim、缺图占位、移动端、入场动效） |
 | `src/pages/rank/index.astro` | `return Astro.redirect("/rank/jp/")` |
 | `src/pages/rank/jp.astro` | 读取 `rankConfig.boards.jp`，渲染 `<RankBoard>` |
@@ -357,11 +357,11 @@ if (!board) return Astro.redirect("/404/");     // 数据被删时别炸在页�
 > ② 两个按钮的显隐切换不值得付一次 hydration；两组面板都在 DOM 里，切换零请求。
 
 1. 服务端固定渲染「全剧」为初始选中态（`kind` prop 默认 `"all"`）。
-2. 客户端脚本在**解析期**读 `location.search` 里的 `?kind=` 并纠正选中态（直接打开分享链接就是对的榜单）。
-3. 两个面板的 DOM **都输出**，用 `hidden` 属性切换 → 零请求、零闪烁。
-4. 点击切换：`history.pushState` 更新 `?kind=` → 浏览器后退能回到上一个维度；`popstate` 监听同步选中态。
-5. 语义用 `role="tablist" / role="tab" / aria-selected` + **roving tabindex**（只有选中的那个能 Tab 进来，←/→ 切换并聚焦）。
-6. Swup 切页时容器内脚本会重跑 → 初始化写成幂等（`window.__rankTabsInit` / `window.__rankTabsPopstate` 守卫），新 DOM 重新接管。
+2. 客户端脚本在**解析期**读 `location.search` 里的 `?kind=` 并纠正选中态（直接打开分享链接就是对的榜单；实测面板翻转约 63ms，早于首帧 80ms，不会闪一下「全剧」）。
+3. 两个面板的 DOM **都输出**，靠 `rank-panel--off` 这个 class 显隐（规则挂在 `html[data-rank-js="1"]` 上，见 T24 —— **不用 `hidden` 属性**，否则 Tailwind preflight 的分层 `!important` 会让"打印/无 JS 也要显示"的兜底静默失效）。
+4. 点击切换：`history.pushState` 更新 `?kind=`（**只在维度真的变了时写历史**，连点同一个按钮不会堆历史记录）→ 浏览器后退能回到上一个维度；`popstate` 复用面板实例上的 `apply()`。
+5. 语义用 `role="tablist" / role="tab" / aria-selected` + **roving tabindex**（只有选中的那个能 Tab 进来，←/→ 切换并聚焦）；非当前面板加 `aria-hidden="true"` 与 `inert`（键盘/读屏都进不去，不只是"看不见"）。
+6. Swup 切页时容器内脚本会重跑（`@swup/scripts-plugin`）+ `astro:page-load` 再触发一次 → 每个 root 用 `root.dataset.rankReady` 做**幂等守卫**。⚠️ 少这一层守卫就会把 click 绑两遍、一次点击 pushState 两次、后退一次回不到上一个榜单（P2 独立审查抓到的阻断缺陷）；`window.__rankTabsInit` 只挡 document 级监听，挡不住"同一个 root 绑两遍"。另外 Swup 4.9.2 **没有** `swup:contentReplaced` 事件，别去监听它。
 
 ### 5.5 视觉规格（对齐参考图）
 
@@ -371,17 +371,17 @@ if (!board) return Astro.redirect("/404/");     // 数据被删时别炸在页�
 | 行容器 | `display: grid; grid-template-columns: var(--rank-badge-w) minmax(0, 1fr);`；**行高 = 内容宽的 1/5.7**（实测 96px / 图宽 551px = 17.4%）、**名次列 = 内容宽的 13.7%**（实测 75px）。实现见下方"比例必须用 cqw"；行间距 **2~4px**（实测相邻行几乎紧贴）；行自身圆角 **2px**（参考图行是近直角，只有整块是圆角） |
 | 名次列 | 宽度 = 内容宽的 **13.7%**（实测 75px）≈ 行高的 0.78 倍；底色纯色填充，数字水平垂直居中 |
 | 名次数字 | 字号 = 行高的 0.52（再用名次列宽 0.72 倍兜住窄屏，防止两位数顶出格子），字重 800，`font-variant-numeric: tabular-nums`；**颜色随档位变**：1~3 名白色，4 名以后 `#14100b` |
-| **名次底色（两档，不是金银铜）** | **1~3 名：粉 `#EA7B7C`**（实测多次采样 `#E78278`/`#EE7B7E`/`#EC7979`/`#E87E7E`）；**4 名及以后：橙 `#EFA662`**（实测 `#EBA972`/`#EFA965`/`#F0A667`/`#F1AB66`/`#EFA661`）。两档色写成 `rank.css` 顶部的 CSS 变量便于调整；正文里不做金银铜 |
+| **名次底色（两档，不是金银铜）** | **1~3 名：粉 `#E2696B`**（参考图实测 `#EA7B7C`，采样区间 `#E78278`/`#EE7B7E`/`#EC7979`/`#E87E7E`；但白字压 `#EA7B7C` 只有 **2.76:1**、不达 WCAG AA 大字 3:1，因此加深一档到 `#E2696B` = **3.25:1**，肉眼几乎无差别）；**4 名及以后：橙 `#EFA662`**（实测 `#EBA972`/`#EFA965`/`#F0A667`/`#F1AB66`/`#EFA661`，深色数字压上去 9.29:1）。两档色写成 `rank.css` 顶部的 CSS 变量便于调整；正文里不做金银铜 |
 | 剧照层 | 整行铺满：`ImageWrapper`（`showOverlay={false}`）+ 自己的一层 scrim；标题区加暗罩保证白字可读（水平方向由左向右可略变浅），左缘与名次列用 `mask-image: linear-gradient(90deg, transparent, #000 14%)` 自然衔接 |
 | 标题 | 白字 + `text-shadow: 0 1px 2px rgb(0 0 0 / .6)`；字号 = 行高的 0.27（实测约 26px / 96px，上限 32px）；粗体 700；起始位置紧跟名次列留一个小间距；最多折 2 行（`-webkit-line-clamp: 2`，参考图第 5 名就是两行） |
 | 原名 | 标题下方一行小字，字号 = 行高的 0.13（上限 17px）、`rgba(255,255,255,.78)`；数据里没有就不占位 |
-| 短评胶囊 | **参考图里没有这一列**，所以默认不渲染；只有数据里写了 `note` 才在右端显示一枚小胶囊（窄屏隐藏） |
+| 短评胶囊 | **参考图里没有这一列**，所以默认不渲染；只有数据里写了 `note` 才在右端显示一枚小胶囊（窄屏隐藏）。它是网格的第 2 列（不是绝对定位），**永远不会压住标题**；宽度上限用 `40cqw` 这类长度（`%` 会把 auto 轨道里的它压扁，见 T26） |
 | 缺图占位 | **先铺不透明深色底** `hsl(var(--hue) 28% 20%)`，再叠 `linear-gradient(120deg, hsl(var(--hue) 62% 58% / .5), hsl(calc(var(--hue) + 40) 52% 44% / .42), hsl(calc(var(--hue) - 25) 58% 34% / .5))` + 一层极淡的点阵纹理（`radial-gradient` 平铺）。**深底是关键**：半透明渐变直接罩在卡片底上时，亮色主题下是浅粉、白字会糊（P2 亮色截图实测踩到，已改为不透明深底并加断言） |
 | 浅色主题 | 剧照上的白字方案两套主题通用；scrim 不变，只把 1~3 名的粉调深一档（`#e2696b`）以提高白字对比度。**缺图占位靠上面的不透明深底保证两套主题一致**（`verify:ui` 对暗/亮两套主题都断言"渐变最亮处对白字 ≥ 4.5:1"） |
 | 移动端（<768px） | 按 17.4cqw 算行高只剩约 68px（390px 宽），放不下 2 行标题 → 行高放宽到 `max(64px, 20cqw)`，**名次列仍保持 13.7%**，标题最多 2 行、字号不低于 15px；短评胶囊隐藏 |
 | 入场动效 | `IntersectionObserver` 逐行淡入上移，延迟 = `名次 × 40ms`；**隐藏态挂在 `html[data-rank-anim="1"]` 上**（该属性由组件内联脚本在解析期设置，仅当"JS 可用 + 未开启减少动态"时才存在）→ 无 JS / 爬虫 / 打印时看到的是完整榜单而不是空白；`@media print` 再兜一层强制显示 |
 
-> **比例必须用 cqw，不能用 vw**：行高说的是"内容宽（榜单板宽度）的 17.4%"，而 `17.4vw` 是"视口宽度的 17.4%"——1440 视口下 17.4vw = 250px，会被 `clamp` 上限卡住，而榜单板实际只有 629px 宽，实测行高比 **21%**（比参考图高一大截）。现在给 `.rank-board` 加 `container-type: inline-size`，行高与名次列都用 **cqw**（`max(76px, 17.4cqw)` / `max(44px, 13.7cqw)`），比例在任何屏宽下都成立；P2 实测 629px 板宽 → 行高 109px = **17.3%**、名次列 86px = **13.7%**。
+> **比例必须用 cqw，不能用 vw**：行高说的是"内容宽（榜单板宽度）的 17.4%"，而 `17.4vw` 是"视口宽度的 17.4%"——1440 视口下 17.4vw = 250px，会被 `clamp` 上限卡住，而榜单板实际只有 629px 宽，实测行高比 **21%**（比参考图高一大截）。现在给 `.rank-board` 加 `container-type: inline-size`，行高与名次列都用 **cqw**（`max(76px, 17.4cqw)` / `max(44px, 13.7cqw)`），比例在任何屏宽下都成立；P2 实测 1440 → 629px 板宽 / 行高 109px = **17.3%**、1920 → 904px / 157px = **17.4%**；名次列两者都是 **13.7%**。下限（76px / 44px）在板宽 < 437px 时接管，此时比例会略高于 17.4%——这是有意为之（窄屏要放得下两行标题）。
 > 另外名次列**不能写成 `%` 再给 `font-size` 用**：同一个变量在 `grid-template-columns` 里 `%` 是"相对格宽"，在 `font-size` 的 `calc()` 里 `%` 是"相对父级字号"，会算出两个完全不同的值。cqw 是长度，到哪都指板宽的 1%。
 
 > **这些数值的来源**：对发起人提供的裁切参考图（551×992）逐像素量得——行高 96px、名次列 75~78px、1~3 名粉底白字、4 名以后橙底深色字。参考图的**右侧那三列（得票率 / 升降 / 涨幅）已被发起人裁掉，明确不做**。原图在 `my_-blog\dosc\排行\444e59a870dd4ec71d881b6e8866eda0.jpg`（含被裁掉的右侧列，不可照抄）。
@@ -393,7 +393,7 @@ if (!board) return Astro.redirect("/404/");     // 数据被删时别炸在页�
 | 情况 | 表现 |
 | --- | --- |
 | 某组数据为空 | 显示居中的"榜单待更新"卡片，不渲染行 |
-| `cover` 指向的文件不存在 | 构建日志报错（`ImageWrapper` 已有行为），同时该行回落到渐变占位；**校验脚本要在构建前发现它**（§9.4） |
+| `cover` 指向的文件不存在 | `RankBoard` 自己先按 `/src/**` glob 判一次（`ImageWrapper` 只负责出图）：解析不到就**当没有配图**，走渐变占位，同时在构建日志里 `console.warn` 报路径。这样"路径写错"不会变成亮色主题下的白卡片 + 白字（`ImageWrapper` 找不到文件时**什么都不渲染**，见 T7） |
 | `title` 为空 | 校验脚本报错并阻断（不允许空标题） |
 | 条目超过 30 条 | 正常渲染（不做分页），但校验脚本给出提示 |
 | 数据还是占位内容 | `rankConfig.dataStatus = "placeholder"` → 榜单下方显示一条提示（含改法与文件路径）；填完真数据改成 `"final"` 即消失 |
@@ -887,12 +887,13 @@ dosc/blog/**/*.md
 | `pnpm preview` | 预览构建产物 | — |
 | `pnpm format` / `pnpm lint` | Biome 格式化与检查 | — |
 | `pnpm verify:posts` | 内容与排行数据校验（阻断式） | ✅（P4 新增） |
-| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 52 项功能断言（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap、配色对比度），并输出 7 张截图到 `reports/screenshots/`。P1 已落地 | ✅（P1 新增） |
+| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **101 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底），并输出 **13 张**截图到 `reports/screenshots/`。P1 落地、P2 扩容 | ✅（P1 新增，P2 扩容） |
 | `pnpm make:logo` | 把 `src/assets/images/logo/imiss-logo.svg`（手写矢量设计源）栅格化成导航栏 Logo（webp）与 favicon 四档 PNG | ✅（P1 新增） |
 
-> **关于 `verify:ui` 的对比度检查**：走的是"token 级"校验（`--deep-text`/`--content-meta`/`--btn-content`/`--primary` 对卡片底/页面底），不是"扫全站文字元素"。
+> **关于 `verify:ui` 的对比度检查**：主体走"token 级"校验（`--deep-text`/`--content-meta`/`--btn-content`/`--primary` 对卡片底/页面底），不是"扫全站文字元素"。
 > 原因：这个主题里大量文字压在封面图、壁纸、半透明面板上，逐元素自动判定无法可靠取得背景色（试了三版：canvas 转色 → 逐层合成 → Node 侧解析，期间还产出过"66/71 元素低于 3:1"的假警报）。
-> 现在的做法是：**可复现的数字交给脚本，观感交给截图**。脚本每轮输出 7 张截图，人工核对。另外它还会把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
+> P2 补了两处**具体**的对比度断言（不依赖背景取色）：① 名次数字对名次底色（`getComputedStyle` 直接读两个颜色，白字压粉底 ≥ 3:1、深字压橙底 ≥ 4.5:1）；② 缺图占位把渐变各档合成到不透明底色上取最亮值，与白字算对比度（暗/亮主题各一条）。
+> 观感部分仍然是"**可复现的数字交给脚本，观感交给截图**"：脚本每轮输出 13 张截图并人工核对；另外把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
 | `pnpm import:posts -- --write` | 内容迁移（默认 dry-run） | ✅ |
 | `pnpm export:agent` | 导出 `agent/data/*.json` | ✅ |
 | `node scripts/convert-wallpaper.mjs` | 壁纸图 → webp | ✅ |
@@ -1069,6 +1070,9 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | T21 | **同一个 CSS 变量里写 `%`，在不同属性里语义不同**：`--rank-badge-w: max(44px, 13.7%)` 用在 `grid-template-columns` 是"相对格宽"，用在 `font-size: calc(var(--rank-badge-w) * 0.72)` 却变成"相对父级字号"（13.7% × 16px ≈ 2.2px），同一个变量算出两个值 | 数字字号上限静默失效/离谱，且几乎看不出来 | 会用在不同类型属性里的尺寸变量，统一用**长度单位**（cqw / px）表达；`%` 只在单一明确语境下用 |
 | T22 | **"内容默认隐藏、JS 再显示"的入场动效会把无 JS 场景变成空白**：第一版 `.rank-row { opacity: 0 }` + IntersectionObserver 加 `.is-in`，结果整页截图里 5~10 名全是空白（未进入视口的行永远不触发），爬虫/打印同理 | 内容可见性依赖 JS，属于可访问性与 SEO 的硬伤 | 隐藏态挂在 `html[data-rank-anim="1"]` 上，该属性由**解析期内联脚本**设置且仅在"JS 可用 + 未开启减少动态"时存在；再加一条 `@media print` 兜底强制显示 |
 | T23 | **`html { scroll-behavior: smooth }`（`src/styles/main.css:53`）会让脚本里的 `scrollTo` 变成动画**：验证脚本截图前用 `window.scrollTo(0, y)` 逐步滚动来触发入场动效，每步只等 90ms，实际页面几乎没动 → 截图里仍然是空白行 | 自动化截图/视觉回归会得出错误结论（我据此误判过两次） | 脚本里必须写 `window.scrollTo({ top: y, behavior: "instant" })`（或临时把 `scroll-behavior` 设为 `auto`） |
+| T24 | **Tailwind 4 的 preflight 用分层 `!important` 锁死了 `[hidden]`**：编译产物里是 `@layer base{… [hidden]:where(:not([hidden=until-found])){display:none!important} …}`。按 CSS 层叠规范，**`!important` 声明"分层优先于不分层"**——所以自己在未分层的样式表里写 `.rank-panel[hidden]{display:block!important}`，特异性再高也**盖不住**它（P2 独立审查实测：打印时第二块面板始终印不出来） | "打印/无 JS 时也要看到内容"这类兜底会**静默失效**，而且看不出原因（规则明明生效了） | 不要跟 `[hidden]` 抢 `display`：改用**自己的 class**（`.rank-panel--off`）+ `html[data-rank-js="1"]` 这类"JS 可用"标记来隐藏，打印/无 JS 时用普通规则覆盖即可。另外注意**未分层的普通声明也会输给分层里的普通声明**（正常声明是"不分层优先"），所以别指望靠层外的规则去覆盖 Tailwind 组件层 |
+| T25 | **`import.meta.glob` 的相对路径是相对"当前文件所在目录"**：`ImageWrapper.astro` 在 `components/common/` 下写 `"../../**/*.webp"` 正好指到 `src/`；我在 `components/pages/rank/RankBoard.astro` 里照抄同一串，`../../` 只到 `components/` → **一个配图都解析不到**，全站榜单静默退化成渐变占位（构建日志里 4 条 warning 才发现） | 复制粘贴式复用 glob 会静默失效；页面"看起来还能看"，很难发现配图全丢了 | glob 一律用**项目根绝对路径**（`"/src/**/*.{png,jpg,jpeg,webp,avif}"`），key 也随之变成 `/src/...`，与文件位置无关；复制任何 `import.meta.glob` 前先数清 `../` 的层数 |
+| T26 | **auto 轨道里的 grid item 用百分比 `max-width` 会把它压扁**：短评胶囊改成网格第 2 列后写了 `max-width: 45%`，Chrome 下胶囊被压成一个小圆点（截图里一眼看到）——auto 轨道的尺寸本来要靠内容算，百分比上限参与进来就形成"先算宽度、再按百分比限制"的循环 | 元素"还在"，但小到看不出内容，**只断言"不重叠"会通过（假绿）** | 这类上限用**长度**表达（`40cqw`、`min(40%, 220px)` 之类）；断言里除了"不重叠"还要断言"自身没被压扁"（宽度下限 + `scrollWidth <= clientWidth + 2`） |
 
 ### 14.4 被移除的上游功能怎么找回来
 
