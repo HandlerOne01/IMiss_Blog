@@ -88,7 +88,8 @@ const siteDomain = siteConfig.site_url
 	: "unknown";
 
 // 文章许可
-const licenseName = licenseConfig.enable ? licenseConfig.name : "None";
+// R-ID-08（发起人 2026-09-24）：许可协议关闭时**整行不显示** —— 不要再显示 "None" 这种假值
+const licenseName = licenseConfig.enable ? licenseConfig.name : "";
 
 // IMiss Blog（R-WDG-03）：占位模式 —— 站点还没部署（阻塞项 B-01），
 // 构建平台 / 站点域名 / 系统架构 / 构建时间 / 各版本号都是"这台构建机"或占位域名的临时信息，
@@ -115,11 +116,16 @@ const mainItems = [
 		value: `Firefly v${blogVersion}`,
 		href: "https://github.com/CuteLeaf/Firefly",
 	},
-	{
-		icon: "material-symbols:copyright-outline",
-		label: i18n(I18nKey.siteInfoLicense),
-		value: licenseName,
-	},
+	// R-ID-08：许可关闭时这一项直接不进数组（渲染层不用再判空）
+	...(licenseConfig.enable
+		? [
+				{
+					icon: "material-symbols:copyright-outline",
+					label: i18n(I18nKey.siteInfoLicense),
+					value: licenseName,
+				},
+			]
+		: []),
 ];
 
 // 可折叠的项目（格子布局）

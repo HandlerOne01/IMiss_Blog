@@ -697,6 +697,19 @@ async function main() {
 		!/\/sponsor\//.test(postHtml) && !postHtml.includes("打赏"),
 		"/sponsor/ 与「打赏」均未出现",
 	);
+	// R-ID-08 / R-ID-09（发起人 2026-09-24 评审先导文章时提的两条）
+	record(
+		"R-ID-08",
+		"文章页不再显示许可协议块（也没有 creativecommons 外链）",
+		!postHtml.includes("许可协议") && !postHtml.includes("creativecommons.org"),
+		"许可块与 CC 链接均未出现",
+	);
+	record(
+		"R-ID-09",
+		"文章页不再显示分享块（保存海报 / 扫码阅读 / 复制链接）",
+		!postHtml.includes("保存海报") && !postHtml.includes("扫码阅读") && !postHtml.includes("复制链接"),
+		"分享块未出现（域名还是占位值，见 B-01）",
+	);
 	// 站点元信息（R-ID-03）
 	const homeHtml = probeHtml;
 	record(
@@ -1335,6 +1348,14 @@ async function main() {
 	record("R-WDG-01", "站点统计不含已删文案", EXPECT_ABSENT_STAT_TEXT.every((t) => !(home.statText ?? "").includes(t)), "运行时长/最后活动/天前 均未出现");
 	record("R-WDG-02", "日历热力图已关闭", home.heatmapExists === false, `#heatmap-container ${home.heatmapExists ? "仍存在" : "不存在"}`);
 	record("R-WDG-03", "站点信息占位模式", (home.infoText ?? "").includes("站点尚未部署") && (home.infoText ?? "").includes("—"), (home.infoText ?? "").slice(0, 80));
+	// R-ID-08：许可关闭后侧栏也不该再出现 CC / "None" 这种假值
+	record(
+		"R-ID-08",
+		"侧栏站点信息里没有许可协议行（不显示 CC 也不显示 None）",
+		!((home.infoText ?? "") + (home.bodyText ?? "")).includes("CC BY-NC-SA") &&
+			!/(^|\s)None(\s|$)/.test(home.infoText ?? ""),
+		`infoText=${(home.infoText ?? "").slice(0, 60)}`,
+	);
 	// R-ID-07：面板对访客开启（enable: true）——按钮与面板都要在
 	record(
 		"R-ID-07",

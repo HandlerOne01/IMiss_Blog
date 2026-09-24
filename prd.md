@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | IMiss Blog |
-| 文档版本 | v1.21 |
+| 文档版本 | v1.22 |
 | 最后更新 | 2026-09-24 |
 | 关联文档 | `ARCH.md`（架构与技术设计）、`PROJECT_STATUS.md`（阶段、进度、下一步、阻塞项） |
 | 基线代码 | Firefly v6.16.8（Astro 7 静态站点），来源 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\my_-blog\Blog template` |
@@ -146,6 +146,8 @@
 | R-ID-05 | 清理上游示例凭据与假数据 | 模板把上游作者的示例值直接提交在了配置里：`mal.clientId` 是**带前导制表符的 32 位十六进制串**（形如真实凭据，`mal-utils.ts` 还会把它原样塞进请求头）；另有 `mal.username`、`vndb.userId`、`bangumi.userId`、`bilibili.uid`。**首页横幅里的上游作者邮箱（`mailto:xiaye@msn.com`，会被编码成 base64 挂到每个页面）与 GitHub 链接也属于这一批**（见 R-NAV-06）。全部清空或替换为本站占位，避免把别人的凭据与身份随仓库分发 | 配置里不再出现上游示例 ID；`mal.clientId` 为空字符串且无前后空白；`verify:ui` 对 `/`、`/about/`、`/guestbook/`、`/posts/*` 的上游信息扫描零命中 | ★ |
 | R-ID-06 | 删除订阅（RSS / Atom）功能 | 发起人不需要订阅功能。要删的对象：① `/rss/`、`/atom/` 两个介绍页与 `/rss.xml`、`/atom.xml` 两个 feed 路由；② `src/utils/feed-utils.ts`；③ `<head>` 里两条 `<link rel="alternate">`；④ 页脚的 RSS/Atom 链接（保留 Sitemap）；⑤ **首页横幅那行订阅图标**（`homeText.linksEnable: false` + 清空 links）；⑥ 侧栏资料卡的订阅图标（`profileConfig.links` 清空）。恢复清单见 `ARCH.md` §14.4 | 四条订阅路由**真 404**（文件已删，不是 noindex 存根）；首页/页脚/资料卡/head 里都不再出现 rss/atom 字样；`verify:ui` 有对应断言 | ★ |
 | R-ID-07 | 显示设置面板（调色盘 + 界面结构管理） | **上游自带、默认 `enable: false`**（P1 期间未做任何改动）。面板条目：主题色选择器（调色盘）、文章列表布局、卡片边框、卡片跟随主题色、壁纸模式切换、全屏布局、水波纹、渐变过渡、横幅标题、壁纸轮播、覆盖模式三个滑块、樱花特效。**发起人已决定（2026-09-24）：对访客默认开启，且所有条目全开**（原话"肯定要这个啊"）→ **现已是 `enable: true` + 13 个条目全开**。**面板本身的改进暂缓**：发起人指示"先不改，先把 P2/P3 做完"，所以改造项（增删条目 / 样式 / 交互 / 重置按钮等）排在 P2、P3 之后 | 面板按钮（`#display-settings-switch`，调色盘图标）出现在导航栏、面板容器已渲染、每项都能生效并写入 localStorage；`verify:ui` 有对应断言；体积代价已实测（`ARCH.md` §13：**+11.6 KB/页**，低于上游注释估的 33KB） | ◆ 已实现（改进待排期） |
+| R-ID-08 | **关闭文章许可协议显示**（发起人 2026-09-24 评审先导文章时提："这个许可协议似乎没有啥用啊"） | 模板默认给每篇文章挂一个 `CC BY-NC-SA 4.0` 许可块（`src/config/licenseConfig.ts` 的 `enable: true`），侧栏「站点信息」里也有一行「许可」。个人笔记站不需要这个声明 → **`enable: false`**，并把侧栏那一行**整项不渲染**（不要留一个显示 `None` 的空行） | 文章页不再出现「许可协议」字样与 `creativecommons.org` 链接；侧栏站点信息里既没有 CC 也没有 `None`；`verify:ui` 有对应断言（2 条）。想恢复：`enable: true`（`name`/`url` 仍是可用的 CC 值） | ◆ 已实现 |
+| R-ID-09 | **分享块暂时关闭**（同一轮评审："这个二维码扫了也没啥用啊"） | 根因不是组件坏了，而是**海报二维码与「复制链接」取 `Astro.url.href`，而 `site_url` 还是占位域名 `imiss.example.com`（阻塞项 B-01）**，扫出来/复制到的是一个不存在的站点 → `siteConfig.post.share: false`（分享卡片 + 保存海报 + 复制链接一起隐藏）。**域名到位后的三步**：① `site_url` 填真域名 ② `share` 改回 `true` ③ 重建；同时把 `verify:ui` 里"站点 URL 用的是本站占位域名"那条断言翻成真值断言 | 文章页不出现「文章分享」/「保存海报」/「扫码阅读」/「复制链接」；`verify:ui` 有对应断言。**域名到位时必须回来打开**（已在 `PROJECT_STATUS.md` §1 第 6 条登记为提醒项） | ◆ 已实现（待域名后重开） |
 
 ### 3.2 导航与信息架构（R-NAV）
 

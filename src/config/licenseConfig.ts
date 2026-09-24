@@ -2,7 +2,10 @@ import type { LicenseConfig } from "../types/licenseConfig";
 
 export const licenseConfig: LicenseConfig = {
 	// 是否启用文章顶部许可证信息显示
-	enable: true,
+	// ⚠️ 2026-09-24 发起人决定**关闭**（R-ID-08）：文章末尾的许可块与侧栏「许可」一行都不再显示。
+	// 「CC BY-NC-SA 4.0」是上游模板的默认值，对个人笔记站没有实际意义，发起人评审先导文章时指出
+	// 「这个许可协议似乎没有啥用」。想恢复只说一句：把 enable 改回 true（name/url 已是可用的 CC 值）。
+	enable: false,
 
 	// 许可证名称及链接
 	name: "CC BY-NC-SA 4.0",

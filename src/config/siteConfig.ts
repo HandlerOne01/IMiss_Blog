@@ -247,8 +247,12 @@ export const siteConfig: SiteConfig = {
 		showLastModified: true,
 		// 文章过期阈值（天数），超过此天数才显示"上次编辑"卡片
 		outdatedThreshold: 30,
-		// 是否显示文章页的分享按钮
-		share: true,
+		// 是否显示文章页的分享按钮（分享块 = 文章分享卡片 + 保存海报（含二维码）+ 复制链接）
+		// ⚠️ 2026-09-24 发起人决定**暂时关闭**（R-ID-09）：海报里的二维码与「复制链接」都取
+		// `Astro.url.href`，而 `site_url` 还是占位域名 `imiss.example.com`（阻塞项 B-01），
+		// 扫出来/复制到的是一个不存在的站点 —— 发起人："这个二维码扫了也没啥用"。
+		// 域名到位后：① 把 site_url 改成真域名 ② 这里改回 true ③ 重建即可。
+		share: false,
 		// 是否显示上一篇/下一篇文章导航
 		postNavigation: true,
 		// 是否显示相关文章推荐
