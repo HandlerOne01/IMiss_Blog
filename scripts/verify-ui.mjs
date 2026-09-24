@@ -58,9 +58,9 @@ const EXPECT_ABSENT_STAT_TEXT = ["运行时长", "最后活动", "天前"];
 const FORBIDDEN_ROUTES = ["/friends/", "/bilibili/", "/bangumi/", "/sponsor/"];
 // R-ID-06：订阅功能整体移除后，这 4 条路由**连存根都没有**（文件已删），应该是真 404
 const REMOVED_FEED_ROUTES = ["/rss/", "/atom/", "/rss.xml", "/atom.xml"];
-const ALLOWED_ROUTES = ["/", "/about/", "/guestbook/", "/vndb/", "/myanimelist/", "/booknav/", "/dynamic/", "/projects/", "/gallery/", "/archive/"];
-// P1 阶段这两个页面还不存在（P2 才建），记录为 INFO 而不是失败
-const KNOWN_PENDING_ROUTES = ["/rank/jp/", "/rank/cn/"];
+const ALLOWED_ROUTES = ["/", "/about/", "/guestbook/", "/vndb/", "/myanimelist/", "/booknav/", "/dynamic/", "/projects/", "/gallery/", "/archive/", "/rank/jp/", "/rank/cn/"];
+// P1 阶段这两个页面还不存在；P2 建好后改为断言 200（见 ALLOWED_ROUTES）
+const KNOWN_PENDING_ROUTES = [];
 
 // ─── 小工具 ──────────────────────────────────────────────
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -170,6 +170,57 @@ const COLLECT = `(() => {
     statRows: statsRoot ? statsRoot.querySelectorAll("div.justify-between").length : null,
     statText: txt(statsRoot),
     heatmapExists: !!document.getElementById("heatmap-container"),
+    // R-RANK-01~06：排行榜的事实采集（几何 / 两档配色 / 面板显隐 / 缺图降级）
+    rank: (() => {
+      const board = document.querySelector("[data-rank-board]");
+      if (!board) return null;
+      const rows = [...board.querySelectorAll("[data-rank-panel]:not([hidden]) .rank-row")];
+      return {
+        kind: board.dataset.rankKind,
+        // R-RANK-02：切换维度后 URL 要同步（读 location.search 判断 pushState 是否执行）
+        search: window.location.search,
+        title: (board.querySelector("h2") || {}).textContent || null,
+        hint: !!board.querySelector(".rank-hint"),
+        panels: [...board.querySelectorAll("[data-rank-panel]")].map((p) => ({ kind: p.dataset.rankPanel, hidden: p.hidden })),
+        tabs: [...board.querySelectorAll("[data-rank-tab]")].map((t) => ({ kind: t.dataset.rankTab, selected: t.getAttribute("aria-selected") })),
+        rows: rows.map((r) => {
+          const badge = r.querySelector(".rank-badge");
+          const rr = r.getBoundingClientRect();
+          const bb = badge.getBoundingClientRect();
+          const cs = getComputedStyle(badge);
+          return {
+            rank: Number(r.dataset.rank),
+            top: r.dataset.top === "true",
+            h: Math.round(rr.height),
+            w: Math.round(rr.width),
+            badgeW: Math.round(bb.width),
+            badgeBg: cs.backgroundColor,
+            badgeFg: cs.color,
+            hasImg: !!r.querySelector(".rank-cover img"),
+            placeholder: !!r.querySelector(".rank-cover--placeholder"),
+          };
+        }),
+        // R-RANK-05：缺图占位的实际配色（底 + 渐变），回 Node 算"白字压在最亮处"的对比度。
+        // 取最亮的一档、且不叠加 scrim（scrim 只会更暗）——保守估计。
+        placeholderPaint: (() => {
+          const visible = board.querySelector("[data-rank-panel]:not([hidden])");
+          const ph = visible && visible.querySelector(".rank-cover--placeholder");
+          if (!ph) return null;
+          const cs = getComputedStyle(ph);
+          return { base: cs.backgroundColor, image: cs.backgroundImage };
+        })(),
+      };
+    })(),
+    overflowX: document.documentElement.scrollWidth - window.innerWidth,
+    // R-RANK-01：导航"当前页高亮"。桌面导航栏上游本来就没有当前页态，
+    // 有高亮的是移动端抽屉：NavMenuPanel 的 markActiveNav() 按 pathname 标 data-active
+    // 并把所在分组自动展开。收藏这几项就能验"排行子项高亮正确"。
+    mobileNavActive: [...document.querySelectorAll(".mobile-menu-item[data-active='true']")].map((i) =>
+      (i.textContent || "").trim(),
+    ),
+    mobileNavExpanded: [...document.querySelectorAll("[data-mobile-dropdown][data-expanded='true']")].map((d) =>
+      (d.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 24),
+    ),
     // R-ID-07：显示设置面板（调色盘 + 界面结构管理）
     settingsBtn: !!document.querySelector('#display-settings-switch'),
     settingsPanel: !!document.querySelector('[data-floating-panel-trigger="display-settings-switch"]'),
@@ -395,6 +446,15 @@ async function main() {
 		const res = await fetch(`${BASE}${route}`);
 		record("R-NAV-07", `保留页面应 200：${route}`, res.status === 200, `HTTP ${res.status}`);
 	}
+	// R-RANK-01：/rank/ 只是一个存根，静态产物下同样表现为 200 + meta refresh（见 T17）。
+	// 真实跳转由 host 的 301 规则接管（ARCH.md §12.2），所以这里断言"存根指向 /rank/jp/"。
+	// dev 下 Astro.redirect 是真 302，跳过以免误报。
+	if (!isDevServer) {
+		const res = await fetch(`${BASE}/rank/`, { redirect: "manual" });
+		const body = await res.text();
+		const stubToJp = res.status === 200 && /http-equiv="refresh"/.test(body) && /url=\/rank\/jp\//.test(body);
+		record("R-RANK-01", "/rank/ 存根跳转到 /rank/jp/", stubToJp, `HTTP ${res.status}`);
+	}
 	// R-ID-06：订阅相关的 4 条路由文件已删除，应当是**真 404**（不是 noindex 存根）
 	for (const route of REMOVED_FEED_ROUTES) {
 		const res = await fetch(`${BASE}${route}`, { redirect: "manual" });
@@ -482,6 +542,13 @@ async function main() {
 		{ name: "myanimelist-1440", path: "/myanimelist/", width: 1440, height: 900, mobile: false },
 		{ name: "vndb-1440", path: "/vndb/", width: 1440, height: 900, mobile: false },
 		{ name: "about-1440", path: "/about/", width: 1440, height: 900, mobile: false },
+		// P2 排行榜
+		{ name: "rank-jp-1440", path: "/rank/jp/", width: 1440, height: 1000, mobile: false },
+		{ name: "rank-cn-1440", path: "/rank/cn/", width: 1440, height: 1000, mobile: false },
+		{ name: "rank-jp-390", path: "/rank/jp/", width: 390, height: 844, mobile: true },
+		{ name: "rank-jp-ep-1440", path: "/rank/jp/?kind=ep", width: 1440, height: 1000, mobile: false },
+		// 亮色主题下的榜单（缺图占位是半透明色罩在卡片底上，亮色下白字最容易糊 → 单独留一张图）
+		{ name: "rank-jp-light-1440", path: "/rank/jp/", width: 1440, height: 1000, mobile: false, light: true },
 	];
 
 	const facts = {};
@@ -491,6 +558,11 @@ async function main() {
 			height: page.height,
 			deviceScaleFactor: 1,
 			mobile: page.mobile,
+		});
+		// 本站主题跟系统（siteConfig.theme.colorScheme = system），所以要真的模拟
+		// prefers-color-scheme 媒体特性，Tailwind 的 `dark:` 变体才会跟着切。
+		await cdp.send("Emulation.setEmulatedMedia", {
+			features: [{ name: "prefers-color-scheme", value: page.light ? "light" : "dark" }],
 		});
 		const loaded = cdp.once("Page.loadEventFired");
 		await cdp.send("Page.navigate", { url: `${BASE}${page.path}` });
@@ -504,12 +576,59 @@ async function main() {
 		});
 		facts[page.name] = result.value;
 
+		// 截图前先模拟"用户滚一遍"：排行榜有 IntersectionObserver 的逐行入场动效，
+		// 不滚一遍的话整页截图会把还没露出的行拍成空白（P2 审查时踩到过这个坑）。
+		// 注意 html 上有 `scroll-behavior: smooth`（src/styles/main.css），
+		// 必须显式 behavior:"instant"——否则 scrollTo 是动画，每步 90ms 根本到不了目标位置。
+		await cdp.send("Runtime.evaluate", {
+			expression: `(async () => {
+				const step = Math.max(200, Math.round(window.innerHeight * 0.8));
+				for (let y = 0; y < document.body.scrollHeight; y += step) {
+					window.scrollTo({ top: y, behavior: "instant" });
+					await new Promise((r) => setTimeout(r, 90));
+				}
+				window.scrollTo({ top: document.body.scrollHeight, behavior: "instant" });
+				await new Promise((r) => setTimeout(r, 250));
+				window.scrollTo({ top: 0, behavior: "instant" });
+				await new Promise((r) => setTimeout(r, 550));
+				return "scrolled";
+			})()`,
+			awaitPromise: true,
+			returnByValue: true,
+		});
+
 		const shot = await cdp.send("Page.captureScreenshot", {
 			format: "png",
 			captureBeyondViewport: page.fullPage !== false,
 		});
 		await fs.writeFile(path.join(OUT_DIR, `${page.name}.png`), Buffer.from(shot.data, "base64"));
 		console.log(`截图 ${path.join(OUT_DIR, `${page.name}.png`)}  (${page.width}×${page.height})`);
+	}
+
+	// ── R-RANK-02：真实点一次「单集」，再按浏览器后退（验证 pushState + popstate）──
+	{
+		const loaded = cdp.once("Page.loadEventFired");
+		await cdp.send("Page.navigate", { url: `${BASE}/rank/jp/` });
+		await loaded;
+		await sleep(700);
+		await cdp.send("Runtime.evaluate", {
+			expression: `document.querySelector('[data-rank-tab="ep"]').click(); "clicked"`,
+			returnByValue: true,
+		});
+		await sleep(350);
+		const { result: afterClick } = await cdp.send("Runtime.evaluate", {
+			expression: COLLECT,
+			returnByValue: true,
+		});
+		facts["rank-jp-after-click"] = afterClick.value;
+
+		await cdp.send("Runtime.evaluate", { expression: `history.back(); "back"`, returnByValue: true });
+		await sleep(600);
+		const { result: afterBack } = await cdp.send("Runtime.evaluate", {
+			expression: COLLECT,
+			returnByValue: true,
+		});
+		facts["rank-jp-after-back"] = afterBack.value;
 	}
 
 	// ── 用采集到的事实做判定 ──
@@ -623,6 +742,133 @@ async function main() {
 		console.log(`\n[${themeName}主题] 配色对比度（token 级）\n  ${detail.join("\n  ")}`);
 	}
 
+	// ── P2 排行榜（R-RANK-01 ~ R-RANK-06）──
+	{
+		const jp = facts["rank-jp-1440"].rank;
+		const cn = facts["rank-cn-1440"].rank;
+		const ep = facts["rank-jp-ep-1440"].rank;
+		const clicked = facts["rank-jp-after-click"].rank;
+		const back = facts["rank-jp-after-back"].rank;
+
+		record("R-RANK-01", "两个榜单页都渲染出榜单板", !!jp && !!cn, `日漫=${jp?.title} 国漫=${cn?.title}`);
+		record("R-RANK-01", "榜单标题正确", jp?.title === "日漫排行" && cn?.title === "国漫排行", `${jp?.title} / ${cn?.title}`);
+		record("R-RANK-04", "每组榜单都是 10 条", jp?.rows.length === 10 && cn?.rows.length === 10, `日漫 ${jp?.rows.length} 条 / 国漫 ${cn?.rows.length} 条`);
+		record("R-RANK-04", "占位数据提示可见（dataStatus=placeholder）", jp?.hint === true, jp?.hint ? "有提示" : "无提示");
+
+		record(
+			"R-RANK-02",
+			"默认显示「全剧」",
+			jp?.kind === "all" &&
+				jp?.panels.find((p) => p.kind === "all")?.hidden === false &&
+				jp?.panels.find((p) => p.kind === "ep")?.hidden === true,
+			JSON.stringify(jp?.panels),
+		);
+		record(
+			"R-RANK-02",
+			"点「单集」后面板切换且 URL 同步",
+			clicked?.kind === "ep" &&
+				clicked?.panels.find((p) => p.kind === "ep")?.hidden === false &&
+				clicked?.panels.find((p) => p.kind === "all")?.hidden === true &&
+				(clicked?.search ?? "").includes("kind=ep"),
+			`kind=${clicked?.kind} search=${clicked?.search}`,
+		);
+		record("R-RANK-02", "浏览器后退能回到上一个维度", back?.kind === "all", `后退后 kind=${back?.kind}`);
+		record("R-RANK-02", "带 ?kind=ep 的链接直接打开单集榜", ep?.kind === "ep" && ep?.panels.find((p) => p.kind === "ep")?.hidden === false, `kind=${ep?.kind}`);
+		record(
+			"R-RANK-02",
+			"维度按钮带正确的 tab 语义",
+			jp?.tabs.every((t) => t.selected === "true" || t.selected === "false") && jp?.tabs.find((t) => t.kind === "all")?.selected === "true",
+			JSON.stringify(jp?.tabs),
+		);
+
+		// 视觉规格：行高 ≈ 内容宽 17.4%、名次列 ≈ 13.7%（ARCH §5.5 的实测值）
+		const r0 = jp?.rows[0];
+		const hRatio = r0 ? r0.h / r0.w : 0;
+		const bRatio = r0 ? r0.badgeW / r0.w : 0;
+		record(
+			"R-RANK-03",
+			"行高比例符合参考图（≈17.4%，容差 14%~21%）",
+			hRatio >= 0.14 && hRatio <= 0.21,
+			`实测 ${(hRatio * 100).toFixed(1)}%（行高 ${r0?.h}px / 行宽 ${r0?.w}px）`,
+		);
+		record(
+			"R-RANK-03",
+			"名次列比例符合参考图（≈13.7%，容差 11%~17%）",
+			bRatio >= 0.11 && bRatio <= 0.17,
+			`实测 ${(bRatio * 100).toFixed(1)}%（名次列 ${r0?.badgeW}px）`,
+		);
+
+		// 两档配色：1~3 名与 4 名以后必须不同；4+ 是橙 #EFA662 + 深色字
+		const top3 = jp?.rows.slice(0, 3) ?? [];
+		const rest = jp?.rows.slice(3) ?? [];
+		const restBg = (rest[0]?.badgeBg ?? "").replace(/\s/g, "");
+		record(
+			"R-RANK-03",
+			"名次色分两档（1~3 名与 4 名以后不同）",
+			top3.length === 3 && top3.every((r) => r.badgeBg === top3[0].badgeBg) && new Set(rest.map((r) => r.badgeBg)).size === 1 && top3[0]?.badgeBg !== rest[0]?.badgeBg,
+			`1~3 名 ${top3[0]?.badgeBg} / 4+ 名 ${restBg}`,
+		);
+		record("R-RANK-03", "4 名以后的底色是橙 #EFA662", restBg === "rgb(239,166,98)", restBg);
+		record("R-RANK-03", "4 名以后的数字是深色", (rest[0]?.badgeFg ?? "").replace(/\s/g, "") === "rgb(20,16,11)", rest[0]?.badgeFg);
+		record("R-RANK-03", "1~3 名的数字是白色", (top3[0]?.badgeFg ?? "").replace(/\s/g, "") === "rgb(255,255,255)", top3[0]?.badgeFg);
+
+		// 缺图降级：有图用 img、没图用渐变占位，两者相加 = 总行数（不出现裂图）
+		const withImg = jp?.rows.filter((r) => r.hasImg).length ?? 0;
+		const withPh = jp?.rows.filter((r) => r.placeholder).length ?? 0;
+		record(
+			"R-RANK-05",
+			"配图与缺图占位互斥且覆盖全部条目",
+			withImg + withPh === (jp?.rows.length ?? -1) && withImg >= 1 && withPh >= 1,
+			`有图 ${withImg} 行 / 渐变占位 ${withPh} 行`,
+		);
+
+		record("R-RANK-06", "排行榜页在 390px 下无横向溢出", (facts["rank-jp-390"].overflowX ?? 99) <= 2, `溢出 ${facts["rank-jp-390"].overflowX}px`);
+
+		// R-RANK-01 的"导航两个子项高亮正确"：桌面导航栏上游没有当前页态，
+		// 真正带高亮的是移动端抽屉（按 pathname 标 data-active + 自动展开父级分组）
+		const mobActive = facts["rank-jp-390"].mobileNavActive ?? [];
+		const mobExpanded = facts["rank-jp-390"].mobileNavExpanded ?? [];
+		record(
+			"R-RANK-01",
+			"移动端导航把「日漫排行」标成当前页",
+			mobActive.includes("日漫排行"),
+			`当前页项 ${JSON.stringify(mobActive)}`,
+		);
+		record(
+			"R-RANK-01",
+			"含当前页的「排行」分组自动展开",
+			mobExpanded.some((t) => t.startsWith("排行")),
+			`展开的分组 ${JSON.stringify(mobExpanded)}`,
+		);
+
+		// R-RANK-05：缺图行要"够暗"，白字标题才立得住 —— 亮色主题最危险
+		// （占位底色若跟着卡片走，白字会糊在浅粉上；P2 亮色截图实测踩到过，已改成不透明深底）
+		for (const [themeLabel, pageName] of [
+			["暗色", "rank-jp-1440"],
+			["亮色", "rank-jp-light-1440"],
+		]) {
+			const paint = facts[pageName]?.rank?.placeholderPaint;
+			const base = parseCssColor(paint?.base ?? "");
+			const stops = [...(paint?.image ?? "").matchAll(/rgba?\([^)]*\)/g)]
+				.map((m) => parseCssColor(m[0]))
+				.filter(Boolean);
+			if (!base || !stops.length) {
+				record("R-RANK-05", `${themeLabel}：缺图占位配色可解析`, false, `base=${paint?.base} stops=${stops.length}`);
+				continue;
+			}
+			const flats = stops.map((s) => composite(s, base));
+			const lightest = flats.reduce((a, b) => (relLuminance(a) > relLuminance(b) ? a : b));
+			const ratio = contrast({ r: 255, g: 255, b: 255, a: 1 }, lightest);
+			record(
+				"R-RANK-05",
+				`${themeLabel}主题：缺图占位最亮处对白字仍 ≥ 4.5:1`,
+				ratio >= 4.5,
+				`最坏 ${ratio.toFixed(2)}:1（底色 ${paint.base}，渐变 ${stops.length} 档）`,
+			);
+		}
+		record("R-WDG-04", "首页在 390px 下无横向溢出", (facts["home-390"].overflowX ?? 99) <= 2, `溢出 ${facts["home-390"].overflowX}px`);
+	}
+
 	// sitemap 检查：读的是**磁盘产物**，所以只在静态产物下才有意义。
 	// 原来读不到就 catch 记 pass=true——"什么都没验"却计入通过数，属于假绿；现在读不到直接判失败。
 	if (isDevServer) {
@@ -632,8 +878,19 @@ async function main() {
 			const sm = await fs.readFile(path.resolve("dist/sitemap-0.xml"), "utf8");
 			const gone = FORBIDDEN_ROUTES.filter((r) => sm.includes(r));
 			record("R-NAV-07", "sitemap 不含已关闭页面", gone.length === 0, gone.join(",") || "干净");
-			const kept = ["/vndb/", "/myanimelist/", "/guestbook/", "/booknav/"].filter((r) => sm.includes(r));
-			record("R-NAV-07", "sitemap 含保留页面", kept.length === 4, kept.join(","));
+			const kept = ["/vndb/", "/myanimelist/", "/guestbook/", "/booknav/", "/rank/jp/", "/rank/cn/"].filter(
+				(r) => sm.includes(r),
+			);
+			record("R-NAV-07", "sitemap 含保留页面（含两个排行页）", kept.length === 6, kept.join(","));
+			// /rank/ 是 noindex 存根，不该出现在 sitemap 里。
+			// 注意不能直接 sm.includes("/rank/")——"/rank/jp/" 也含这个子串，必须按 <loc> 整条匹配。
+			const rankStubInSitemap = /<loc>[^<]*\/rank\/<\/loc>/.test(sm);
+			record(
+				"R-RANK-01",
+				"sitemap 不含 /rank/ 跳转存根",
+				!rankStubInSitemap,
+				rankStubInSitemap ? "存根被写进 sitemap 了" : "干净",
+			);
 		} catch (err) {
 			record(
 				"R-NAV-07",

@@ -1,0 +1,11 @@
+---
+/**
+ * /rank/ —— 排行入口
+ *
+ * 导航里两个子项分别指向 /rank/jp/ 与 /rank/cn/，所以这一层只做跳转（默认进日漫排行）。
+ * ⚠️ 静态输出下 `Astro.redirect` 会编译成 HTTP 200 + `meta refresh` + `noindex` 的存根，
+ *    不是真 302（与 /friends/ 那批关闭页一样，见 ARCH.md §14.3 T17）。
+ *    生产 Nginx 里对 /rank/ 单独做了 301（见 ARCH.md §12.2），所以线上体验是直接跳转。
+ */
+return Astro.redirect("/rank/jp/");
+---

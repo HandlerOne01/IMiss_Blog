@@ -1,8 +1,8 @@
-﻿# IMiss Blog 架构与技术设计（ARCH）
+# IMiss Blog 架构与技术设计（ARCH）
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.8 |
+| 文档版本 | v1.9 |
 | 最后更新 | 2026-09-24 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -124,8 +124,7 @@ src/
 │  ├─ widget/SiteStats.astro      ✏️ 删除「运行时长」「最后活动」及其客户端脚本
 │  ├─ widget/SiteInfo.astro       ✏️ 占位模式
 │  ├─ features/AemeathPet.astro   ➕ 桌宠（DOM + 样式 + 脚本）
-│  ├─ pages/rank/RankBoard.astro  ➕ 榜单板
-│  ├─ pages/rank/RankTabs.svelte  ➕ 全剧/单集切换
+│  ├─ pages/rank/RankBoard.astro  ➕ 榜单板（切换与入场动效也在它的内联脚本里）
 │  └─ comment/index.astro         ⛔ 不改（留言页复用其"未配置"分支）
 ├─ layouts/Layout.astro           ✏️ 仅插入一行 <AemeathPet />（§7.2 给出位置）
 ├─ pages/
@@ -255,8 +254,8 @@ src/
 | `scripts/convert-wallpaper.mjs` + `src/assets/images/DesktopWallpaper/*` + `backgroundWallpaper.ts` | R-BG-01 / R-BG-03 / R-BG-04 | §6.1 |
 | `public/assets/videos/*` + `backgroundWallpaper.src.playerUrl` | R-BG-02 | §6.2 |
 | `src/pages/rank/index.astro` / `jp.astro` / `cn.astro` | R-RANK-01 | §5.2 |
-| `src/components/pages/rank/RankTabs.svelte` + URL 契约 | R-RANK-02 | §5.4 |
-| `src/components/pages/rank/RankBoard.astro` | R-RANK-03 / R-RANK-05 / R-RANK-06 | §5.5、§5.6 |
+| `RankBoard.astro` 的内联脚本 + URL 契约（`?kind=`） | R-RANK-02 | §5.4 |
+| `src/components/pages/rank/RankBoard.astro` + `src/styles/pages/rank.css` | R-RANK-03 / R-RANK-05 / R-RANK-06 | §5.5、§5.6 |
 | `src/config/rankConfig.ts` + `src/types/rankConfig.ts` | R-RANK-04 | §5.3 |
 | `src/components/features/AemeathPet.astro` + `petConfig.ts` + `Layout.astro` 一行 | R-PET-01 / R-PET-02 / R-PET-03 / R-PET-05 | §7.1~§7.5 |
 | `pioConfig.ts` 保持关闭 + 互斥注释 | R-PET-04 | §7.5 |
@@ -291,17 +290,17 @@ src/
 | `src/types/rankConfig.ts` | 类型定义 |
 | `src/config/rankConfig.ts` | **唯一需要手工维护的数据文件**（4 组数据 + 文案） |
 | `src/config/index.ts` | 增加 `export { rankConfig } from "./rankConfig";` 与类型导出 |
-| `src/components/pages/rank/RankBoard.astro` | 榜单板渲染（接收 board + kind） |
-| `src/components/pages/rank/RankTabs.svelte` | 右上角「全剧 / 单集」切换（Svelte 岛） |
+| `src/components/pages/rank/RankBoard.astro` | 榜单板渲染（接收 board + kind + kindLabels + dataStatus）；**「全剧 / 单集」切换与入场动效一起写在这个组件的 `<script is:inline>` 里**（原计划的 `RankTabs.svelte` 已放弃，理由见 §5.4） |
+| `src/styles/pages/rank.css` | 榜单板全部版式（两档名次色、行高/名次列比例、scrim、缺图占位、移动端、入场动效） |
 | `src/pages/rank/index.astro` | `return Astro.redirect("/rank/jp/")` |
-| `src/pages/rank/jp.astro` | 读取 `rankConfig.jp`，渲染 `<RankBoard>` |
-| `src/pages/rank/cn.astro` | 读取 `rankConfig.cn`，渲染 `<RankBoard>` |
-| `src/assets/images/rank/*.webp` | 条目配图（可选，缺图走占位） |
+| `src/pages/rank/jp.astro` | 读取 `rankConfig.boards.jp`，渲染 `<RankBoard>` |
+| `src/pages/rank/cn.astro` | 读取 `rankConfig.boards.cn`，渲染 `<RankBoard>` |
+| `src/assets/images/rank/*.webp` | 条目配图（可选，缺图走占位）。现有的 `_demo-01.webp` / `_demo-02.webp` 是**演示图**，只在 `rankConfig` 的占位数据里引用，填真数据时一并删掉 |
 
 ### 5.3 数据模型
 
 ```ts
-// src/types/rankConfig.ts
+// src/types/rankConfig.ts（与真实文件一致，P2 完成后复核）
 export type RankKind = "all" | "ep";           // 全剧 / 单集
 
 export interface RankEntry {
@@ -312,7 +311,7 @@ export interface RankEntry {
 }
 
 export interface RankBoardConfig {
-  id: "jp" | "cn";
+  id: string;           // 短标识，同时用于路由 /rank/<id>/
   title: string;        // 页面主标题，如「日漫排行」
   description?: string; // 页面副标题
   labels?: Partial<Record<RankKind, string>>;  // 覆盖默认的「全剧 / 单集」
@@ -320,9 +319,9 @@ export interface RankBoardConfig {
 }
 
 export interface RankConfig {
-  // 两个榜单共用一套维度名称；要改成「全剧榜/单集榜」只改这里
-  kindLabels: Record<RankKind, string>;
-  boards: Record<"jp" | "cn", RankBoardConfig>;
+  kindLabels: Record<RankKind, string>;         // 两个榜单共用一套维度名称
+  dataStatus: "placeholder" | "final";          // placeholder 时页面显示"当前为占位数据"
+  boards: Record<string, RankBoardConfig>;
 }
 ```
 
@@ -341,40 +340,49 @@ export interface RankConfig {
 import RankBoard from "@/components/pages/rank/RankBoard.astro";
 import { rankConfig } from "@/config";
 import MainGridLayout from "@/layouts/MainGridLayout.astro";
+import "@/styles/pages/rank.css";
 
 const board = rankConfig.boards.jp;
-const kind = Astro.url.searchParams.get("kind") === "ep" ? "ep" : "all";  // 默认全剧
+if (!board) return Astro.redirect("/404/");     // 数据被删时别炸在页面里
 ---
-<MainGridLayout title={board.title} description={board.description}>
-  <RankBoard board={board} kind={kind} kindLabels={rankConfig.kindLabels} />
+<MainGridLayout title={board.title} description={board.description ?? ""}>
+  <div class="card-base ..."><RankBoard board={board} kindLabels={rankConfig.kindLabels} dataStatus={rankConfig.dataStatus} /></div>
 </MainGridLayout>
 ```
 
-**切换行为**
+**切换行为（P2 实现，与原计划的差异已在这里对齐）**
 
-1. 服务端按 `?kind=` 渲染初始选中态（直接打开带参数的链接就是对的榜单）。
-2. 两个榜单的 DOM 都输出，用 `hidden` 属性切换 → 切换零请求、零闪烁。
-3. 点击切换：`history.pushState` 更新 `?kind=` → 浏览器后退能回到上一个维度；监听 `popstate` 同步选中态。
-4. 用 `role="tablist" / role="tab" / aria-selected` 标注，键盘左右键可切换。
-5. Swup 切页后 Svelte 岛重新挂载，`kind` 从 `location.search` 重新读取（避免复用上一个页面的状态）。
+> **改动说明**：原计划用 `RankTabs.svelte`（Svelte 岛）做切换，实测后改成组件内的 `<script is:inline>`，**没有新增 Svelte 岛**。两个理由：
+> ① 站是静态输出，服务端**读不到 `?kind=`**——SSR 只能先渲染「全剧」，若交给 Svelte 在 `onMount` 里纠正，会先闪一下「全剧」再跳；内联脚本在**解析期**就落定，无闪烁。
+> ② 两个按钮的显隐切换不值得付一次 hydration；两组面板都在 DOM 里，切换零请求。
+
+1. 服务端固定渲染「全剧」为初始选中态（`kind` prop 默认 `"all"`）。
+2. 客户端脚本在**解析期**读 `location.search` 里的 `?kind=` 并纠正选中态（直接打开分享链接就是对的榜单）。
+3. 两个面板的 DOM **都输出**，用 `hidden` 属性切换 → 零请求、零闪烁。
+4. 点击切换：`history.pushState` 更新 `?kind=` → 浏览器后退能回到上一个维度；`popstate` 监听同步选中态。
+5. 语义用 `role="tablist" / role="tab" / aria-selected` + **roving tabindex**（只有选中的那个能 Tab 进来，←/→ 切换并聚焦）。
+6. Swup 切页时容器内脚本会重跑 → 初始化写成幂等（`window.__rankTabsInit` / `window.__rankTabsPopstate` 守卫），新 DOM 重新接管。
 
 ### 5.5 视觉规格（对齐参考图）
 
 | 部位 | 规格（括号内为量自参考图的实测值） |
 | --- | --- |
 | 榜单块 | 单列，最大宽度跟随内容栏；块整体圆角 `var(--radius-large)`、`overflow: hidden`，块内行与行之间只留一条深色缝 |
-| 行容器 | `display: grid; grid-template-columns: clamp(48px, 13.7%, 96px) 1fr;`；**行高 ≈ 内容宽的 1/5.7**（实测 96px / 图宽 551px），实现用 `clamp(76px, 17.4vw, 132px)` 或 `aspect-ratio`；行间距 **2~4px**（实测相邻行几乎紧贴）；行自身圆角 **2px**（参考图行是近直角，只有整块是圆角） |
+| 行容器 | `display: grid; grid-template-columns: var(--rank-badge-w) minmax(0, 1fr);`；**行高 = 内容宽的 1/5.7**（实测 96px / 图宽 551px = 17.4%）、**名次列 = 内容宽的 13.7%**（实测 75px）。实现见下方"比例必须用 cqw"；行间距 **2~4px**（实测相邻行几乎紧贴）；行自身圆角 **2px**（参考图行是近直角，只有整块是圆角） |
 | 名次列 | 宽度 = 内容宽的 **13.7%**（实测 75px）≈ 行高的 0.78 倍；底色纯色填充，数字水平垂直居中 |
-| 名次数字 | 字号 ≈ 行高的 0.5~0.55，字重 800，`font-variant-numeric: tabular-nums`；**颜色随档位变**：1~3 名白色，4 名以后近黑（实测 `#050000` ~ `#140704`，实现取 `#111`） |
-| **名次底色（两档，不是金银铜）** | **1~3 名：粉 `#EA7B7C`**（实测多次采样 `#E78278`/`#EE7B7E`/`#EC7979`/`#E87E7E`）；**4 名及以后：橙 `#EFA662`**（实测 `#EBA972`/`#EFA965`/`#F0A667`/`#F1AB66`/`#EFA661`）。两档色写进 `rankConfig`（或 CSS 变量）便于调整；正文里不再做金银铜 |
-| 剧照层 | 整行铺满：`ImageWrapper`（`showOverlay={false}`）+ 自己的一层 scrim；标题区加暗罩保证白字可读（水平方向由左向右可略变浅），左缘与名次列用 `mask-image: linear-gradient(90deg, transparent, #000 22%)` 自然衔接 |
-| 标题 | 白字 + `text-shadow: 0 1px 2px rgb(0 0 0 / .6)`；字号 ≈ 行高的 0.27（实测约 26px / 96px）；粗体 700；起始位置紧跟名次列留一个小间距；单行省略，**长标题允许折成 2 行**（参考图第 5 名就是两行） |
-| 原名 | 标题下方一行小字（参考图第 6 名标题下可见），`0.7rem`、`opacity: .8`；数据里没有就不占位 |
-| 短评胶囊 | **参考图里没有这一列**，所以默认不渲染；只有数据里写了 `note` 才在右端显示一枚小胶囊 |
-| 缺图占位 | `linear-gradient(120deg, hsl(var(--hue) 65% 62% / .35), hsl(calc(var(--hue) + 40) 55% 45% / .28))` + 一层极淡的点阵纹理（`radial-gradient` 平铺），保证空图也有质感 |
-| 浅色主题 | 剧照上的白字方案在浅色主题下同样保留（剧照本身是中低明度插画），scrim 保持不变，只把**名次数字**的对比度按两档色重新算一遍（粉底白字在浅色主题下容易糊，必要时 1~3 名改用深色数字） |
-| 移动端（<768px） | 按 17.4vw 算行高只剩约 68px（390px 宽），放不下 2 行标题 → 行高放宽到 `clamp(64px, 20vw, 96px)`，名次列保持 13.7%，标题最多 2 行、字号不低于 15px |
-| 入场动效 | `IntersectionObserver` 逐行淡入上移，延迟 = `index × 40ms`；`prefers-reduced-motion: reduce` 时直接显示 |
+| 名次数字 | 字号 = 行高的 0.52（再用名次列宽 0.72 倍兜住窄屏，防止两位数顶出格子），字重 800，`font-variant-numeric: tabular-nums`；**颜色随档位变**：1~3 名白色，4 名以后 `#14100b` |
+| **名次底色（两档，不是金银铜）** | **1~3 名：粉 `#EA7B7C`**（实测多次采样 `#E78278`/`#EE7B7E`/`#EC7979`/`#E87E7E`）；**4 名及以后：橙 `#EFA662`**（实测 `#EBA972`/`#EFA965`/`#F0A667`/`#F1AB66`/`#EFA661`）。两档色写成 `rank.css` 顶部的 CSS 变量便于调整；正文里不做金银铜 |
+| 剧照层 | 整行铺满：`ImageWrapper`（`showOverlay={false}`）+ 自己的一层 scrim；标题区加暗罩保证白字可读（水平方向由左向右可略变浅），左缘与名次列用 `mask-image: linear-gradient(90deg, transparent, #000 14%)` 自然衔接 |
+| 标题 | 白字 + `text-shadow: 0 1px 2px rgb(0 0 0 / .6)`；字号 = 行高的 0.27（实测约 26px / 96px，上限 32px）；粗体 700；起始位置紧跟名次列留一个小间距；最多折 2 行（`-webkit-line-clamp: 2`，参考图第 5 名就是两行） |
+| 原名 | 标题下方一行小字，字号 = 行高的 0.13（上限 17px）、`rgba(255,255,255,.78)`；数据里没有就不占位 |
+| 短评胶囊 | **参考图里没有这一列**，所以默认不渲染；只有数据里写了 `note` 才在右端显示一枚小胶囊（窄屏隐藏） |
+| 缺图占位 | **先铺不透明深色底** `hsl(var(--hue) 28% 20%)`，再叠 `linear-gradient(120deg, hsl(var(--hue) 62% 58% / .5), hsl(calc(var(--hue) + 40) 52% 44% / .42), hsl(calc(var(--hue) - 25) 58% 34% / .5))` + 一层极淡的点阵纹理（`radial-gradient` 平铺）。**深底是关键**：半透明渐变直接罩在卡片底上时，亮色主题下是浅粉、白字会糊（P2 亮色截图实测踩到，已改为不透明深底并加断言） |
+| 浅色主题 | 剧照上的白字方案两套主题通用；scrim 不变，只把 1~3 名的粉调深一档（`#e2696b`）以提高白字对比度。**缺图占位靠上面的不透明深底保证两套主题一致**（`verify:ui` 对暗/亮两套主题都断言"渐变最亮处对白字 ≥ 4.5:1"） |
+| 移动端（<768px） | 按 17.4cqw 算行高只剩约 68px（390px 宽），放不下 2 行标题 → 行高放宽到 `max(64px, 20cqw)`，**名次列仍保持 13.7%**，标题最多 2 行、字号不低于 15px；短评胶囊隐藏 |
+| 入场动效 | `IntersectionObserver` 逐行淡入上移，延迟 = `名次 × 40ms`；**隐藏态挂在 `html[data-rank-anim="1"]` 上**（该属性由组件内联脚本在解析期设置，仅当"JS 可用 + 未开启减少动态"时才存在）→ 无 JS / 爬虫 / 打印时看到的是完整榜单而不是空白；`@media print` 再兜一层强制显示 |
+
+> **比例必须用 cqw，不能用 vw**：行高说的是"内容宽（榜单板宽度）的 17.4%"，而 `17.4vw` 是"视口宽度的 17.4%"——1440 视口下 17.4vw = 250px，会被 `clamp` 上限卡住，而榜单板实际只有 629px 宽，实测行高比 **21%**（比参考图高一大截）。现在给 `.rank-board` 加 `container-type: inline-size`，行高与名次列都用 **cqw**（`max(76px, 17.4cqw)` / `max(44px, 13.7cqw)`），比例在任何屏宽下都成立；P2 实测 629px 板宽 → 行高 109px = **17.3%**、名次列 86px = **13.7%**。
+> 另外名次列**不能写成 `%` 再给 `font-size` 用**：同一个变量在 `grid-template-columns` 里 `%` 是"相对格宽"，在 `font-size` 的 `calc()` 里 `%` 是"相对父级字号"，会算出两个完全不同的值。cqw 是长度，到哪都指板宽的 1%。
 
 > **这些数值的来源**：对发起人提供的裁切参考图（551×992）逐像素量得——行高 96px、名次列 75~78px、1~3 名粉底白字、4 名以后橙底深色字。参考图的**右侧那三列（得票率 / 升降 / 涨幅）已被发起人裁掉，明确不做**。原图在 `my_-blog\dosc\排行\444e59a870dd4ec71d881b6e8866eda0.jpg`（含被裁掉的右侧列，不可照抄）。
 
@@ -388,6 +396,7 @@ const kind = Astro.url.searchParams.get("kind") === "ep" ? "ep" : "all";  // 默
 | `cover` 指向的文件不存在 | 构建日志报错（`ImageWrapper` 已有行为），同时该行回落到渐变占位；**校验脚本要在构建前发现它**（§9.4） |
 | `title` 为空 | 校验脚本报错并阻断（不允许空标题） |
 | 条目超过 30 条 | 正常渲染（不做分页），但校验脚本给出提示 |
+| 数据还是占位内容 | `rankConfig.dataStatus = "placeholder"` → 榜单下方显示一条提示（含改法与文件路径）；填完真数据改成 `"final"` 即消失 |
 
 ---
 
@@ -942,6 +951,10 @@ server {
   # 存根里的 meta refresh 目标是 /404/（带斜杠），这个路径本身没有产物，一并给 404
   location = /404/      { return 404; }
 
+  # /rank/ 是 /rank/jp/ 的跳转存根（静态产物下是 200 + meta refresh，且已从 sitemap 排除）
+  # 线上用真 301 接管，省掉那 2 秒的 meta refresh 等待
+  location = /rank/     { return 301 /rank/jp/; }
+
   location /api/ {
     proxy_pass http://127.0.0.1:8000;
     proxy_http_version 1.1;
@@ -1052,6 +1065,10 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | T17 | **「关闭的页面」在静态输出下不是 404**：页面里的 `return Astro.redirect("/404/")` 被编译成存根 HTML——`<title>Redirecting to: /404/</title>` + `<meta http-equiv="refresh" content="2;url=/404/">` + `<meta name="robots" content="noindex">`，Web 服务器以 **HTTP 200** 返回（P1 实测：`/friends/`、`/bilibili/`、`/bangumi/`、`/sponsor/` 全是 200）。而且存根指向的 `/404/` 本身没有产物（真正产出的是 `dist/404.html`） | ① 我最初在 `prd.md` 里写的"访问返回 404"是**错的**（按 dev 服务器行为想当然）；② 线上会先给一个 200 空页再跳，SEO 靠 Astro 的 `noindex` 兜住 | ① `prd.md` R-NAV-05/R-NAV-06 的验收条件已改成真实行为；② `scripts/verify-ui.mjs` 断言"它确实是那个 noindex 存根"而不是断言 404；③ **真 404 在 Nginx 层做**（§12.2 的 `return 404` + `error_page 404 /404.html`）；④ 注意 `dist/404.html` 是单文件，不是 `404/index.html` |
 | T18 | **首页横幅的 `links` 是"站点身份 / 打赏移除"的盲区**：R-NAV-06 只盯着导航与页面，但 `backgroundWallpaper.common.homeText.links` 里另有 4 条上游作者链接——GitHub（作者仓库）、Email（`mailto:xiaye@msn.com`，被 `rehype-email-protection` 编码成 base64 的 `data-encoded-email` 挂在**每一个页面**上）、**Sponsor（`blog.cuteleaf.cn/sponsor/`，即打赏入口）**、RSS | 按 R-NAV-06 验收不合格；且每个页面都夹带上游作者邮箱 | P1 审查时抓到并已清理（换成 RSS + Atom）；`scripts/verify-ui.mjs` 新增**渲染结果泄漏扫描**（对 `/`、`/about/`、`/guestbook/`、`/posts/*` 扫上游邮箱/ID/打赏链接/横幅标题，命中即失败），防止同类问题再溜过去 |
 | T19 | **侧栏容器有两套 id，名字只差一个后缀**：`#left-sidebar-dynamic` / `#right-sidebar-dynamic` 是 **Swup 的替换容器**，静态产物里带 `class="hidden"`，内容由客户端切页时填；SSR 出来的真实侧栏内容在 `#left-sidebar` / `#right-sidebar` 里（`SidebarColumn.astro:47/65`） | 任何针对侧栏的 DOM 断言/脚本若用错 id 会**静默什么都查不到**（我的验证脚本第一版就踩了：采样恒为 0，断言恒真通过 = 假绿） | 用 `#left-sidebar` / `#right-sidebar`；任何"集合类"断言都要先校验**样本量**（`verify:ui` 里已有 `count >= 20` 之类的门槛，样本不足判失败） |
+| T20 | **用 `vw` 表达"内容宽的百分比"会算错**：排行榜的行高规格是"内容宽的 17.4%"，第一版写成 `clamp(76px, 17.4vw, 132px)`——1440 视口下 17.4vw = 250px 被上限卡到 132px，而榜单板实际只有 629px 宽 → 实测行高比 **21%**（比参考图高一截）；同理名次列的 `clamp(48px, 13.7%, 96px)` 上限 96px 一旦被卡住，比例也会失真 | 版式"看着差不多"，但与参考图比例对不上；越宽的屏偏得越多 | 给容器加 `container-type: inline-size`，用 **cqw**：`--rank-row-h: max(76px, 17.4cqw)`、`--rank-badge-w: max(44px, 13.7cqw)`；P2 实测 629px → 109px = 17.3%、86px = 13.7%。**凡是"相对内容宽"的尺寸都优先 cqw，别用 vw** |
+| T21 | **同一个 CSS 变量里写 `%`，在不同属性里语义不同**：`--rank-badge-w: max(44px, 13.7%)` 用在 `grid-template-columns` 是"相对格宽"，用在 `font-size: calc(var(--rank-badge-w) * 0.72)` 却变成"相对父级字号"（13.7% × 16px ≈ 2.2px），同一个变量算出两个值 | 数字字号上限静默失效/离谱，且几乎看不出来 | 会用在不同类型属性里的尺寸变量，统一用**长度单位**（cqw / px）表达；`%` 只在单一明确语境下用 |
+| T22 | **"内容默认隐藏、JS 再显示"的入场动效会把无 JS 场景变成空白**：第一版 `.rank-row { opacity: 0 }` + IntersectionObserver 加 `.is-in`，结果整页截图里 5~10 名全是空白（未进入视口的行永远不触发），爬虫/打印同理 | 内容可见性依赖 JS，属于可访问性与 SEO 的硬伤 | 隐藏态挂在 `html[data-rank-anim="1"]` 上，该属性由**解析期内联脚本**设置且仅在"JS 可用 + 未开启减少动态"时存在；再加一条 `@media print` 兜底强制显示 |
+| T23 | **`html { scroll-behavior: smooth }`（`src/styles/main.css:53`）会让脚本里的 `scrollTo` 变成动画**：验证脚本截图前用 `window.scrollTo(0, y)` 逐步滚动来触发入场动效，每步只等 90ms，实际页面几乎没动 → 截图里仍然是空白行 | 自动化截图/视觉回归会得出错误结论（我据此误判过两次） | 脚本里必须写 `window.scrollTo({ top: y, behavior: "instant" })`（或临时把 `scroll-behavior` 设为 `auto`） |
 
 ### 14.4 被移除的上游功能怎么找回来
 

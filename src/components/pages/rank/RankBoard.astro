@@ -1,0 +1,362 @@
+---
+/**
+ * 排行榜榜单板（R-RANK-01 ~ R-RANK-06）
+ *
+ * 一个组件同时服务 /rank/jp/ 与 /rank/cn/：把 board 数据传进来即可。
+ *
+ * 关于「全剧 / 单集」切换的实现方式（与 ARCH §5.4 原计划的差异，已同步改文档）：
+ *   原计划用 `RankTabs.svelte`（Svelte 岛）。实际改成**内联脚本**，原因有二：
+ *   ① 本站是静态输出，`?kind=ep` 在服务端读不到——SSR 只能先渲染「全剧」，
+ *      若交给 Svelte 在 mount 里纠正，会先闪一下「全剧」再跳；内联脚本在解析期就落定，无闪烁。
+ *   ② 两个按钮的显隐切换不值得为它付一次 hydration。
+ *   两组面板**都在 DOM 里**（用 `hidden` 切换），所以切换零请求、零重新渲染。
+ *
+ * 注意 Astro 模板的限制：`.map()` 的回调里不能写多条语句，所以行数据在 frontmatter 里预先算好，
+ * 模板部分只做单表达式的展开。
+ */
+import ImageWrapper from "@/components/common/ImageWrapper.astro";
+import { Icon } from "astro-icon/components";
+import type { RankBoardConfig, RankKind } from "@/types/rankConfig";
+
+interface Props {
+	board: RankBoardConfig;
+	/** 服务端渲染时的默认维度（客户端会按 URL 上的 ?kind= 纠正） */
+	kind?: RankKind;
+	kindLabels: Record<RankKind, string>;
+	/** "placeholder" 时在标题下显示"当前为占位数据"的提示 */
+	dataStatus?: "placeholder" | "final";
+}
+
+const {
+	board,
+	kind = "all",
+	kindLabels,
+	dataStatus = "final",
+}: Props = Astro.props;
+
+interface RankRowView {
+	rank: number;
+	isTop: boolean;
+	title: string;
+	original?: string;
+	note?: string;
+	cover?: string;
+	hasCover: boolean;
+	loading: "eager" | "lazy";
+}
+
+const kinds = Object.keys(kindLabels) as RankKind[];
+const labelOf = (k: RankKind): string => board.labels?.[k] ?? kindLabels[k];
+const initialKind: RankKind = kinds.includes(kind) ? kind : "all";
+
+const panels = kinds.map((k) => {
+	const rows: RankRowView[] = board.data[k].map((entry, index) => ({
+		rank: index + 1,
+		isTop: index < 3,
+		title: entry.title,
+		original: entry.original,
+		note: entry.note,
+		cover: entry.cover,
+		hasCover: Boolean(entry.cover && entry.cover.trim() !== ""),
+		// 前 4 行预加载（首屏就能看到），其余懒加载
+		loading: index < 4 ? "eager" : "lazy",
+	}));
+
+	return { kind: k, label: labelOf(k), rows, isEmpty: rows.length === 0 };
+});
+---
+
+<section class="rank-board" data-rank-board data-rank-kind={initialKind}>
+  {/*
+    入场动效的"隐藏态"开关：必须在榜单行被解析**之前**落定。
+    只有「JS 可用 + 没开 reduced-motion」时才挂上 html[data-rank-anim="1"]，
+    这样无 JS（爬虫 / 截图工具 / 打印）时看到的是一张完整的榜，而不是一片空白
+    —— 第一版直接把 .rank-row 写成 opacity:0，整页截图里 5~10 名全是空白（P2 审查实测踩到）。
+  */}
+  <script is:inline>
+    (function () {
+      try {
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        document.documentElement.dataset.rankAnim = "1";
+      } catch (e) {
+        /* 拿不到 matchMedia 就当动效不可用：内容照常显示 */
+      }
+    })();
+  </script>
+
+  {/* 页头：标题在左，维度切换在右上（发起人要求"页面右上有选择全剧/单集"） */}
+  <div class="rank-head">
+    <div class="page-heading">
+      <div class="page-icon" aria-hidden="true">
+        <Icon name="material-symbols:emoji-events" />
+      </div>
+      <div>
+        <h2>{board.title}</h2>
+        {board.description && <p>{board.description}</p>}
+      </div>
+    </div>
+
+    <div class="rank-tabs" role="tablist" aria-label="榜单维度">
+      {
+        panels.map((panel) => (
+          <button
+            type="button"
+            role="tab"
+            class="rank-tab"
+            data-rank-tab={panel.kind}
+            aria-selected={panel.kind === initialKind ? "true" : "false"}
+            tabindex={panel.kind === initialKind ? 0 : -1}
+            aria-controls={`rank-panel-${board.id}-${panel.kind}`}
+            id={`rank-tab-${board.id}-${panel.kind}`}
+          >
+            {panel.label}
+          </button>
+        ))
+      }
+    </div>
+  </div>
+
+  {/* 两组面板：都在 DOM 里，靠 hidden 切换 */}
+  {
+    panels.map((panel) => (
+      <div
+        id={`rank-panel-${board.id}-${panel.kind}`}
+        class="rank-panel"
+        data-rank-panel={panel.kind}
+        role="tabpanel"
+        aria-labelledby={`rank-tab-${board.id}-${panel.kind}`}
+        hidden={panel.kind !== initialKind}
+      >
+        {panel.isEmpty ? (
+          <div class="rank-empty">榜单待更新</div>
+        ) : (
+          <div class="rank-rows">
+            {panel.rows.map((row) => (
+              <div class="rank-row" data-top={row.isTop ? "true" : "false"} data-rank={row.rank}>
+                <div class="rank-badge" aria-hidden="true">
+                  {row.rank}
+                </div>
+                <div class="rank-main">
+                  {row.hasCover ? (
+                    <div class="rank-cover">
+                      <ImageWrapper
+                        src={row.cover as string}
+                        alt=""
+                        position="center"
+                        loading={row.loading}
+                        showOverlay={false}
+                        fadeIn={false}
+                      />
+                    </div>
+                  ) : (
+                    <div class="rank-cover rank-cover--placeholder" aria-hidden="true" />
+                  )}
+                  <div class="rank-scrim" aria-hidden="true" />
+                  <div class="rank-text">
+                    <span class="rank-title">{row.title}</span>
+                    {row.original && <span class="rank-original">{row.original}</span>}
+                  </div>
+                  {row.note && <span class="rank-note">{row.note}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    ))
+  }
+
+  {
+    dataStatus === "placeholder" && (
+      <p class="rank-hint">
+        当前为占位数据 —— 替换 <code>src/config/rankConfig.ts</code> 里的榜单内容即可；
+        填完后把 <code>dataStatus</code> 改成 <code>"final"</code>，这条提示会消失。
+      </p>
+    )
+  }
+</section>
+
+<script is:inline>
+  (function () {
+    // Swup 切页会重跑本脚本，所以初始化做成幂等的；只有 document 级监听需要全局守卫
+    function initBoard(root) {
+      var panels = root.querySelectorAll("[data-rank-panel]");
+      var tabs = root.querySelectorAll("[data-rank-tab]");
+      if (!panels.length || !tabs.length) return;
+
+      function apply(kind, updateUrl) {
+        root.dataset.rankKind = kind;
+        panels.forEach(function (p) {
+          p.hidden = p.dataset.rankPanel !== kind;
+        });
+        tabs.forEach(function (t) {
+          var on = t.dataset.rankTab === kind;
+          t.setAttribute("aria-selected", on ? "true" : "false");
+          t.classList.toggle("is-active", on);
+          // WAI-ARIA tabs 的 roving tabindex：只有选中的那个能 Tab 进来，其余靠方向键
+          t.tabIndex = on ? 0 : -1;
+        });
+        if (updateUrl) {
+          var url = new URL(window.location.href);
+          url.searchParams.set("kind", kind);
+          // pushState：浏览器后退能回到上一个维度
+          window.history.pushState({ rankKind: kind }, "", url);
+        }
+      }
+
+      function kindFromUrl() {
+        var k = new URL(window.location.href).searchParams.get("kind");
+        for (var i = 0; i < tabs.length; i++) {
+          if (tabs[i].dataset.rankTab === k) return k;
+        }
+        return tabs[0].dataset.rankTab;
+      }
+
+      // 解析期按 URL 落定：静态输出读不到 ?kind=，只能在这里纠正
+      apply(kindFromUrl(), false);
+
+      tabs.forEach(function (tab) {
+        tab.addEventListener("click", function () {
+          apply(tab.dataset.rankTab, true);
+        });
+        // tablist 的标准键盘交互：左右方向键切换
+        tab.addEventListener("keydown", function (e) {
+          if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+          e.preventDefault();
+          var list = Array.prototype.slice.call(tabs);
+          var i = list.indexOf(tab);
+          var next = list[(i + (e.key === "ArrowRight" ? 1 : list.length - 1)) % list.length];
+          next.focus();
+          apply(next.dataset.rankTab, true);
+        });
+      });
+
+      // 浏览器前进 / 后退
+      if (!window.__rankTabsPopstate) {
+        window.__rankTabsPopstate = true;
+        window.addEventListener("popstate", function () {
+          document.querySelectorAll("[data-rank-board]").forEach(function (r) {
+            var k = new URL(window.location.href).searchParams.get("kind");
+            var first = r.querySelector("[data-rank-tab]");
+            var hit = k ? r.querySelector('[data-rank-tab="' + k + '"]') : null;
+            var target = hit ? k : first && first.dataset.rankTab;
+            if (!target) return;
+            r.dataset.rankKind = target;
+            r.querySelectorAll("[data-rank-panel]").forEach(function (p) {
+              p.hidden = p.dataset.rankPanel !== target;
+            });
+            r.querySelectorAll("[data-rank-tab]").forEach(function (t) {
+              var on = t.dataset.rankTab === target;
+              t.setAttribute("aria-selected", on ? "true" : "false");
+              t.classList.toggle("is-active", on);
+              t.tabIndex = on ? 0 : -1;
+            });
+          });
+        });
+      }
+
+      // 入场动效：逐行淡入，延迟随名次递增；reduced-motion 下直接显示
+      var rows = root.querySelectorAll(".rank-row");
+      var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (reduce || !("IntersectionObserver" in window)) {
+        rows.forEach(function (r) {
+          r.classList.add("is-in");
+        });
+      } else if (!root.dataset.rankObserver) {
+        root.dataset.rankObserver = "1";
+        var io = new IntersectionObserver(
+          function (entries) {
+            entries.forEach(function (en) {
+              if (!en.isIntersecting) return;
+              var r = en.target;
+              var i = Number(r.dataset.rank || 1);
+              r.style.transitionDelay = Math.min(i - 1, 12) * 40 + "ms";
+              r.classList.add("is-in");
+              io.unobserve(r);
+            });
+          },
+          { rootMargin: "0px 0px -8% 0px", threshold: 0.05 },
+        );
+        rows.forEach(function (r) {
+          io.observe(r);
+        });
+      }
+    }
+
+    function initAll() {
+      document.querySelectorAll("[data-rank-board]").forEach(initBoard);
+    }
+
+    initAll();
+    // Swup 换页后再初始化一次（新 DOM 是新节点，旧监听随节点一起消失）
+    if (!window.__rankTabsInit) {
+      window.__rankTabsInit = true;
+      document.addEventListener("astro:page-load", initAll);
+      document.addEventListener("swup:contentReplaced", initAll);
+    }
+  })();
+</script>
+
+<style>
+  /* 页头：标题在左、维度切换在右上 */
+  .rank-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .rank-tabs {
+    display: inline-flex;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border-radius: 999px;
+    background: var(--btn-regular-bg);
+    flex-shrink: 0;
+  }
+
+  .rank-tab {
+    padding: 0.45rem 1.1rem;
+    border-radius: 999px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--btn-content);
+    cursor: pointer;
+    transition:
+      background-color 0.2s ease,
+      color 0.2s ease;
+  }
+
+  .rank-tab:hover {
+    background: var(--btn-regular-bg-hover);
+  }
+
+  .rank-tab.is-active,
+  .rank-tab[aria-selected="true"] {
+    background: var(--primary);
+    color: #fff;
+  }
+
+  .rank-empty {
+    padding: 3rem 1rem;
+    text-align: center;
+    color: var(--content-meta);
+    background: var(--card-bg);
+    border-radius: var(--radius-large);
+  }
+
+  .rank-hint {
+    margin-top: 0.9rem;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    color: var(--content-meta);
+  }
+
+  .rank-hint code {
+    padding: 0.1rem 0.35rem;
+    border-radius: 0.35rem;
+    background: var(--btn-regular-bg);
+    font-size: 0.9em;
+  }
+</style>

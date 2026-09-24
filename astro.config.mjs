@@ -266,6 +266,11 @@ export default defineConfig({
 				if (pathname === "/myanimelist/" && !siteConfig.pages.mal) {
 					return false;
 				}
+				// /rank/ 只是跳转到 /rank/jp/ 的存根（HTTP 200 + meta refresh + noindex，见 ARCH §14.3 T17）。
+				// 把 noindex 页塞进 sitemap 会被 Search Console 判成「已提交但被 noindex 排除」，直接排除。
+				if (pathname === "/rank/") {
+					return false;
+				}
 				// 动态页评论嵌入页：评论关闭时重定向到 /404/，不应进 sitemap
 				if (
 					pathname === "/dynamic/comments/" &&
