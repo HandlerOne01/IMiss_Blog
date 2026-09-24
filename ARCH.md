@@ -1,8 +1,8 @@
-﻿# IMiss Blog 架构与技术设计（ARCH）
+# IMiss Blog 架构与技术设计（ARCH）
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.11 |
+| 文档版本 | v1.12 |
 | 最后更新 | 2026-09-24 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -86,8 +86,9 @@ imiss_-blog/                      ← 工作区根（= 站点仓库）
 │  ├─ favicon/imiss-*.png         ← 【P1 已落地】临时 favicon（32/128/180/192）
 │  └─ images/posts/<slug>/        ← 【新增】文章内图片（不进优化管线）
 ├─ scripts/
-│  ├─ make-logo.mjs               ← 【P1 已落地】从桌宠图集裁 Logo 与 favicon
+│  ├─ make-logo.mjs               ← 【P1 已落地】把 imiss-logo.svg 栅格化成 Logo 与 favicon
 │  ├─ verify-ui.mjs               ← 【P1 已落地】界面验收（CDP 断言 + 截图，零依赖）
+│  ├─ verify-docs.mjs             ← 【v1.12 已落地】文档一致性自检（文档 ↔ 仓库事实）
 │  ├─ import-posts.mjs            ← 【新增】内容迁移
 │  ├─ verify-posts.mjs            ← 【新增】内容校验
 │  ├─ convert-wallpaper.mjs       ← 【新增】壁纸图 → webp
@@ -131,6 +132,7 @@ src/
 │  ├─ rank/index.astro            ➕ 重定向到 /rank/jp/
 │  ├─ rank/jp.astro               ➕ 日漫排行
 │  ├─ rank/cn.astro               ➕ 国漫排行
+│  ├─ rank/game.astro             ➕ 二游排行（单一榜：data 是数组，页面没有维度切换）
 │  ├─ friends.astro / bilibili.astro / bangumi.astro / sponsor.astro
 │  │                              ⛔ 不改代码，靠 pages 开关关掉（返回 404）
 │  └─ about.astro                 ⛔ 不改（导航移入「我的」）
@@ -187,7 +189,8 @@ src/
 ```
 主页            /                      （LinkPresets.Home，原样保留）
 文章 ▾          归档 /archive/ · 分类 /categories/ · 标签 /tags/ · 系列 /series/
-排行 ▾ 【新增】  日漫排行 /rank/jp/ · 国漫排行 /rank/cn/          ← 放在「文章」与「我的」之间
+排行 ▾ 【新增】  日漫排行 /rank/jp/ · 国漫排行 /rank/cn/ · 二游排行 /rank/game/
+                                                   ← 放在「文章」与「我的」之间
 我的 ▾          动态 /dynamic/ · 项目 /projects/ · 相册 /gallery/ · 书签导航 /booknav/
                 轻小说 /vndb/（原 VNDB，改名不改功能） · 番剧 /myanimelist/（原 AnimeList）
                 关于我 /about/                                    ← 必须最后一项
@@ -200,12 +203,14 @@ src/
 1. **删除「社交」父项**，把 `LinkPresets.Guestbook` 作为顶层 `links.push({...LinkPresets.Guestbook})`，位置在所有项之后。
 2. **删除「关于」父项**：`LinkPresets.Sponsor` 与 `LinkPresets.About` 不再出现在 `links` 里；`About` 作为 `我的` 的最后一个 child。
 3. **改名两项**：`LinkPresets.VNDB.name = "轻小说"`、`LinkPresets.MAL.name = "番剧"`（URL、`pageKey`、图标都可保留，`VNDB` 的图标可换成 `material-symbols:menu-book` 之类更贴切的）。
-4. **新增两个预设**（放在 `LinkPresets` 里，便于复修）：
+4. **新增三个预设**（放在 `LinkPresets` 里，便于复修）：
    ```ts
-   RankJP: { name: "日漫排行", url: "/rank/jp/", icon: "material-symbols:emoji-events" },
-   RankCN: { name: "国漫排行", url: "/rank/cn/", icon: "material-symbols:military-tech" },
+   RankJP:   { name: "日漫排行", url: "/rank/jp/",   icon: "material-symbols:emoji-events" },
+   RankCN:   { name: "国漫排行", url: "/rank/cn/",   icon: "material-symbols:military-tech" },
+   RankGame: { name: "二游排行", url: "/rank/game/", icon: "material-symbols:sports-esports" },
    ```
-   注意：排行页是**新增页面**，不属于 `siteConfig.pages` 的开关体系（那套开关只覆盖模板自带页面），所以这两个预设**不带 `pageKey`**。
+   注意：排行页是**新增页面**，不属于 `siteConfig.pages` 的开关体系（那套开关只覆盖模板自带页面），所以这三个预设**不带 `pageKey`**。
+   ⚠️ 加子项时**必须同时建好路由**（`src/pages/rank/<id>.astro`），否则导航里就是一个死链；`pnpm verify:docs` 会核对"导航子项 ↔ 实际路由"两边一致。
 5. 未使用的预设（`Friends`/`Bilibili`/`Bangumi`/`Sponsor`）从 `LinkPresets` 中删除，避免以后被误引用；对应页面文件保留（靠开关关掉）。
 
 ### 4.2 页面开关矩阵（`siteConfig.pages`）
@@ -282,14 +287,14 @@ src/
 - 视觉对齐参考图 `dosc\排行\*.jpg` 的"榜单板"：**名次 + 剧照背景 + 标题**。
 - **不做**右侧的得票率、升降箭头、涨幅（发起人明确不要）。
 - 数据只有一期、由作者手工维护；改数据不需要碰组件与样式。
-- 「全剧 / 单集」两个维度，状态写进 URL 可分享。
+- 「全剧 / 单集」两个维度，状态写进 URL 可分享；**二游排行没有维度**（单一榜，R-RANK-07）。
 
 ### 5.2 文件清单
 
 | 文件 | 作用 |
 | --- | --- |
 | `src/types/rankConfig.ts` | 类型定义 |
-| `src/config/rankConfig.ts` | **唯一需要手工维护的数据文件**（4 组数据 + 文案） |
+| `src/config/rankConfig.ts` | **唯一需要手工维护的数据文件**（日漫/国漫各 2 组维度数据 + 二游 1 份名单 + 文案） |
 | `src/config/index.ts` | 增加 `export { rankConfig } from "./rankConfig";` 与类型导出 |
 | `src/components/pages/rank/RankBoard.astro` | 榜单板渲染（接收 board + kind + kindLabels + dataStatus）；**「全剧 / 单集」切换、入场动效、配图存在性判定都写在这个组件里**（切换用 `<script is:inline>`，原计划的 `RankTabs.svelte` 已放弃，理由见 §5.4） |
 | `src/styles/pages/rank.css` | 榜单板全部版式（两档名次色、行高/名次列比例、scrim、缺图占位、移动端、入场动效） |
@@ -765,7 +770,7 @@ uvicorn src.gateway.main:app --host 127.0.0.1 --port 8000
 | 输入 | 输出 | 字段 |
 | --- | --- | --- |
 | `src/content/posts/**/*.md` | `agent/data/blog-index.json` | `slug`/`title`/`description`/`tags`/`category`/`published`/`url`/`excerpt`（正文前 600 字纯文本） |
-| `src/config/rankConfig.ts` | `agent/data/rank.json` | 4 组榜单（标题、原名、短评、名次） |
+| `src/config/rankConfig.ts` | `agent/data/rank.json` | 5 份榜单（日漫/国漫各 2 组维度 + 二游单一榜；标题、原名、短评、名次） |
 
 **单向依赖**：Agent 只读导出产物，不读前端源码；前端不 import Agent 的任何东西。这样两边可以独立演进。
 
@@ -898,13 +903,14 @@ dosc/blog/**/*.md
 | `pnpm preview` | 预览构建产物 | — |
 | `pnpm format` / `pnpm lint` | Biome 格式化与检查 | — |
 | `pnpm verify:posts` | 内容与排行数据校验（阻断式） | ✅（P4 新增） |
-| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **101 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底），并输出 **13 张**截图到 `reports/screenshots/`。P1 落地、P2 扩容 | ✅（P1 新增，P2 扩容） |
+| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **107 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底），并输出 **15 张**截图到 `reports/screenshots/`。P1 落地、P2 扩容 | ✅（P1 新增，P2 扩容） |
+| `pnpm verify:docs` | **文档一致性自检**（`scripts/verify-docs.mjs`）：核对三份文档互相之间、以及文档与仓库事实是否一致——版本号与"最后更新"日期、断言/截图数与最近一次实测、排行页清单与路由文件、导航子项与 `navBarConfig.ts`、需求编号引用闭环、阻塞项条数与编号连续、§2 与 §3 阶段状态，以及**配置事实**（`displaySettingsConfig.enable`、`rankConfig.dataStatus`、"4 组数据"类说法是否漏了第 5 份）。**每次收工前跑一次**（P2 加二游排行时文档漂移了 12 处，就是没有这道关卡） | ✅（v1.12 新增） |
 | `pnpm make:logo` | 把 `src/assets/images/logo/imiss-logo.svg`（手写矢量设计源）栅格化成导航栏 Logo（webp）与 favicon 四档 PNG | ✅（P1 新增） |
 
 > **关于 `verify:ui` 的对比度检查**：主体走"token 级"校验（`--deep-text`/`--content-meta`/`--btn-content`/`--primary` 对卡片底/页面底），不是"扫全站文字元素"。
 > 原因：这个主题里大量文字压在封面图、壁纸、半透明面板上，逐元素自动判定无法可靠取得背景色（试了三版：canvas 转色 → 逐层合成 → Node 侧解析，期间还产出过"66/71 元素低于 3:1"的假警报）。
 > P2 补了两处**具体**的对比度断言（不依赖背景取色）：① 名次数字对名次底色（`getComputedStyle` 直接读两个颜色，白字压粉底 ≥ 3:1、深字压橙底 ≥ 4.5:1）；② 缺图占位把渐变各档合成到不透明底色上取最亮值，与白字算对比度（暗/亮主题各一条）。
-> 观感部分仍然是"**可复现的数字交给脚本，观感交给截图**"：脚本每轮输出 13 张截图并人工核对；另外把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
+> 观感部分仍然是"**可复现的数字交给脚本，观感交给截图**"：脚本每轮输出 15 张截图并人工核对；另外把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
 | `pnpm import:posts -- --write` | 内容迁移（默认 dry-run） | ✅ |
 | `pnpm export:agent` | 导出 `agent/data/*.json` | ✅ |
 | `node scripts/convert-wallpaper.mjs` | 壁纸图 → webp | ✅ |
@@ -1052,7 +1058,7 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | D9 | 评论区先关闭但页面保留 | 直接删留言页 | 页面结构与导航一次到位，评论系统到位后只改一个配置 |
 | D10 | 留言/评论与 Agent 解耦 | 用 Agent 当留言后端 | 两者目标不同（留言是异步公开记录，Agent 是实时对话）；耦合会让简单需求变复杂 |
 
-### 14.3 模板已知陷阱（P0 阶段实测清单）
+### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 26 条：T1~T19 来自 P0/P1，T20~T26 来自 P2）
 
 实现时按这张表走，不要凭"应该没问题"假设。每条都给了文件与行号，可当场复核。
 

@@ -1,4 +1,4 @@
-﻿# IMiss Blog
+# IMiss Blog
 
 以《鸣潮》角色 **爱弥斯** 为主题的个人技术博客。站点名 **IMiss** 取自「爱弥斯」（**A**i **M**i **S**i）的谐音。
 
@@ -77,6 +77,14 @@ pnpm verify:ui    # 再另开一个终端窗口跑这个
 若输出 `检测到 astro dev 服务器` 的提示，说明你对 `pnpm dev` 跑了它——
 那会把"关闭页面"等断言误判，请改成对 `pnpm preview` 跑。
 
+跑完界面验收后，再跑一次**文档自检**（它拿上面这次实测的数字当基准，核对三份文档有没有跟着更新）：
+
+```powershell
+pnpm verify:docs    # 期望输出：`文档检查 … ：通过 N，失败 0`（有 FAIL 就是文档与仓库对不上了）
+```
+
+> 它会拦下这类问题：改了导航/路由/数据，但 `prd.md`、`ARCH.md`、`PROJECT_STATUS.md` 里还写着旧数字或旧清单。
+
 ### 常见问题
 
 | 现象 | 原因 / 解决 |
@@ -101,6 +109,7 @@ pnpm verify:ui    # 再另开一个终端窗口跑这个
 | `pnpm build` | 生产构建：LQIP → VNDB 封面（未配置则跳过）→ Astro → 清理未用看板娘资源 → 字体子集 → 内联脚本压缩 → Pagefind 索引 |
 | `pnpm preview` | 预览 `dist/` |
 | `pnpm verify:ui` | 界面验收：107 项断言 + 泄漏扫描 + 对比度 A/B + 15 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
+| `pnpm verify:docs` | 文档自检：核对三份文档与仓库事实是否一致（版本号、断言/截图数、排行页清单、导航子项、需求编号、阻塞项、阶段状态）。**改完东西收工前跑一次** |
 | `pnpm make:logo` | 从 `imiss-logo.svg` 重新栅格化 Logo 与 favicon |
 | `pnpm format` / `pnpm lint` | Biome 格式化 / 检查并安全修复（只针对 `src/`） |
 | `pnpm new-post` | 新建文章脚手架 |
@@ -152,7 +161,7 @@ tags: [Linux, 进程]
 
 ## 维护排行榜
 
-排行榜数据在 `src/config/rankConfig.ts`：四组数据（日漫 / 国漫 × 全剧 / 单集），**数组顺序就是名次**，只有一期、手工维护。条目配图放 `src/assets/images/rank/`；不填配图会自动用主题色渐变占位，不会出现裂图。
+排行榜数据在 `src/config/rankConfig.ts`：**日漫 / 国漫各两组（全剧 + 单集）+ 二游一份名单，共 5 份**；**数组顺序就是名次**，只有一期、手工维护。条目配图放 `src/assets/images/rank/`；不填配图会自动用主题色渐变占位，不会出现裂图。
 
 页面：`/rank/jp/`（日漫排行）、`/rank/cn/`（国漫排行），右上角可在「全剧 / 单集」间切换（状态写在 URL 的 `?kind=` 上，可以直接分享链接）；`/rank/game/`（二游排行）**没有维度**，直接是一份名单——它的数据在同一个文件里写成一个数组即可（`game: { ..., data: [ … ] }`）。
 

@@ -1,10 +1,10 @@
-﻿# IMiss Blog 项目状态（PROJECT_STATUS）
+# IMiss Blog 项目状态（PROJECT_STATUS）
 
 > **这份文档是项目的唯一进度入口。** 阶段、进度、下一步、阻塞项都只在这里维护，其它文档不重复记录状态。
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.11 |
+| 文档版本 | v1.12 |
 | 最后更新 | **2026-09-24** |
 | 当前阶段 | **P2 已完成（含独立审查后的修订与复验），待发起人审查**（通过后进入 P3） |
 | 整体进度 | **45%**（口径：文档与共识 10% + P0 5% + P1 20% + P2 10%；各阶段权重见第 2 章） |
@@ -39,8 +39,8 @@
 | 阶段 | 名称 | 交付物 | 验收 | 进度 | 状态 | 依赖 |
 | --- | --- | --- | --- | --- | --- | --- |
 | **P0** | 仓库基线与工具链 | 工作区 = Firefly 副本 + 依赖装好 | `pnpm check` / `type-check` / `build` 通过；断网构建通过 | **100%** | ✅ 已完成（待审查） | — |
-| **P1** | 站点身份与导航改造 | 站点名/配色/导航树/侧边栏三处改动 | `pnpm verify:ui` **52/52 通过**；截图核对（1440 / 390） | **100%** | ✅ 已完成（含审查后修订，待审查） | P0 审查通过 |
-| **P2** | 排行子系统 | 两个榜单页 + 4 组数据 + 全剧/单集切换 | 榜单视觉对齐参考图；`?kind=ep` 直开正确；空/缺图不崩 | **100%** | ✅ 已完成（含独立审查后修订，待审查） | P1 审查通过、B-08（数据可后补） |
+| **P1** | 站点身份与导航改造 | 站点名/配色/导航树/侧边栏三处改动 | `pnpm verify:ui` **52/52 通过**（当轮口径；脚本现已扩到 107 项）；截图核对（1440 / 390） | **100%** | ✅ 已完成（含审查后修订，待审查） | P0 审查通过 |
+| **P2** | 排行子系统 | 三个榜单页（日漫/国漫为双维度、二游为单一榜）+ 5 份数据 + 全剧/单集切换 | 榜单视觉对齐参考图；`?kind=ep` 直开正确；二游无维度切换；空/缺图不崩 | **100%** | ✅ 已完成（含独立审查后修订，待审查） | P1 审查通过、B-08（数据可后补） |
 | **P3** | 背景壁纸与桌宠 | 图片期壁纸 + 桌宠组件 | 三种降级可用；桌宠九状态与键盘可达 | 0% | ⬜ 未开始 | P0 |
 | **P4** | 内容迁移 | 批次 1（15~20 篇）→ 全量 142 篇 | `pnpm verify:posts` 通过；抽查无断裂图片与残留 `![[` | 0% | ⬜ 未开始 | P0、P1 |
 | **P5** | 桌宠 Agent | `agent/` + 网关 + 前端适配层 | 三种意图可用、LangSmith 有 trace、断后端走 mock | 0% | ⬜ 未开始 | P3、B-07、B-11 |
@@ -70,7 +70,7 @@
 
 - [x] P1-1 站点名与元信息（R-ID-01、R-ID-03）—— **`title`/`subtitle`/`description`/`keywords` 重写；`navbar.title = IMiss Blog`；`site_url` 先占位 `https://imiss.example.com` 并登记 B-01；页脚版权名已从 `XiaYe` 换成占位 `IMiss`（`profileConfig`）**
 - [x] P1-2 主题色 hue=345（R-ID-02）—— **`themeColor.hue: 165 → 345`；实测 `--hue` inline/computed 都是 345**
-- [x] P1-3 临时 Logo 与 favicon（R-ID-04）—— **新增 `scripts/make-logo.mjs`（从图集第 1 格裁头像，`nearest` 放大到 128），产出 `imiss-light/dark.webp` 与 `imiss-{32,128,180,192}.png`；导航栏 Logo 与 favicon 均已接上**
+- [x] P1-3 临时 Logo 与 favicon（R-ID-04；**当天即被 P1-14 换成手写 SVG 标识，见下**）—— **新增 `scripts/make-logo.mjs`（当时从图集第 1 格裁头像，`nearest` 放大到 128），产出 `imiss-light/dark.webp` 与 `imiss-{32,128,180,192}.png`；导航栏 Logo 与 favicon 均已接上**
 - [x] P1-4 导航树重写（R-NAV-01~04）—— **实测顶层 = `["主页","文章","排行","我的","链接","留言"]`；排行子项 = 日漫排行/国漫排行（`/rank/jp/`、`/rank/cn/`，不带 pageKey）；我的子项 = 动态/项目/相册/书签导航/轻小说/番剧/关于我；已删项在导航中零残留（含移动端菜单）**
 - [x] P1-5 页面开关矩阵（R-NAV-05~07）—— **`friends/sponsor/bilibili/bangumi` 关闭、`vndb/mal` 打开；sitemap 不含 4 个关闭页、含 4 个保留页；llms.txt 同步（走同一 pageKey 机制）；⚠️ 关闭页在静态输出下是 200 + noindex 存根而非 404，已按真实行为修正 PRD 验收条件，真 404 交给 Nginx（§12.2）**
 - [x] P1-6 站点统计删两项（R-WDG-01）—— **`stats` 数组删 running-days/last-update，连带删掉整段 `<script is:inline>` 与 `getActivityDate`/`lastActivityDate`/`lastPostDate`/`siteStartDate`/`todayText`；渲染标记里的 `data-stat-id` 与 `suffix` 也一并清理（TS 先报错抓出来的）；实测组件只剩 4 行，文案里无「运行时长/最后活动/天前」**
@@ -89,10 +89,10 @@
 
 ### P2 排行子系统（R-RANK）　✅ 已完成（2026-09-24）
 
-- [x] P2-1 类型与数据文件（`rankConfig.ts` + 4 组占位数据）—— **`src/types/rankConfig.ts`（`RankKind`/`RankEntry`/`RankBoardConfig`/`RankConfig` + `dataStatus`）与 `src/config/rankConfig.ts`（日漫×全剧/单集、国漫×全剧/单集各 10 条占位数据 + 两句占位说明文案；两张演示剧照 `_demo-01/02.webp`）**；数组顺序即名次，改数据不用碰组件
+- [x] P2-1 类型与数据文件（`rankConfig.ts` + 4 组占位数据；**二游那第 5 份见 P2-11**）—— **`src/types/rankConfig.ts`（`RankKind`/`RankEntry`/`RankBoardConfig`/`RankConfig` + `dataStatus`）与 `src/config/rankConfig.ts`（日漫×全剧/单集、国漫×全剧/单集各 10 条占位数据 + 两句占位说明文案；两张演示剧照 `_demo-01/02.webp`）**；数组顺序即名次，改数据不用碰组件
 - [x] P2-2 `RankBoard.astro` 榜单板 —— **名次列（两档配色）+ `ImageWrapper` 剧照铺满 + 横向 scrim（`mask-image` 与名次列自然衔接）+ `data/rank` 逐行入场动效 + 缺图渐变占位 + 空数据"榜单待更新"**；页头为"标题在左、维度切换在右上"
 - [x] P2-3 全剧/单集切换（**原计划 `RankTabs.svelte`，实际改为组件内联脚本**）—— **解析期读 `?kind=` 落定选中态（静态输出下 SSR 读不到查询串，交给 Svelte mount 会先闪一下「全剧」，实测翻转 63ms < 首帧 80ms）；`history.pushState` 同步 URL（只在维度真的变了时写历史）、`popstate` 复用同一套 `apply()`；`role="tablist"/"tab"` + `aria-selected` + roving tabindex + ←/→ 键；非当前面板 `aria-hidden` + `inert`；Swup 切页靠 `root.dataset.rankReady` 做幂等（**少了这层守卫就会把 click 绑两遍，见 P2-9**）**。零请求、零 hydration
-- [x] P2-4 三个页面 + 导航接入 —— **`src/pages/rank/{index,jp,cn}.astro`（index 跳 `/rank/jp/`；数据缺失时 `Astro.redirect("/404/")`）；导航「排行」两项 P1 时已指向这两个路由，本次补齐页面后不再 404；`/rank/` 存根不进 sitemap，也不进 llms.txt**
+- [x] P2-4 三个页面 + 导航接入（当时是 index/jp/cn 三个路由；**第四个路由 `game.astro` 见 P2-11**）—— **`src/pages/rank/{index,jp,cn}.astro`（index 跳 `/rank/jp/`；数据缺失时 `Astro.redirect("/404/")`）；导航「排行」两项 P1 时已指向这两个路由，本次补齐页面后不再 404；`/rank/` 存根不进 sitemap，也不进 llms.txt**
 - [x] P2-5 浅色主题与移动端适配 —— **1~3 名粉在两种主题下统一用加深一档的 `#E2696B`（白字 3.25:1）；缺图占位用不透明深底，亮/暗两套主题都有"最亮处对白字 ≥ 4.5:1"的断言；新增亮色主题整页截图；移动端行高 `max(64px, 20cqw)`、名次列仍 13.7%、短评胶囊隐藏**
 - [x] P2-6 空数据 / 缺图 / 超长标题边界 —— **缺图（含"写了路径但文件不存在"）统一走渐变占位（有图/无图互斥且覆盖全部条目，已断言）；空数组渲染"榜单待更新"；标题 `-webkit-line-clamp: 2`；`RankBoard` 模板里 `.map()` 回调不能写多语句（Astro 限制），行数据在 frontmatter 预先算好**
 - [ ] P2-7 填入真实数据（等 B-08）—— **现在是占位数据 + 页面底部占位提示；`dataStatus: "placeholder"` 改成 `"final"` 即收尾**
@@ -153,12 +153,12 @@
 | --- | --- | --- | --- | --- | --- |
 | **B-01** | 服务器信息未知：主机、域名、部署路径、是否已有 Nginx | R-ID-03、R-DEP-01、R-DEP-03 | 发起人提供服务器与域名信息 | 拿到域名与部署路径，`site_url` 可填真值 | 🔴 阻断 P6 |
 | **B-02** | 作者信息未知：作者名、头像、个人签名、社交链接 | 用户资料组件、页脚版权、文章 `author` 字段 | 发起人提供 | 信息落进 `profileConfig.ts`（P1 已放占位：名字 `IMiss`、头像用临时 Logo、签名「技术笔记、番剧排行，和一只会聊天的爱弥斯。」；上游的 GitHub/邮箱已删除） | 🟡 非阻断（可先占位） |
-| **B-03** | 正式 Logo 未提供 | R-ID-04 | 发起人提供，或确认长期用临时版 | **P1 已用临时版顶上**（从桌宠图集裁的头像 + favicon 四档）；正式文件到位后覆盖同名文件即可，无需改代码 | 🟢 可延后 |
+| **B-03** | 正式 Logo 未提供 | R-ID-04 | 发起人提供，或确认长期用当前设计 | **P1-14 已换成手写矢量标识**（设计源 `src/assets/images/logo/imiss-logo.svg` → `pnpm make:logo` 栅格化出导航栏 webp 与 favicon 四档；不再是从桌宠图集裁的头像）。正式设计到位后替换该 SVG 后重跑 `pnpm make:logo` 即可，无需改代码 | 🟢 可延后 |
 | **B-04** | 壁纸视频未制作 | R-BG-02 | 发起人产出视频（源宽度建议 ≥2560） | 视频文件到位 | 🟡 非阻断（图片期先跑） |
 | **B-05** | 番剧页缺 MAL `username` + `Client ID`；轻小说页缺 VNDB `userId` | R-NAV-03 两个页面的数据 | 发起人注册并配置 | **P1 已把两页打开（`vndb: true` / `mal: true`）**，空凭据下不联网、显示"数据源还没配置"卡片；填上凭据即刻有数据 | 🟡 非阻断（页面先空着） |
 | **B-06** | `AI应用` 两篇缺配图（`images/page-*.png` 在磁盘上不存在） | R-CNT-07 | 发起人找回配图，或确认这两篇不上线 | 图片到位或确认永久隔离 | 🟢 可延后 |
 | **B-07** | `DEEPSEEK_API_KEY` 未提供（可选 LangSmith Key） | R-AGT-01、R-AGT-02 | 发起人提供 Key（放 `agent/.env`，不入库） | Key 配好，能跑通一次对话 | 🔴 阻断 P5 |
-| **B-08** | 排行 4 组数据未提供（日漫/国漫 × 全剧/单集）与条目配图 | R-RANK-04 | 发起人给数据（可以先给 3~5 条示例） | `rankConfig.ts` 填入真实数据并把 `dataStatus` 改成 `"final"` | 🟡 非阻断（**P2 已用占位数据把机制与视觉做完**，只差填内容） |
+| **B-08** | 排行数据未提供：**日漫/国漫各 2 组（全剧 + 单集）= 4 组，二游 1 份名单（无维度）**，共 **5 份**，以及条目配图 | R-RANK-04、**R-RANK-07** | 发起人给数据（可以先给 3~5 条示例；二游那榜直接给一串名字即可，不分维度） | `rankConfig.ts` 里 5 份数据都填上，并把 `dataStatus` 改成 `"final"` | 🟡 非阻断（**P2 已用占位数据把 3 个页面与机制做完**，只差填内容） |
 | **B-09** | 留言评论系统选型未定 | R-CMT-01 | 发起人从 Waline / Twikoo / Giscus / Artalk 中选一个 | 选型确定并可部署 | 🟢 可延后（已决定先关评论） |
 | **B-10** | 主页横幅文案与「链接」下拉内容未定 | R-BG-03、R-NAV-07 | 发起人提供文案与网站列表 | **P1 已把「链接」下拉收窄为 2 条 Firefly 署名链接**（原来第一条是主题作者的 GitHub、第二条是作者的 Gitee 镜像，容易误认成本站仓库）；横幅文案仍留给 P3 | 🟢 可延后 |
 | **B-11** | 本机未安装 `uv`（Python 包管理器）；Agent 依赖安装路线未定 | P5-1 | 执行方（可 `pip install uv`，或直接用 `pip install -e .`） | 依赖装好，`langgraph dev` 能起 | 🔴 阻断 P5（可自行解除） |
@@ -180,6 +180,7 @@
 | git | 2.55.0 ✅ | 已配置 gitee 远端 |
 | Chrome | ✅ 已安装 | 仅用于截图/视觉回归；图片转换用模板自带的 `sharp` |
 | **PowerShell 的退出码陷阱** | ⚠️ 已知噪声 | `pnpm build 2>&1 \| Select-Object -Last 40` 这类**管道**会把退出码报成 **1**（实际构建成功）；要判断成败就用 `& pnpm build *> 日志文件` 再读 `$LASTEXITCODE`。P2 因此虚惊过一次 |
+| **PowerShell 重定向的编码陷阱** | ⚠️ 已知 | `*>` / `>` 写出来的是 **UTF-16LE**（带 BOM），Node 按 utf8 读会得到夹着 `\\u0000` 的乱码；要读这类日志先看 BOM（`scripts/verify-docs.mjs` 的 `readAny()` 就是这么做的）。要写 UTF-8 就用 `Set-Content -Encoding UTF8` 或 `Out-File -Encoding utf8` |
 
 ---
 
@@ -207,8 +208,9 @@
 | 2026-09-24 | **P1 独立审查（子 agent，只读）** | 逐条核对 16 条需求 + 排查副作用 + 评估验证脚本，结论：**工程上可提交，但按需求验收有 1 条阻断 + 2 条应修**。① **阻断 R-NAV-06**：首页横幅 `backgroundWallpaper.common.homeText.links` 里仍挂着上游 Sponsor 打赏链接，以及作者 GitHub / 邮箱（邮箱被编码成 base64 挂在**每一页**）；② 应修：`vndb.mode` 应为 `dynamic`（写成了 `static`，一旦填 userId 就构建期联网）；③ 应修：`siteStartDate` 未按 R-ID-05 清空。另指出 `verify-ui` 有 3 项"不验证也记 ✅"（P2 待建路由、sitemap 读不到产物时 catch 记 pass）与 5 条需求零断言，并给出 3 处注释与事实不符 |
 | 2026-09-24 | **P1 审查后修订 + 复验** | 修完审查提出的 1 阻断 + 2 应修（首页横幅的上游 Sponsor/邮箱/GitHub、`vndb.mode`、`siteStartDate`），横幅标题与副标题一并换成占位；`verify-ui.mjs` 修掉 3 处假绿、新增**渲染结果泄漏扫描**（上游邮箱/ID/打赏链接/横幅标题）与 5 条缺失断言（文章页打赏按钮、description/keywords、导航 Logo、留言页副标题、把"关于我"的弱断言 `length > 100` 换成内容标志断言）、对比度改为 token 级 + `--hue` 345↔165 的 A/B。**复验：52 项功能断言全绿、exit=0** |
 | 2026-09-24 | **P1 修订（发起人反馈）** | ① **换 Logo**：原来的像素头像不好看／不合适 → 改为**手写 SVG 标识**（`src/assets/images/logo/imiss-logo.svg`：粉色晶体心 + 青色星芒 + 机械翼片 + 深蓝紫方圆底），`make-logo.mjs` 改为从该 SVG 栅格化；32px favicon 下实测可辨。② **新增需求 R-ID-06：删除订阅（RSS/Atom）功能**——删掉 5 个文件（`pages/{rss,atom}.astro`、`pages/{rss,atom}.xml.ts`、`utils/feed-utils.ts`）并摘掉 4 处接线（head 的 alternate 链接、页脚 RSS/Atom、首页横幅图标行、资料卡图标）；`siteConfig.feed` 标注为无消费方。恢复清单写进 `ARCH.md` §14.4 |
-| 2026-09-24 | **P2** 排行子系统 | `prd.md` R-RANK-01~06 全部落地：`types/rankConfig.ts`、`config/rankConfig.ts`（4 组 × 10 条占位数据 + 2 张演示剧照）、`components/pages/rank/RankBoard.astro`、`styles/pages/rank.css`、`pages/rank/{index,jp,cn}.astro`。`pnpm check` 0 error/0 warning、`pnpm type-check` exit=0、`pnpm build` exit=0 |
-| 2026-09-24 | **P2 验收工具扩容** | `scripts/verify-ui.mjs` 从 **59 项扩到 101 项断言**（新增 42 条：排行榜本体 + Swup 路径回归 + 打印/无 JS 兜底 + 两档对比度 + 几何与边界 + llms.txt/sitemap/canonical）：两个榜单页渲染/标题/条数、默认全剧、点单集后**真点一次 + `history.back()`** 验证 pushState/popstate、`?kind=ep` 直开、tab 语义、行高与名次列**比例**、两档底色与数字色（精确到 `rgb()`）、配图与占位互斥、390px 无横向溢出、缺图占位在**亮/暗两套主题**下对白字 ≥ 4.5:1、sitemap 不含 `/rank/` 存根。截图 **13 张**（新增 6 张：日漫/国漫/单集/亮色/1920 宽屏/手机） |
+| 2026-09-24 | **P2** 排行子系统（R-RANK-01~06；二游排行见下一条） | `prd.md` R-RANK-01~06 落地：`types/rankConfig.ts`、`config/rankConfig.ts`（4 组 × 10 条占位数据 + 2 张演示剧照）、`components/pages/rank/RankBoard.astro`、`styles/pages/rank.css`、`pages/rank/{index,jp,cn}.astro`。`pnpm check` 0 error/0 warning、`pnpm type-check` exit=0、`pnpm build` exit=0 |
+| 2026-09-24 | **P2 增补：二游排行（R-RANK-07，发起人审查时提的需求）** | 导航「排行」加第三项 → 新增 `src/pages/rank/game.astro` + `rankConfig.boards.game`（**单一榜**）。类型 `RankBoardConfig.data` 放宽为 `Record<RankKind, RankEntry[]> \| RankEntry[]`，组件按 `Array.isArray(board.data)` 决定是否渲染切换按钮（**不塞假维度**，也不靠 `board.id === "game"` 硬编码）；内联脚本守卫从"有面板且有按钮"改成"有面板"（否则单一榜丢动效）。`verify:ui` **107 项断言全绿**、截图 15 张（新增 `rank-game-1440/390.png`） |
+| 2026-09-24 | **P2 验收工具扩容** | `scripts/verify-ui.mjs` 从 **59 项扩到 101 项断言**（当轮口径；二游排行加入后为 **107 项**）（新增 42 条：排行榜本体 + Swup 路径回归 + 打印/无 JS 兜底 + 两档对比度 + 几何与边界 + llms.txt/sitemap/canonical）：两个榜单页渲染/标题/条数、默认全剧、点单集后**真点一次 + `history.back()`** 验证 pushState/popstate、`?kind=ep` 直开、tab 语义、行高与名次列**比例**、两档底色与数字色（精确到 `rgb()`）、配图与占位互斥、390px 无横向溢出、缺图占位在**亮/暗两套主题**下对白字 ≥ 4.5:1、sitemap 不含 `/rank/` 存根。截图 **13 张**（新增 6 张：日漫/国漫/单集/亮色/1920 宽屏/手机） |
 | 2026-09-24 | **P2 自查修掉 4 个真问题** | ① **行高比例算错**：`clamp(76px, 17.4vw, 132px)` 用视口宽表达"内容宽的 17.4%"，1440 视口下被 132px 上限卡住，而榜单板只有 629px 宽 → 实测 **21%**（参考图 17.4%）。改为 `container-type: inline-size` + `17.4cqw`/`13.7cqw`，复测 **17.3% / 13.7%**。② **亮色主题下缺图占位糊白字**（半透明渐变罩在白卡片上变浅粉）→ 占位改"不透明深色底 `hsl(var(--hue) 28% 20%)` + 半透明渐变"，并加断言锁住。③ **入场动效把无 JS 场景变成空白**：整页截图里 5~10 名全空（未进视口的行永不触发）→ 隐藏态改挂 `html[data-rank-anim="1"]`（解析期内联脚本设置）+ `@media print` 兜底。④ **`/rank/` 跳转存根混进 sitemap**（noindex 页不该被提交）→ 配置里排除 + Nginx 301 接管。**四条全部登记为陷阱 T20~T23** |
 | 2026-09-24 | **P2 验证脚本自身的两个坑（已修）** | ① 断言里把 `facts["rank-jp-after-click"].rank` 当成了整页事实，读 `search` 恒为 `undefined` → 把 `search` 收进 `rank` 事实对象；② 截图前"模拟滚动"用了 `window.scrollTo(0, y)`，而本站 `html { scroll-behavior: smooth }` 让它是**动画**，每步 90ms 根本没滚动 → 截图里榜单仍是空白，**据此误判过两次**；改 `behavior: "instant"` 后正常 |
 | 2026-09-24 | **P2 独立审查（子 agent，只读）** | 结论"主体可交付，但有 **1 条阻断** + 3 条应修"。阻断：**Swup 路径下 tab 监听重复绑定**（监听器 4→8，点一次 pushState 两次，一次后退回不到「全剧」）——`verify:ui` 全绿是因为它只走 `Page.navigate` 直开。应修：无 JS/打印下「单集」榜不可见、`cover` 写错路径无兜底、1~3 名白字对比度 2.76:1 低于 3:1。另指出文档三处数字打架（实测 86 / 文档 85 / ARCH 83）、ARCH 承诺的"缺图回落占位"不存在、`swup:contentReplaced` 是死代码、验证脚本若干弱断言与零覆盖项（Swup 路径、打印、对比度、无百分比/箭头、canonical、llms.txt） |
@@ -274,8 +276,9 @@
 | 2026-09-24 | v1.7 | 新增需求 **R-ID-07**：登记「显示设置面板（调色盘 + 界面结构管理）」的现状与开启方式——**上游自带、默认 `enable: false`、P1 未做任何改动**（附 `git diff 3dbc38d..HEAD` 证据与 `PUBLIC_DISPLAY_SETTINGS=true` 实测），并把 +33KB/页 的体积代价写进 `ARCH.md` §13；开放范围与改进点列为待发起人确认项 | `prd.md` R-ID-07、`ARCH.md` §4/§13、`PROJECT_STATUS.md` §1/§3/§8 |
 | 2026-09-24 | v1.8 | 发起人决定**显示设置面板对访客全开**：`displaySettingsConfig.enable: true`（13 个条目全开），实测代价仅 **+11.6 KB/页**（38 页合计 +439.7 KB，远低于上游注释的 33KB）；面板本身的改造按指示排在 P2/P3 之后（P1-18） | `prd.md` R-ID-07、`ARCH.md` §4/§13、`PROJECT_STATUS.md` §1/§3/§8 |
 | 2026-09-24 | v1.9 | **P2 完成**：排行子系统（2 个榜单页 + 全剧/单集切换 + 缺图/空数据降级 + 亮暗双主题与移动端）。真实偏差已回写文档——**「全剧/单集」由 Svelte 岛改为组件内联脚本**（静态输出读不到 `?kind=`，避免闪烁与 hydration）；视觉规格改用 **`cqw`** 表达"相对内容宽"的比例（原 `vw` 写法实测偏到 21%）；缺图占位改为**不透明深色底**以保住亮色主题下的白字对比度；`/rank/` 存根**从 sitemap 排除**并在 Nginx 用 301 接管。`verify:ui` 扩到 **83 项断言全绿**（新增 22 条 R-RANK、亮色主题截图、双主题对比度断言），新增陷阱 **T20~T23**，新增非功能要求"内容可见性不依赖 JS"（`prd.md` §6.2） | `prd.md` R-RANK-03/04/05/06、§6.2、`ARCH.md` §4/§5.2~§5.6/§11/§12.2/§14.3、`PROJECT_STATUS.md` §1~§8 |
-| 2026-09-24 | v1.11 | **新增需求 R-RANK-07「二游排行」**（发起人审查 P2 时提出）：导航「排行」加第三项 `/rank/game/`，榜单板与视觉规格同另两榜，但**没有「全剧 / 单集」维度**（`rankConfig.game` 直接给数组、组件按 `Array.isArray` 判断，不塞假维度）；`verify:ui` 107 项断言全绿、截图 15 张 | `prd.md` R-RANK-07 / R-NAV-02 / §2 / §4.2 / §7 / §8、`ARCH.md` §4 / §5.2 / §5.3 / §5.4、`PROJECT_STATUS.md` §1/§2/§3/§8 |
 | 2026-09-24 | v1.10 | **P2 审查后修订**：独立子 agent 审查发现 **1 阻断 + 3 应修**，全部修完并复验（`verify:ui` **101 项断言全绿**、截图 13 张）。① 阻断：Swup 路径下 tab 监听重复绑定 → 双 pushState、一次后退失效（加幂等守卫 + 新增 Swup 路径回归断言）；② 无 JS/打印时「单集」榜不可见（改用 class + `data-rank-js` 标记，绕开 Tailwind preflight 的**分层 `!important`**，新增陷阱 **T24**）；③ `cover` 写错路径无兜底（自己先判配图存在性，新增陷阱 **T25**）；④ 1~3 名白字对比度 2.76:1 → 取 `#E2696B`（3.25:1）。另修短评胶囊压标题/被压扁（陷阱 **T26**）。文档同步：`prd.md` R-RANK-03/05、§6.2/§6.3；`ARCH.md` §5.2~§5.6/§11/§14.3 新增 T24~T26；llms.txt 补上两个榜单页 | `prd.md` R-RANK-03/05、§6.2/§6.3、`ARCH.md` §5/§11/§14.3、`PROJECT_STATUS.md` §1/§2/§3/§6/§7/§8 |
+| 2026-09-24 | v1.11 | **新增需求 R-RANK-07「二游排行」**（发起人审查 P2 时提出）：导航「排行」加第三项 `/rank/game/`，榜单板与视觉规格同另两榜，但**没有「全剧 / 单集」维度**（`rankConfig.game` 直接给数组、组件按 `Array.isArray` 判断，不塞假维度）；`verify:ui` 107 项断言全绿、截图 15 张 | `prd.md` R-RANK-07 / R-NAV-02 / §2 / §4.2 / §8、`ARCH.md` §3 / §4.1 / §5.2~§5.4 / §11、`PROJECT_STATUS.md` §1/§2/§3/§4/§6/§8 |
+| 2026-09-24 | v1.12 | **文档一致性整改（发起人指出「三张表维护不细」）**：全面回扫三份文档 + README，修掉 **18 处**因「加二游排行」或「P1 换 Logo / 开面板」而产生的漂移——**B-08 阻塞项**（仍写"4 组数据"，实际是 4 组 + 二游 1 份 = 5 份）、`prd.md` 成功标准与 §6.3 sitemap 清单与 §1.3"临时 Logo"、R-ID-07 开头仍像"默认关闭"、`ARCH.md` §3 目录树缺 `game.astro`、§4.1 导航树与预设清单、§5.1/§5.2/§10 的"4 组榜单"、§11 断言数（101→107）与截图数（13→15）、§14.3 标题还说"P0 阶段"（实为 26 条）、`PROJECT_STATUS.md` §2 阶段表交付物与 P1 验收口径、§6 补二游条目、**§8 变更日志 v1.10/v1.11 顺序颠倒**、README 的"四组数据"；历史口径数字统一加"（当轮口径；现为 X）"。**新增 `pnpm verify:docs`**（`scripts/verify-docs.mjs`，16 项检查）：版本号与最后更新日期、断言/截图数与最近一次实测、排行页清单与路由文件、导航子项与 `navBarConfig`、需求编号引用闭环、阻塞项条数与编号连续、§2↔§3 阶段状态、**配置事实**（`displaySettingsConfig.enable`、`rankConfig.dataStatus`、"4 组数据"是否漏了第 5 份）；并已用"注入漂移 → 必须失败 → 还原 → 恢复全绿"验证过它真的会拦。§9 维护约定补两条（收工前跑自检；区分"当前态"与"历史记录"） | `prd.md` §1.3/§4.5/§6.1/§6.3、`ARCH.md` §3/§4.1/§5.1/§5.2/§10/§11/§14.3、`PROJECT_STATUS.md` §1~§9、`README.md`、新增 `scripts/verify-docs.mjs` + `pnpm verify:docs` |
 
 ---
 
@@ -287,3 +290,5 @@
 4. **阻塞项只增不删**：解除后把等级改成 ✅ 并写明解除方式与日期，便于回溯。
 5. **三份文档共用一个版本号**：版本号跟"项目修订"走，某一轮只改了 README 或状态表时，`prd.md`/`ARCH.md` 也同步标同一个号——避免三份文档版本号不一致，看起来像漏改。
 6. **每次开工先读第 1 章**的三条"下一步"，收工回填第 2、3、8 章。
+7. **收工前跑 `pnpm verify:docs`**：它会机械核对"文档声称 vs 仓库事实"（版本号与最后更新日期 / 断言数与截图数 / 排行页清单 / 导航子项 / 需求编号 / 阻塞项 / 阶段状态 / **配置事实**），共 16 项。有 FAIL 就是有漂移，改完再提交。**新增或删除路由、导航项、需求编号、阻塞项、配置开关之后必须跑它**——v1.11 加二游排行时就是因为缺这道关卡，让 `B-08` 等 12 处说法停在旧版本上，被发起人一眼看出来。
+8. **"当前态"与"历史记录"要分清**：任务清单（§3）与变更日志（§8）是**历史记录，不回改**，但数字口径变了要加"（当轮口径；现为 X）"注；阻塞项（§4）、阶段表（§2）、第 1 章速览属于**当前态，必须跟着改**。
