@@ -19,20 +19,76 @@
 
 > 包管理器由 `preinstall` 脚本强制为 pnpm；`pnpm-workspace.yaml` 里已允许 `esbuild` / `workerd` 的构建脚本。
 
-## 快速开始
+## 我自己怎么把它跑起来（手把手）
+
+### 第 0 步：打开一个终端，进到本目录
+
+在文件资源管理器里打开 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\imiss_-blog`，
+在地址栏输入 `powershell` 回车（或右键空白处 →「在终端中打开」）。
+确认当前目录正确：
 
 ```powershell
-pnpm install          # 安装依赖（见下方"网络"提示）
-pnpm dev              # 开发服务器 http://localhost:4321
-pnpm build            # 生产构建 → dist/
-pnpm preview          # 本地预览构建产物
+pwd    # 应输出 D:\HuaweiMoveData\Users\HUAWEI\Desktop\imiss_-blog
 ```
 
-**网络提示（开发机与服务器都适用）**
+### 第 1 步：装依赖（**只需一次**，装过就跳过）
 
-- 直连 `registry.npmjs.org` 很慢/会超时，安装依赖请加国内镜像：
-  `pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com`
-- 装完依赖后，`pnpm build` **全程不需要外网**（字体已本地化、VNDB 封面默认关闭、GitHub 卡片失败会回落缓存），断网也能构建成功。
+```powershell
+pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com
+```
+
+不加镜像会失败（本机直连 npmjs 只有 32–46 KiB/s，会超时）。
+
+### 第 2 步：起开发服务器（日常就用这个）
+
+```powershell
+pnpm dev
+```
+
+等它打印出 `Local http://localhost:4321/`（约 10 秒），然后：
+
+- 浏览器打开 **http://localhost:4321/**
+- 改动 `src/` 下任何文件都会**自动刷新**，不用重启
+- 想用手机看（同一 WiFi）：`pnpm dev --host`，它会多打印一行 `Network http://192.168.x.x:4321/`，手机就访问这个地址
+- **停止：在这个终端窗口按 `Ctrl + C`**
+
+### 第 3 步（可选）：看"上线后的样子"
+
+`pnpm dev` 是开发模式，和最终产物不完全一样。想看真实产物：
+
+```powershell
+pnpm build      # 产出 dist/，约 1–2 分钟，全程不需要外网
+pnpm preview    # 用 dist/ 起本地服务，同样是 http://localhost:4321/
+```
+
+`dev` 和 `preview` **占同一个端口，不要同时开**。端口冲突时：`pnpm dev --port 4322`。
+
+### 第 4 步（可选）：跑一遍验收脚本
+
+它会自己开一个无头 Chrome，把需求逐条断言一遍，并截图到 `reports/screenshots/`：
+
+```powershell
+pnpm build        # 先构建（脚本要读 dist/ 与 sitemap）
+pnpm preview      # 另开一个终端窗口跑这个并保持运行
+pnpm verify:ui    # 再另开一个终端窗口跑这个
+```
+
+期望输出：`功能断言 52 项：通过 52，失败 0`。
+若输出 `检测到 astro dev 服务器` 的提示，说明你对 `pnpm dev` 跑了它——
+那会把"关闭页面"等断言误判，请改成对 `pnpm preview` 跑。
+
+### 常见问题
+
+| 现象 | 原因 / 解决 |
+| --- | --- |
+| `pnpm: 无法将"pnpm"项识别为…` | 没装 pnpm：`npm i -g pnpm` |
+| 安装依赖卡住/报 `ETIMEDOUT` | 忘了加 `--registry=https://registry.npmmirror.com` |
+| 启动报端口被占用 | 上一台的窗口还开着；关掉它，或 `pnpm dev --port 4322` |
+| 页面标题还是 `Firefly`、导航没有"排行" | 你跑的不是这个仓库（`pwd` 确认目录），或工作区被切到了别的提交 |
+| 现在**还没有**桌宠、聊天、排行榜页面 | 正常：桌宠在 P3、排行页在 P2、Agent 后端在 P5（见 `PROJECT_STATUS.md`） |
+
+> ⚠️ 当前阶段（P1 已完成、P2 未开始）**导航里「排行」点进去是 404**，这是预期的；
+> P2 做完才会有 `/rank/jp/`、`/rank/cn/`。
 
 ## 常用命令
 
@@ -43,6 +99,8 @@ pnpm preview          # 本地预览构建产物
 | `pnpm type-check` | `tsc --noEmit`，覆盖 `src/` 与 `scripts/` |
 | `pnpm build` | 生产构建：LQIP → VNDB 封面（未配置则跳过）→ Astro → 清理未用看板娘资源 → 字体子集 → 内联脚本压缩 → Pagefind 索引 |
 | `pnpm preview` | 预览 `dist/` |
+| `pnpm verify:ui` | 界面验收：52 项断言 + 泄漏扫描 + 对比度 A/B + 7 张截图 |
+| `pnpm make:logo` | 从桌宠图集重新裁 Logo 与 favicon |
 | `pnpm format` / `pnpm lint` | Biome 格式化 / 检查并安全修复（只针对 `src/`） |
 | `pnpm new-post` | 新建文章脚手架 |
 | `pnpm lqips` | 重新生成 `src/constants/lqips.json`（图片占位色） |
