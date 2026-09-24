@@ -73,9 +73,15 @@ pnpm preview      # 另开一个终端窗口跑这个并保持运行
 pnpm verify:ui    # 再另开一个终端窗口跑这个
 ```
 
-期望输出：`功能断言 142 项：通过 142，失败 0`。
+期望输出：`功能断言 154 项：通过 154，失败 0`。
 若输出 `检测到 astro dev 服务器` 的提示，说明你对 `pnpm dev` 跑了它——
 那会把"关闭页面"等断言误判，请改成对 `pnpm preview` 跑。
+
+再跑**内容校验**（不依赖浏览器，几秒钟出结果）：
+
+```powershell
+pnpm verify:posts   # 期望输出：`✅ verify:posts 通过：32 篇 0 错误、N 个警告`（有错误则退出码 1）
+```
 
 跑完界面验收后，再跑一次**文档自检**（它拿上面这次实测的数字当基准，核对三份文档有没有跟着更新）：
 
@@ -108,8 +114,10 @@ pnpm verify:docs    # 期望输出：`文档检查 … ：通过 N，失败 0`�
 | `pnpm type-check` | `tsc --noEmit`，覆盖 `src/` 与 `scripts/` |
 | `pnpm build` | 生产构建：LQIP → VNDB 封面（未配置则跳过）→ Astro → 清理未用看板娘资源 → 字体子集 → 内联脚本压缩 → Pagefind 索引 |
 | `pnpm preview` | 预览 `dist/` |
-| `pnpm verify:ui` | 界面验收：142 项断言 + 泄漏扫描 + 对比度 A/B + 20 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
+| `pnpm verify:ui` | 界面验收：154 项断言 + 泄漏扫描 + 对比度 A/B + 24 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
+| `pnpm verify:posts` | 内容校验：frontmatter / slug / 图片存在性 / 站内链接 / 残留 Obsidian 语法 / 榜单配图（**改完文章或跑完迁移后跑一次**；有错退出码 1） |
 | `pnpm verify:docs` | 文档自检：核对三份文档与仓库事实是否一致（版本号、断言/截图数、排行页清单、导航子项、需求编号、阻塞项、阶段状态）。**改完东西收工前跑一次** |
+| `node scripts/import-posts.mjs --batch 1` | 迁移旧博客笔记（**默认 dry-run 只出报告**；加 `--write` 才落盘。详见下面「迁移旧笔记」一节） |
 | `node scripts/convert-wallpaper.mjs` | 把 `dosc/photo` 的 4 张壁纸转成 webp（桌面 + 移动两套），改壁纸素材时用 |
 | `pnpm make:logo` | 从 `imiss-logo.svg` 重新栅格化 Logo 与 favicon |
 | `pnpm format` / `pnpm lint` | Biome 格式化 / 检查并安全修复（只针对 `src/`） |
@@ -159,6 +167,31 @@ tags: [Linux, 进程]
 ```
 
 > 为什么不放 `src/assets/`：文章图片数量大，进构建期图片优化管线会显著拖长构建时间；只有壁纸、封面、排行榜配图、桌宠图集这些少量图才交给 Astro 优化。
+
+## 迁移旧笔记（Obsidian → 本站）
+
+旧笔记放在 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\my_-blog\dosc\blog`（**全程只读，脚本绝不改源文件**）。迁移脚本会把每篇转成带 frontmatter 的文章、把配图复制进 `public/images/posts/<slug>/` 并把正文里的引用改写成站内路径。
+
+```powershell
+node scripts/import-posts.mjs --batch 1          # 先看报告（dry-run，不落盘）
+node scripts/import-posts.mjs --batch 1 --write  # 确认没问题再落盘
+node scripts/import-posts.mjs --cat Linux系统 --write   # 只迁某一个分类
+node scripts/import-posts.mjs --only 缓冲区 --write     # 只迁文件名含「缓冲区」的
+pnpm verify:posts                                # 落盘后校验
+```
+
+| 参数 | 作用 |
+| --- | --- |
+| （不加参数） | 全量 dry-run，只打印计划与警告 |
+| `--write` | 真正写文件（**不加就一个字节都不写**） |
+| `--batch 1..5` | 按批次迁（1 = 已定型的 18 篇；2 = C++11+C与C+++STL；3 = Linux系统+linux网络+MySQL；4 = 基础算法+AI应用；5 = 八股+项目） |
+| `--cat` / `--only` / `--limit` | 按分类 / 路径子串 / 数量筛选 |
+| `--src` | 换源目录（默认就是上面那个） |
+
+**图片怎么对上号**：脚本**只按文件名精确匹配**（先在本篇文章的图片目录里找同名，再退化到"全库唯一同名"），**不会按顺序硬凑**——源笔记 258 条本地引用里 116 条能本目录同名命中、4 条全库同名命中、2 条确实没文件。匹配不到的引用会变成 `> [!WARNING] 原图缺失：xxx` 提示块并记进 `reports/import-report.json`；整篇一张图都找不到时该篇 `draft: true`（不上线）。每次落盘还会写 `reports/image-mapping-<slug>.json`（哪张原图 → 哪个 `NN.png`）。
+
+**它会替你处理的 Obsidian 语法**：文首标签行 `#标签`（转成 frontmatter 的 `tags` 并从正文摘掉）、行内 `#标签`、`![[图片]]`、`![[]]` 之外的 `[[双链]]`（按标题索引改写成站内链接，解析不到的原样保留）、相邻两行图片之间补空行（否则会被解析进同一个段落并排显示）。`==高亮==` **不会**被改写——本语料里 `==` 全是 C++ 相等比较。
+
 
 ## 怎么换壁纸 / 加壁纸
 

@@ -15,6 +15,10 @@ const IGNORE_DIRS = [
 	"public/assets/images/effects/**",
 	"public/assets/music/**",
 	"public/vndb-covers/**",
+	// 文章内图片（P4 内容迁移）：归档在 public 下、不进构建期图片管线
+	// （ARCH §9.2），也不需要 LQIP 占位色——正文里的 <img> 是裸标签，
+	// 不走 ImageWrapper。不排除的话每导一批就多一批无用的 lqips 记录。
+	"public/images/posts/**",
 ];
 
 interface RgbColor {

@@ -368,6 +368,46 @@ const COLLECT = `(() => {
   };
 })()`;
 
+// ─── 文章页事实采集（P4 内容迁移：图片、表格、代码、站内链接真的渲染出来了吗）──
+// 正文容器是 <Markdown class="markdown-content">（见 pages/posts/[...slug].astro），
+// 所以只在这个容器里取事实，避免把封面图、导航栏图片算进来。
+const COLLECT_POST = `(async () => {
+  const root = document.querySelector(".markdown-content");
+  if (!root) return null;
+  const txt = (el) => (el ? el.textContent.replace(/\\s+/g, " ").trim() : null);
+  const imgs = [...root.querySelectorAll("img")];
+  // 正文图片是懒加载，不等 decode 直接读 naturalWidth 会得到 0（假失败）
+  await Promise.all(imgs.map((im) => (im.decode ? im.decode().catch(() => {}) : Promise.resolve())));
+  const html = root.innerHTML;
+  return {
+    path: window.location.pathname,
+    images: imgs.map((im, i) => ({
+      i,
+      src: im.getAttribute("src"),
+      ok: im.complete && im.naturalWidth > 0,
+      w: im.naturalWidth,
+      h: im.naturalHeight,
+      alt: im.getAttribute("alt") || "",
+      caption: txt(im.closest("figure") ? im.closest("figure").querySelector("figcaption") : null),
+    })),
+    tables: root.querySelectorAll("table").length,
+    codeBlocks: root.querySelectorAll("pre").length,
+    figures: root.querySelectorAll("figure").length,
+    callouts: root.querySelectorAll(".callout").length,
+    internalLinks: [...root.querySelectorAll('a[href^="/posts/"]')].map((a) => ({
+      href: a.getAttribute("href"),
+      text: txt(a),
+    })),
+    headings: [...root.querySelectorAll("h1,h2,h3,h4")].map((h) => txt(h)).slice(0, 6),
+    textLength: (root.textContent || "").trim().length,
+    // Obsidian 残留（应该全是 0；[[ ]] 与 ![[ ]] 都不该出现在渲染结果里）
+    residue: {
+      embed: (html.match(/!\\[\\[/g) || []).length,
+      wikilink: (html.match(/\\[\\[/g) || []).length,
+    },
+  };
+})()`;
+
 // ─── 对比度采集（R-ID-02 的验收要求）──────────────────────
 // 思路：不靠肉眼。把 --hue 在 345（本站）与 165（上游原值）之间切换，
 // 用同一个 WCAG 公式算出几组"文字/背景"配色的对比度，做 A/B：
@@ -695,6 +735,11 @@ async function main() {
 		{ name: "pet-390", path: "/", width: 390, height: 844, mobile: true, fullPage: false },
 		// 亮色主题下的榜单（缺图占位是半透明色罩在卡片底上，亮色下白字最容易糊 → 单独留一张图）
 		{ name: "rank-jp-light-1440", path: "/rank/jp/", width: 1440, height: 1000, mobile: false, light: true },
+		// P4 内容迁移：导入的文章页（post: true → 额外采集正文事实）
+		{ name: "post-http-1440", path: "/posts/linux-net/http-xieyi/", width: 1440, height: 900, mobile: false, post: true },
+		{ name: "post-http-390", path: "/posts/linux-net/http-xieyi/", width: 390, height: 844, mobile: true, post: true },
+		{ name: "post-rbtree-1440", path: "/posts/cpp/hongheishufengzhuangshixian-mymap-he-myset/", width: 1440, height: 900, mobile: false, post: true },
+		{ name: "post-sdd-1440", path: "/posts/ai/sdd/", width: 1440, height: 900, mobile: false, post: true },
 	];
 
 	const facts = {};
@@ -742,6 +787,16 @@ async function main() {
 			awaitPromise: true,
 			returnByValue: true,
 		});
+
+		// P4：文章页要等正文图片 decode 完再判"到底加载出来没有"
+		if (page.post) {
+			const postRes = await cdp.send("Runtime.evaluate", {
+				expression: COLLECT_POST,
+				returnByValue: true,
+				awaitPromise: true,
+			});
+			facts[`${page.name}-post`] = postRes.result.value;
+		}
 
 		const shot = await cdp.send("Page.captureScreenshot", {
 			format: "png",
@@ -1983,6 +2038,127 @@ async function main() {
 				false,
 				`读不到 dist/sitemap-0.xml（${err.code ?? err.message}）：先跑 pnpm build，再用 pnpm preview 起站点`,
 			);
+		}
+	}
+
+	// ── P4 内容迁移（R-CNT）：导入的文章真的渲染对了吗 ──
+	{
+		const http = facts["post-http-1440-post"];
+		const httpMobile = facts["post-http-390-post"];
+		const rb = facts["post-rbtree-1440-post"];
+		const sdd = facts["post-sdd-1440-post"];
+
+		const allLoaded = (p) =>
+			(p?.images?.length ?? 0) > 0 && p.images.every((im) => im.ok && im.w > 0);
+		const fileOf = (src) => (src ?? "").split("/").pop();
+
+		record(
+			"R-CNT-03",
+			"导入文章页的配图全部真实加载（HTTP 协议 6 张，无裂图）",
+			allLoaded(http) && http.images.length === 6,
+			`${http?.images?.length ?? 0} 张；尺寸 ${(http?.images ?? []).map((i) => `${i.w}×${i.h}`).join(" ")}`,
+		);
+		record(
+			"R-CNT-03",
+			"配图编号顺序 = 源笔记引用顺序（01→06 按 DOM 顺序）",
+			same(http?.images?.map((i) => fileOf(i.src)), [
+				"01.png",
+				"02.png",
+				"03.png",
+				"04.png",
+				"05.png",
+				"06.png",
+			]),
+			(http?.images ?? []).map((i) => fileOf(i.src)).join(" → "),
+		);
+		record(
+			"R-CNT-03",
+			"移动端 390px 下同样 6 张全部加载",
+			allLoaded(httpMobile) && httpMobile.images.length === 6,
+			`${httpMobile?.images?.length ?? 0} 张`,
+		);
+		record(
+			"R-CNT-03",
+			"正文图片 alt 为空 → 不生成 figure 图注（rehype-figure 跳过空 alt）",
+			http?.figures === 0 && http.images.every((i) => i.alt === ""),
+			`figure ${http?.figures} 个；alt=[${(http?.images ?? []).map((i) => i.alt).join(",")}]`,
+		);
+		record(
+			"R-CNT-01",
+			"文章 URL 走分类目录（/posts/<分类>/<slug>/）",
+			http?.path === "/posts/linux-net/http-xieyi/" && rb?.path === "/posts/cpp/hongheishufengzhuangshixian-mymap-he-myset/",
+			`${http?.path} / ${rb?.path}`,
+		);
+		record(
+			"R-CNT-04",
+			"[[双链]] 改写成站内链接（红黑树 → /posts/cpp/hongheishu/）",
+			(rb?.internalLinks ?? []).some(
+				(l) => l.href === "/posts/cpp/hongheishu/" && l.text === "红黑树",
+			),
+			JSON.stringify(rb?.internalLinks ?? []),
+		);
+		record(
+			"R-CNT-04",
+			"渲染结果里没有 Obsidian 残留（![[ / [[ 均为 0）",
+			(http?.residue?.embed ?? 1) === 0 &&
+				(http?.residue?.wikilink ?? 1) === 0 &&
+				(rb?.residue?.embed ?? 1) === 0 &&
+				(rb?.residue?.wikilink ?? 1) === 0,
+			`http: ${JSON.stringify(http?.residue)} rb: ${JSON.stringify(rb?.residue)}`,
+		);
+		record(
+			"R-CNT-05",
+			"表格与代码块正常渲染（HTTP 协议 ≥4 表；红黑树 ≥10 个代码块）",
+			(http?.tables ?? 0) >= 4 && (rb?.codeBlocks ?? 0) >= 10,
+			`表 ${http?.tables} / 代码块 ${rb?.codeBlocks}`,
+		);
+		record(
+			"R-CNT-02",
+			"没有标题的短笔记（AI 应用/SDD）也能渲染出正文",
+			(sdd?.textLength ?? 0) > 100 && (sdd?.images?.length ?? 1) === 0,
+			`正文 ${sdd?.textLength} 字 / 图 ${sdd?.images?.length} 张`,
+		);
+
+		// 分批导入：另一篇（差分）里的两条 [[前缀和]] 都要改写成功，直接查产物
+		try {
+			const chafenHtml = await fs.readFile(
+				path.resolve("dist/posts/algorithm/chafen/index.html"),
+				"utf8",
+			);
+			const hits = (chafenHtml.match(/href="\/posts\/algorithm\/qianzhuihe\/"/g) ?? []).length;
+			const area = chafenHtml.slice(chafenHtml.indexOf("markdown-content"));
+			record(
+				"R-CNT-04",
+				"同一篇里的多条双链全部改写（差分 → 前缀和 ×2）",
+				(area.match(/href="\/posts\/algorithm\/qianzhuihe\/"/g) ?? []).length === 2,
+				`产物里 ${hits} 条链接`,
+			);
+		} catch (err) {
+			record("R-CNT-04", "同一篇里的多条双链全部改写", false, `读不到产物：${err.message}`);
+		}
+
+		// 列表页收录（R-CNT-01/02）
+		try {
+			const arch = await (await fetch(`${BASE}/archive/`)).text();
+			const want = ["HTTP 协议", "差分", "My_server框架全流程梳理"];
+			const missing = want.filter((t) => !arch.includes(t));
+			record(
+				"R-CNT-01",
+				"/archive/ 收录导入的文章",
+				missing.length === 0,
+				missing.length ? `缺 ${missing.join("、")}` : `抽查 ${want.length} 篇都在`,
+			);
+			const cats = await (await fetch(`${BASE}/categories/`)).text();
+			const wantCats = ["Linux 网络", "八股文", "项目实战", "算法"];
+			const missingCats = wantCats.filter((c) => !cats.includes(c));
+			record(
+				"R-CNT-02",
+				"/categories/ 出现迁移后的分类名",
+				missingCats.length === 0,
+				missingCats.length ? `缺 ${missingCats.join("、")}` : `抽查 ${wantCats.length} 个分类都在`,
+			);
+		} catch (err) {
+			record("R-CNT-01", "/archive/ 与 /categories/ 收录检查", false, err.message);
 		}
 	}
 

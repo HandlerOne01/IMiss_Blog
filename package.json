@@ -24,6 +24,7 @@
     "github-cards": "npx tsx scripts/generate-github-card-data.ts",
     "verify:ui": "node scripts/verify-ui.mjs",
     "verify:docs": "node scripts/verify-docs.mjs",
+    "verify:posts": "node scripts/verify-posts.mjs",
     "make:logo": "node scripts/make-logo.mjs"
   },
   "dependencies": {

@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.16 |
+| 文档版本 | v1.17 |
 | 最后更新 | 2026-09-24 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -91,12 +91,11 @@ imiss_-blog/                      ← 工作区根（= 站点仓库）
 │  ├─ verify-docs.mjs             ← 【v1.12 已落地】文档一致性自检（文档 ↔ 仓库事实）
 │  ├─ make-rank-cover-guide.mjs   ← 【v1.13 已落地】榜单配图比例对照图
 │  ├─ convert-wallpaper.mjs       ← 【P3 已落地】壁纸图 → webp（dosc/photo → imiss-d*/m*）
-│  ├─ import-posts.mjs            ← 【新增】内容迁移
-│  ├─ verify-posts.mjs            ← 【新增】内容校验
-│  ├─ convert-wallpaper.mjs       ← 【新增】壁纸图 → webp
+│  ├─ import-posts.mjs            ← 【P4 已落地】旧笔记迁移（dry-run 默认，见 §9.2）
+│  ├─ verify-posts.mjs            ← 【P4 已落地】内容校验（阻断式，见 §9.4）
 │  └─ export-agent-data.mjs       ← 【新增】给 Agent 导出索引
 ├─ deploy/nginx.conf              ← 【新增】生产站点配置
-├─ reports/                       ← 【新增，.gitignore 已忽略】脚本产出：reports/screenshots/*.png、reports/import-warnings.json
+├─ reports/                       ← 【新增，.gitignore 已忽略】脚本产出：reports/screenshots/*.png、reports/import-report.json、reports/image-mapping-*.json
 ├─ src/assets/fonts/*.woff2       ← 【P0 已落地】本地字体（11 个，约 205KB）
 ├─ src/assets/images/pet/         ← 【P1 已落地】桌宠图集（P3 会用它做桌宠，Logo 也从这里裁）
 └─ agent/                         ← 【新增】Python Agent 服务（见 §8）
@@ -813,73 +812,83 @@ uvicorn src.gateway.main:app --host 127.0.0.1 --port 8000
 
 ## 9. 内容迁移流水线（R-CNT）
 
-### 9.1 源数据画像（已核实）
+### 9.1 源数据画像（2026-09-24 实测，脚本 `reports/census-source.mjs` → `reports/_p4-census.json`）
 
 | 项 | 情况 |
 | --- | --- |
-| 文章 | `dosc/blog/**/*.md`，**142 篇 / 3.6MB**，**0 篇有 frontmatter** |
-| 目录 = 分类 | AI应用、C++11、C与C++、Linux系统、linux网络、MySQL、stL、八股、基础算法、项目（+ 一个 `图片` 资源目录） |
-| 图片引用 ① | Obsidian 嵌入 `![[Pasted image ….png]]`：**16 篇 / 59 处** |
-| 图片引用 ② | HTML `<img …>`：**211 处** |
-| 图片引用 ③ | 标准 Markdown `![alt](images/page-001.png)`：仅 `AI应用` 两篇，**磁盘上没有这些文件** |
-| 图片文件 | `图片/<分类>/<文章名>/*.jpg`，共 169 张，hash 命名，**与正文引用的文件名没有对应关系** |
-| 重复图片目录 | `图片\linux` 与 `图片\linux系统`：各 37 张、36 个同名文件 |
-| 完全重复的文章 | 3 组（MD5 一致）：`linux基础知识点.md`／`linux基础知识点（1）.md`、`二分.md`／`二分算法.md`、`动态规划.md`／`动态规划思想.md` |
+| 文章 | `dosc/blog/**/*.md`，**135 篇 / 3.63MB**，**0 篇有 frontmatter**（`图片/` 目录下另有 1 篇误入的散篇 `linux/POSIX 信号量….md`，忽略）<br>**注**：立项时估的是 142 篇，实测是 135 篇；下面所有数字都是实测值 |
+| 目录 = 分类 | AI应用（3 篇）、C++11（6）、C与C++（28）、Linux系统（27）、linux网络（13）、MySQL（6）、stL（6）、八股（12）、基础算法（28）、项目（6，下设 `My_Server` / `搜索引擎`） |
+| 图片引用 ① | Obsidian 嵌入 `![[…]]`：**125 处**（实测**全部是图片**，0 条笔记嵌入） |
+| 图片引用 ② | HTML `<img …>`：**216 处**，其中 **204 个是外链**（`cdn.jsdelivr.net` 161、`s2.loli.net` 28、其余零散；抽样 8 个全部 HTTP 200 存活） |
+| 图片引用 ③ | 标准 Markdown `![](…)`：**150 处**（125 处在 `AI应用` 两篇、其余多是 shields.io 徽章与远程图） |
+| 汇总 | 本地引用 **258** / 远端引用 **233** |
+| 图片文件 | `图片/<分类>/<文章名>/*.jpg`，**35 个目录 / 169 张**，hash 或 `Pasted image <时间戳>` 命名 |
+| 重复图片目录 | `图片/linux` 与 `图片/linux系统`：**36 个同名文件大小完全一致**（同一批图），解析时合并成一个池，优先取 `linux系统` 那侧 |
+| 完全重复的文章 | **只有 2 组**（MD5 一致）：`二分.md`／`二分算法.md`、`动态规划.md`／`动态规划思想.md`。立项时记的第 3 组 `linux基础知识点.md`／`linux基础知识点（1）.md` 在源目录里**不存在** |
+| 缺图 | **138 处**本地引用在磁盘上没有对应文件：`AI应用` 两篇 **125**（`page-*.png` 整批没导出）、`Linux系统/ELF文件` 5、`八股` 4 篇 8 |
+| 图片 ↔ 正文能不能对上号 | **能，而且大部分能**：258 条本地引用里 **116 条**在本文章的图片目录里按同名命中，**4 条**（`右值引用与移动语义` 的 3 张 + `进程状态` 的 1 张）在全库唯一同名命中 → 剩下 **138 条**才是真缺图。**这条推翻了 §9.2 原来的假设**（详见下节） |
 
-### 9.2 迁移流水线（`scripts/import-posts.mjs`）
+### 9.2 迁移流水线（`scripts/import-posts.mjs`，P4-1 已实现）
 
 ```
-dosc/blog/**/*.md
+dosc/blog/**/*.md（只读）
    │
-   ├─(1) 去重筛选 ──→ 跳过 3 组重复中的非保留项
-   ├─(2) 生成 slug ─→ pinyin-pro（模板已有该 devDependency）转 ASCII，如
-   │                  C++11/智能指针 → cpp11-smart-pointer
-   ├─(3) 生成 frontmatter ─→ title/date/category/tags/description/lang
-   ├─(4) 图片处理 ──→ 复制到 public/images/posts/<slug>/NN.jpg
-   │                 并重写正文引用（![[...]] 与 <img src>）
-   ├─(5) 缺图/无法映射 ─→ 记入 reports/import-warnings.json，默认不进站
-   └─(6) 写出 ──→ src/content/posts/<category>/<slug>.md
+   ├─(1) 去重筛选 ──→ MD5 相同的只留一篇（优先"被双链指向的名字"，再取短名）
+   ├─(2) 生成 slug ─→ pinyin-pro 逐段转 ASCII，如 C++11/智能指针 → cpp11/smart-pointer
+   │                  （`C++`→`cpp`；同分类内重名自动加 -2）
+   ├─(3) 生成 frontmatter ─→ title/published/category/tags/description/lang/draft/series
+   ├─(4) 图片解析 ──→ 本文章图片目录同名 → 全库唯一同名 → 都没有就记警告
+   │                  命中的复制到 public/images/posts/<slug>/NN.ext（引用顺序编号，不重编码）
+   ├─(5) 正文改写 ──→ ![[图]] / ![](…) / <img src> → /images/posts/<slug>/NN.ext
+   │                  [[双链]] → 站内链接；文首与行内 #标签 → frontmatter + 从正文摘掉；
+   │                  缺图引用 → `> [!WARNING]` 提示块；相邻两行图片之间补空行
+   └─(6) 写出 ──→ src/content/posts/<分类目录>/<slug>.md（+ reports/import-report.json）
 ```
 
-**默认 dry-run**：不加 `--write` 只打印将要产生的文件与警告，便于先看报告。
+**默认 dry-run**：不加 `--write` 只打印将要产生的文件与警告。参数：`--batch 1..5|all`、`--cat`、`--only`（可重复）、`--limit`、`--src`、`--quiet`。
+
+> **⚠️ 与本文档旧版的差异（重要，已实测推翻）**：旧版写"源图是 hash 命名、正文里是 `Pasted image …`，两者之间没有任何可用线索，所以只能顺序映射"。
+> **实测：不对。** 源笔记导出时正文引用已经被改写成与磁盘一致的文件名——258 条本地引用里 **116 条能在本文章的图片目录里按同名精确命中**、4 条全库唯一同名命中，只有 138 条真的没有文件。
+> 所以脚本**只做文件名精确匹配，绝不按顺序猜**：猜错位置（张冠李戴）比缺图更糟，而且无法事后发现。
 
 **frontmatter 生成规则**
 
 | 字段 | 规则 |
 | --- | --- |
-| `title` | 文件名去掉 `.md`；若正文首个 `# 一级标题` 存在且非空，以一级标题为准 |
-| `published` | 文件 mtime；同一目录内按 mtime 排序，保证比文章顺序合理。**需要人工确认时间**（拿到原始日期更好） |
-| `category` | 一级目录 → 映射表（见下） |
-| `tags` | 分类名 + 二级目录名（若有）+ 标题里出现的技术关键词白名单（如 `智能指针`、`TCP`、`epoll`） |
-| `description` | 首个非标题、非图片、非表格的正文段落，截 120 字 |
+| `title` | **文件名去 `.md`**（`README.md` 用覆盖表 `八股/README.md → 八股文面试总结 · 写在前面`）。<br>⚠️ 旧版写"有 H1 就以 H1 为准"，实测**不能用**：`stL/Stack.md` 的首个 H1 是"核心概念"、`基础算法/前缀和.md` 的首个 H1 是"一维前缀和"，那是小节名不是文章名。H1 只在"与标题规范化后相同"时才从正文删掉（避免重复标题） |
+| `published` | 文件 mtime（`YYYY-MM-DD HH:mm:ss`）。**需要发起人确认是否接近真实写作时间**——源笔记没有 frontmatter、也没有别的可信日期 |
+| `category` | 一级目录 → 映射表（见下），同时决定站内目录与 URL：`/posts/<分类目录>/<slug>/` |
+| `tags` | **作者自己写的 Obsidian 标签行**（`#预处理 #前缀 #基础算法` → `tags: [算法, 预处理, 基础算法]`）+ 分类名；按规范化去重（`Linux系统` 与 `Linux 系统` 算同一个、"八股"是"八股文"的一部分不重复）；上限 8 个 |
+| `description` | 正文里**最早出现的**可读文字（跳过围栏代码块 / 缩进代码 / 表格 / 图片 / 标题 / 数学块），列表项也算（作者的笔记大量用列表写）；截 120 字。⚠️ 两个坑：只判断"这一行像不像块级语法"会让**代码块内部**的行混进摘要；按空行分段又会把"短标题行 + 列表"拼成半截摘要 |
 | `lang` | `zh_CN` |
-| `draft` | `false`；缺图且未处理的写 `true` |
+| `draft` | `false`；**整篇一张图都解析不到时 `true`**并在正文顶部加 `> [!IMPORTANT]` 说明 |
 | `comment` | `true` |
-| `series` | 项目类文章按子目录设 `My_Server` / `搜索引擎`，用于「系列」页 |
+| `series` / `seriesOrder` | 项目类按子目录设 `My_Server` / `搜索引擎`；序号按 time 排序给 1..n |
+| **不写 `slug`** | 站内目录已经承担了分类前缀，写 `slug` 反而会让 URL 丢掉分类层级（glob loader 见到 `slug` 会直接拿它当 entry id） |
 
-**分类映射表（一级目录 → `category`）**
+**分类映射表（一级目录 → `category` / 站内目录）**
 
-| 源目录 | category | 备注 |
-| --- | --- | --- |
-| AI应用 | AI 应用 | 2 篇缺图，先隔离 |
-| C++11 | C++11 | |
-| C与C++ | C/C++ | |
-| Linux系统 | Linux系统 | 合并 `图片\linux系统` |
-| linux网络 | Linux 网络 | |
-| MySQL | MySQL | |
-| stL | STL | |
-| 八股 | 八股文 | 长文，批次最后迁 |
-| 基础算法 | 算法 | |
-| 项目 | 项目实战 | 下设系列 |
+| 源目录 | category | 站内目录 | 备注 |
+| --- | --- | --- | --- |
+| AI应用 | AI 应用 | `ai` | 2 篇缺图（125 张 `page-*.png`），`draft: true` 隔离 |
+| C++11 | C++11 | `cpp11` | |
+| C与C++ | C/C++ | `cpp` | |
+| Linux系统 | Linux 系统 | `linux` | 与 `图片/linux`+`图片/linux系统` 两个池合并 |
+| linux网络 | Linux 网络 | `linux-net` | |
+| MySQL | MySQL | `mysql` | |
+| stL | STL | `stl` | |
+| 八股 | 八股文 | `interview` | 长文（1.1MB），批次最后迁；见 B-13 |
+| 基础算法 | 算法 | `algorithm` | |
+| 项目 | 项目实战 | `project` | 下设 `My_Server` / `搜索引擎` 两个 series |
 
-**图片处理策略**
+**图片处理策略（P4-1 定型）**
 
-1. 目标目录：`public/images/posts/<slug>/`（**public 资源**，不进构建期图片优化管线——142 篇的图片总量会让 `src` 图片优化把构建时间拖得很长）。
-2. 命名：按"该文章图片目录内文件名字典序"复制为 `01.jpg`、`02.jpg`…（保持确定性），同时输出 `reports/image-mapping-<slug>.json` 记录 `原文件名 → 新文件名`。
-3. 正文重写：把第 `i` 个引用（`![[...]]` 或 `<img ...>`）指向第 `i` 张图；**当引用数量与图片数量不一致时，整篇标记为"需人工映射"**并写进警告报告，不猜。
-4. `AI应用` 两篇：`images/page-*.png` 全部缺失 → 按 R-CNT-07 处理（先不上线，`draft: true`，登记阻塞项）。
-
-> 为什么不做"按文件名智能匹配"：源图是 hash 命名（`2cf9a90f….jpg`），正文里是 `Pasted image 20260531171008.png`，两者之间没有任何可用线索。**顺序映射 + 数量不一致就报错**是唯一诚实的做法；批次 1 会逐篇人工核对，用人工核对的结果反过来校准规则。
+1. 目标目录：`public/images/posts/<slug>/`（**public 资源**，不进构建期图片优化管线——全量图片进 `src/` 会把构建时间拖得很长）。**复制是纯复制，一个字节都不重编码**（画质优先，发起人明确要求）。
+2. 命名：`NN.ext`，NN = 该图**第一次被引用**的顺序（`01`、`02`…），扩展名保持原样（png/jpg/webp）。同一张图被引用两次只复制一份、复用同一路径。
+3. 解析顺序：**本文章图片目录同名**（含 NFKC 规范化与去尾空白）→ 去掉 Obsidian 重名后缀（` 1`，**只吃 1~2 位数字**）再试 → **全库唯一同名** → 都没有则判定缺图。
+4. 缺图处理：那一处引用换成 `> [!WARNING]\n> 原图缺失：\`<原文件名>\`（源导出里没有这个文件，见 PROJECT_STATUS 阻塞项）`，并记进 `reports/import-report.json`；**整篇都缺图**时额外置 `draft: true`。
+5. 每次 `--write` 另写 `reports/image-mapping-<slug>.json`（原文件相对路径 → `NN.ext` 的完整对照），便于人工核对"第 i 个引用 = 第 i 张图"。
+6. `AI应用` 两篇：`images/page-*.png` 全缺 → 按 R-CNT-07 处理（`draft: true` 不上线，登记 B-06）。
 
 ### 9.3 分批策略（R-CNT-01 / R-CNT-02）
 
@@ -891,20 +900,28 @@ dosc/blog/**/*.md
 | 批次 4 | 基础算法 + AI应用 | 含缺图与超长错题本 |
 | 批次 5 | 八股 + 项目 | 最长文（几十万字节），单独跑以免拖慢迭代 |
 
-### 9.4 校验与隔离（R-CNT-06）
+### 9.4 校验与隔离（R-CNT-06，`scripts/verify-posts.mjs` → `pnpm verify:posts`）
 
-`scripts/verify-posts.mjs`（`pnpm verify:posts`），逐项检查并给出退出码：
+阻断式（有错误退出码 1），逐项检查：
 
 | 检查 | 失败处理 |
 | --- | --- |
-| frontmatter 必填字段齐全、`published` 可解析 | 报错 |
-| slug 唯一、ASCII | 报错 |
-| 正文中所有本地图片路径存在 | 报错（列出文件:行号） |
-| 正文无残留 `![[` | 警告（并列出位置） |
-| 正文非空、有至少一个标题 | 报错 |
-| `rankConfig` 每条 `title` 非空、`cover` 存在 | 报错 |
+| frontmatter 可解析、`title`/`category` 非空、`published` 可解析为日期、`tags` 是字符串数组、`draft` 是布尔 | 报错 |
+| slug（相对路径去掉扩展名）唯一且 ASCII 小写 | 报错 |
+| 正文非空 | 报错 |
+| 正文里所有**本地**图片路径存在、且不是 0 字节（`/images/posts/...` 与相对路径都查；外链跳过） | 报错（列出文件:行号） |
+| `frontmatter.image` 非外链时文件存在 | 报错 |
+| `rankConfig` 每条 `title` 非空、`cover` 文件存在 | 报错 |
+| 正文没有标题 | **警告**（见下） |
+| 正文残留 `![[`、`[[`、`%%`、`^blockid` | 警告（并列出位置） |
+| 站内链接 `/posts/...` 的目标文章存在 | 警告（分批导入期间必然出现） |
+| 标题在两篇之间重复 | 警告 |
 
-不合格的文章移动到 `src/content/_quarantine/`（**在 `posts` 集合的 glob 之外**，Astro 不会构建），这与模板自带的 `scripts/quarantine-bad-posts.mjs` 思路一致——该脚本里的 `stripCode()`（先把代码块/行内代码剥掉，再判断图片引用）与"外链不算本地图"的判断，**直接复用其做法**，不要重写。
+**与旧版文档的差异**：「正文至少有一个标题」从**报错**降级为**警告**。原因：源笔记 `AI应用/SDD.md` 全篇只有一条编号清单、没有任何标题，那是作者原本的写法——迁移脚本不该替它编一个标题，把它挡在构建外反而丢内容。
+
+**隔离**：默认只报告、不动文件；加 `--quarantine` 才把"有错误"的文章移到 `src/content/_quarantine/`（**在 `posts` 集合的 glob 之外**，Astro 不会构建）。这与模板自带的 `scripts/quarantine-bad-posts.mjs` 思路一致——该脚本里的 `stripCode()`（先把代码块/行内代码剥掉，再判断图片引用）与"外链不算本地图"的判断，**已按同样规则复用**，不要重写。
+
+**实测（P4 批次 1 落盘后）**：32 篇（18 篇迁移 + 14 篇上游示例/文档）**0 错误、6 条警告**——4 条站内链接指向本批次还没导入的文章（`/posts/algorithm/qianzhuihe/` ×2、`/posts/algorithm/chabingji/`、`/posts/cpp/hongheishu/`、`/posts/algorithm/bfs/`）、1 条 `ai/sdd.md` 没有标题、1 条上游 `draft.md` 本身是草稿（信息项）。
 
 ### 9.5 只读约定（R-CNT-08）
 
@@ -926,6 +943,8 @@ dosc/blog/**/*.md
 
 **约定**：文章内图片一律用 `public` 路径（`/images/posts/<slug>/01.jpg`）；封面/壁纸/榜单配图/桌宠图集用 `src/assets` 相对路径（自动优化 + LQIP）。
 
+**文章 URL 形态（P4 定型）**：`/posts/<分类目录>/<slug>/`（如 `/posts/linux-net/http-xieyi/`）。文件放 `src/content/posts/<分类目录>/<slug>.md`，**frontmatter 里不写 `slug`**——glob loader 见到 `slug` 会直接把它当 entry id，URL 就会丢掉分类层级（`/posts/http-xieyi/`），那样不同分类下的同名文章还会互相撞。重写双链时用的也是这个形态（`toPostId` / `createPostUrl` 与 `src/plugins/remark-wiki-link.js` 一致）。
+
 ---
 
 ## 11. 脚本与命令
@@ -937,8 +956,9 @@ dosc/blog/**/*.md
 | `pnpm build` | 完整构建（图标 → LQIP → VNDB 封面 → Astro → 字体子集 → 内联脚本压缩 → Pagefind） | — |
 | `pnpm preview` | 预览构建产物 | — |
 | `pnpm format` / `pnpm lint` | Biome 格式化与检查 | — |
-| `pnpm verify:posts` | 内容与排行数据校验（阻断式） | ✅（P4 新增） |
-| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **142 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底），并输出 **20 张**截图到 `reports/screenshots/`。P3 起含桌宠与壁纸全项（九状态触发 / 键盘 / 拖拽 / 菜单 / 联动 / reduced-motion / 与浮动按钮不重叠 / 移动端隐藏 / 取景与暗罩）| ✅（P1 新增，P2/P3 两次扩容） |
+| `pnpm verify:posts` | **内容校验**（`scripts/verify-posts.mjs`，阻断式）：frontmatter 完整性 / slug 唯一且 ASCII / 正文非空 / **本地图片存在且非 0 字节** / `frontmatter.image` 存在性 / 站内链接目标存在 / 残留 Obsidian 语法 / 标题重复 / `rankConfig` 的 title 与 cover。`--quarantine` 可把出错文章移进 `src/content/_quarantine/` | ✅（P4 新增） |
+| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **154 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底、**P4 内容迁移全项**：配图真实加载 / 编号顺序 / 移动端 / 不生成 figure 图注 / URL 形态 / 双链改写 / 无 Obsidian 残留 / 表格与代码块 / 无标题短笔记 / 归档与分类收录），并输出 **24 张**截图到 `reports/screenshots/`。P3 起含桌宠与壁纸全项（九状态触发 / 键盘 / 拖拽 / 菜单 / 联动 / reduced-motion / 与浮动按钮不重叠 / 移动端隐藏 / 取景与暗罩）| ✅（P1 新增，P2/P3/P4 三次扩容） |
+| `node scripts/import-posts.mjs` | **旧博客迁移**（默认 dry-run）：`--write` 落盘、`--batch 1..5`、`--cat`、`--only`、`--limit`、`--src`；报告写 `reports/import-report.json` | ✅（P4 新增） |
 | `pnpm verify:docs` | **文档一致性自检**（`scripts/verify-docs.mjs`）：核对三份文档互相之间、以及文档与仓库事实是否一致——版本号与"最后更新"日期、断言/截图数与最近一次实测、排行页清单与路由文件、导航子项与 `navBarConfig.ts`、需求编号引用闭环、阻塞项条数与编号连续、§2 与 §3 阶段状态，以及**配置事实**（`displaySettingsConfig.enable`、`rankConfig.dataStatus`、"4 组数据"类说法是否漏了第 5 份）。**每次收工前跑一次**（P2 加二游排行时文档漂移了 12 处，就是没有这道关卡） | ✅（v1.12 新增） |
 | `pnpm make:logo` | 把 `src/assets/images/logo/imiss-logo.svg`（手写矢量设计源）栅格化成导航栏 Logo（webp）与 favicon 四档 PNG | ✅（P1 新增） |
 | `node scripts/make-rank-cover-guide.mjs` | 生成榜单配图比例对照图 `docs/imiss/rank-cover-guide.png`（16:9 原图裁成 5.7:1 后哪一条留下；发起人准备素材时看这张） | ✅（v1.13 新增） |
@@ -946,11 +966,19 @@ dosc/blog/**/*.md
 > **关于 `verify:ui` 的对比度检查**：主体走"token 级"校验（`--deep-text`/`--content-meta`/`--btn-content`/`--primary` 对卡片底/页面底），不是"扫全站文字元素"。
 > 原因：这个主题里大量文字压在封面图、壁纸、半透明面板上，逐元素自动判定无法可靠取得背景色（试了三版：canvas 转色 → 逐层合成 → Node 侧解析，期间还产出过"66/71 元素低于 3:1"的假警报）。
 > P2 补了两处**具体**的对比度断言（不依赖背景取色）：① 名次数字对名次底色（`getComputedStyle` 直接读两个颜色，白字压粉底 ≥ 3:1、深字压橙底 ≥ 4.5:1）；② 缺图占位把渐变各档合成到不透明底色上取最亮值，与白字算对比度（暗/亮主题各一条）。
-> 观感部分仍然是"**可复现的数字交给脚本，观感交给截图**"：脚本每轮输出 20 张截图并人工核对；另外把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
-| `pnpm import:posts -- --write` | 内容迁移（默认 dry-run） | ✅ |
-| `pnpm export:agent` | 导出 `agent/data/*.json` | ✅ |
-| `node scripts/convert-wallpaper.mjs` | 壁纸图 → webp | ✅ |
-| `pnpm new-post` | 新建文章脚手架（模板自带） | — |
+> 观感部分仍然是"**可复现的数字交给脚本，观感交给截图**"：脚本每轮输出 24 张截图并人工核对；另外把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
+
+---
+
+## 11.1 内容迁移相关（P4 新增）
+
+| 命令 / 脚本 | 作用 | 状态 |
+| --- | --- | --- |
+| `node scripts/import-posts.mjs [--write] [--batch n] [--cat x] [--only y] [--limit n]` | 旧笔记迁移（默认 dry-run） | ✅ P4-1 |
+| `pnpm verify:posts` | 内容校验（阻断式，见 §9.4） | ✅ P4-3 |
+| `reports/census-source.mjs` / `ref-resolve.mjs` / `ref-missing.mjs` | 源数据清点与引用解析诊断（只读探针，产物 `reports/_p4-census.json`） | ✅ P4 一次性 |
+| `reports/check-code-fidelity.mjs` | 逐块比对"源笔记代码块 vs 导入后代码块"（含行尾空白） | ✅ P4 一次性 |
+| `node scripts/convert-wallpaper.mjs` | 壁纸图 → webp | ✅ P3 |
 
 ---
 
@@ -1136,6 +1164,11 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 
 | T32 | **同一条图被压两代**：我自己写脚本把原 JPG 转 webp q82，Astro 构建又按 `imageQuality`(85) 压一遍 —— 尺寸一个像素没变，但细看明显发糊（201KB → 143KB，掉的全是细节）。发起人一眼看出来："你似乎进行了图片裁剪或压缩" | 画质锅甩不掉，而且**只看截图不容易判断是哪一代压的** | 素材能用原图就用原图放进 `src/assets`，**压缩只交给构建管线做一次**；首屏大图（壁纸）单独把 quality 提到 95。要判断有没有多压一代：比"原图体积 vs 产物体积"，尺寸相同却明显变小就是压过 |
 | T33 | **`object-position` 的百分比是"对齐点"，不是"偏移量"**：写 `"0% 20%"` 的 x=0% 意味着"图的左边缘对齐框的左边缘"——一旦图比框宽，就只从**右侧**裁，画面被挤到左边；写 50% 才是水平居中 | 宽屏上构图偏向一侧，看起来像"图被切歪了" | 想让画面居中就用 `"50% y%"`；纵向百分比越大越往下（0% 顶对齐、100% 底对齐） |
+| T34 | **用 PowerShell 改带中文的 UTF-8 文件会双重编码**：`Get-Content -Raw` 按 ANSI(GBK) 解码 → `Set-Content -Encoding utf8` 再按 UTF-8 写回，中文全变成 `鍥剧墖` 这种乱码（P4 改 `verify-posts.mjs` 时真发生了，整份文件的中文串报废） | 文件内容静默损坏，`git diff` 里满屏乱码，且**没有报错** | 批量文本替换**别用 PowerShell 的读写 cmdlet**：用 Node 脚本（`fs.readFileSync`/`writeFileSync`）或 edit/write 工具；非要重定向就用 `cmd /c "... > file"`（字节直通，不解码）。`node --check` 只查语法，查不出这种损坏 |
+| T35 | **`==x==` 在本语料里不是 Obsidian 高亮，是 C++ 相等比较**：去掉代码区后全库只有 1 处 `==…==`，而那一处正是表格行 `| 过程中判断 dist[t]==INF | 最后判段边数cnt==n-1 |` 里被两个 `==` 夹住的普通文字——全局替换成 `<mark>` 会把表格连同行尾一起吞掉 | 表格被改坏，且看起来像"作者写错了" | **不做** `==`→`<mark>` 的全局替换；真要支持高亮，先按行判断"+ 两侧不能紧邻 `=`/空格"，且只处理非表格非代码区 |
+| T36 | **文件名归一化不能顺手把"空格+数字"都剥掉**：为兼容 Obsidian 的 `图 1.png` 重名后缀，第一版写了 `/\s+\d+(?=\.[a-z]+$)/` → `Pasted image 20260509141005.png` 的时间戳被当成后缀吃掉，全篇 6 张图归一化成同一个键，**6 张只复制了 1 张**（映射看起来"成功"，其实是同一张） | 图片静默丢一半、正文重复指向同一张 | 归一化只做 NFKC + trim + 小写；重名后缀**作为退路单独试**，且**只吃 1~2 位数字**（`\s+\d{1,2}`）。判断有没有踩：看报告的 `images.copied` 是否等于 `images.resolved` |
+| T37 | **全库性的空白整理会改坏代码块**：`body.replace(/[ \t]+$/gm, "")` + `.replace(/\n{3,}/g, "\n\n")` 把 5 篇里 **100 处代码块内部**的行尾空白与空行改掉了（独立子 agent 逐块比对时抓到：`"    "` → `""`） | 代码块内容与源文件不再逐字节一致，"迁移保真"这条承诺就破了（对 C++ 语义通常无影响，但不可接受） | 任何全局空白/换行整理都要**围栏感知**：逐行扫、围栏内原样输出、围栏外才整理（`tidyWhitespace()` / `separateAdjacentImages()` 都是这么写的）。验证手段：`reports/check-code-fidelity.mjs` 逐块比对 |
+| T38 | **LQIP 生成器会 glob 到 `public/**` 的图片**：`generate-lqips.ts` 扫 `{src,public}/**/*.{png,jpg,…}`，只忽略几个固定目录；P4 往 `public/images/posts/` 一放图，`lqips.json` 立刻多出 9 条无用记录（全量会上百条） | 每次导入都在 `lqips.json` 里制造 diff 噪音；虽然 `<img>` 是裸标签、根本用不到 LQIP | 在 `IGNORE_DIRS` 里加 `public/images/posts/**`。注意文件被删后这些记录会由脚本自动清掉（日志里是 `Removed N stale entries`） |
 
 ### 14.4 被移除的上游功能怎么找回来
 
