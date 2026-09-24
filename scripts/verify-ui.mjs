@@ -397,6 +397,12 @@ const COLLECT_POST = `(async () => {
     codeBlocks: root.querySelectorAll("pre").length,
     figures: root.querySelectorAll("figure").length,
     callouts: root.querySelectorAll(".callout").length,
+    // R-ID-09：分享块 —— 「文章分享」卡片是 Astro 静态标记，而触发按钮与
+    // 「保存海报 / 复制链接」在 SharePoster 这个 Svelte 岛里（**点开才有**，静态产物里没有）
+    share: {
+      card: (document.body.innerText || "").includes("文章分享"),
+      trigger: !!document.querySelector('button[aria-label="Generate Share Poster"]'),
+    },
     internalLinks: [...root.querySelectorAll('a[href^="/posts/"]')].map((a) => ({
       href: a.getAttribute("href"),
       text: txt(a),
@@ -704,12 +710,8 @@ async function main() {
 		!postHtml.includes("许可协议") && !postHtml.includes("creativecommons.org"),
 		"许可块与 CC 链接均未出现",
 	);
-	record(
-		"R-ID-09",
-		"文章页不再显示分享块（保存海报 / 扫码阅读 / 复制链接）",
-		!postHtml.includes("保存海报") && !postHtml.includes("扫码阅读") && !postHtml.includes("复制链接"),
-		"分享块未出现（域名还是占位值，见 B-01）",
-	);
+	// ⚠️ R-ID-09（分享块）的断言放在后面的 R-CNT 块里：分享块的按钮在 SharePoster 这个
+	// **Svelte 岛**内，服务端 HTML 里只有静态的「文章分享」卡片字样，必须读 hydration 后的 DOM。
 	// 站点元信息（R-ID-03）
 	const homeHtml = probeHtml;
 	record(
@@ -2065,6 +2067,34 @@ async function main() {
 		}
 	}
 
+	// ── R-ID-09：分享块（Svelte 岛）真的能用吗 —— 点一次触发按钮，看模态里有没有那两个按钮 ──
+	// 为什么必须点：`SharePoster.svelte` 的触发按钮在岛上（静态产物里没有），
+	// 「保存海报 / 复制链接」更是**点开模态才渲染**。只 grep 服务端 HTML 会得到假结论。
+	{
+		const loaded = cdp.once("Page.loadEventFired");
+		await cdp.send("Page.navigate", { url: `${BASE}${SAMPLE_POST}` });
+		await loaded;
+		await sleep(1200);
+		const res = await cdp.send("Runtime.evaluate", {
+			expression: `(async () => {
+				const trigger = document.querySelector('button[aria-label="Generate Share Poster"]');
+				if (!trigger) return { trigger: false };
+				trigger.click();
+				await new Promise((r) => setTimeout(r, 3000));
+				const text = document.body.innerText || "";
+				return {
+					trigger: true,
+					savePoster: text.includes("保存海报"),
+					copyLink: text.includes("复制链接"),
+					posterImg: !!document.querySelector('img[alt="Poster"]'),
+				};
+			})()`,
+			returnByValue: true,
+			awaitPromise: true,
+		});
+		facts["share-modal"] = res.result.value;
+	}
+
 	// ── P4 内容迁移（R-CNT）：导入的文章真的渲染对了吗 ──
 	{
 		const http = facts["post-http-1440-post"];
@@ -2142,6 +2172,23 @@ async function main() {
 			(sdd?.textLength ?? 0) > 100 && (sdd?.images?.length ?? 1) === 0,
 			`正文 ${sdd?.textLength} 字 / 图 ${sdd?.images?.length} 张`,
 		);
+		// R-ID-09（发起人："我要分享块啊，只是后面提醒我添加域名而已"）：分享块必须在，
+		// 而且要真的能用 —— 点一次触发按钮，模态里能出「保存海报」与「复制链接」。
+		// ⚠️ 这两样都在 SharePoster 这个 **Svelte 岛**里，静态产物里没有；只 grep 服务端 HTML
+		// 会把"分享块不见了"误判成通过（第一版就栽在这，那次我把 share 关掉了）。
+		{
+			const shareModal = facts["share-modal"];
+			record(
+				"R-ID-09",
+				"分享块保留且可用（卡片 + 触发按钮 + 点开后保存海报/复制链接 + 海报图生成）",
+				http?.share?.card === true &&
+					http?.share?.trigger === true &&
+					shareModal?.savePoster === true &&
+					shareModal?.copyLink === true &&
+					shareModal?.posterImg === true,
+				`卡片=${http?.share?.card} 触发=${shareModal?.trigger} 保存海报=${shareModal?.savePoster} 复制链接=${shareModal?.copyLink} 海报图=${shareModal?.posterImg}`,
+			);
+		}
 
 		// 分批导入：另一篇（差分）里的两条 [[前缀和]] 都要改写成功，直接查产物
 		try {

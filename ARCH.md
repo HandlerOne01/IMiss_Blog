@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.22 |
+| 文档版本 | v1.23 |
 | 最后更新 | 2026-09-24 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -171,7 +171,7 @@ src/
 | R-ID-06 | 删 5 个文件 + 改 4 处接线 | 删文件 + 改配置 | 删：`src/pages/{rss,atom}.astro`、`src/pages/{rss,atom}.xml.ts`、`src/utils/feed-utils.ts`。改：`Layout.astro` 去掉 head 里两条 `<link rel="alternate">`；`Footer.astro` 去掉 RSS/Atom（保留 Sitemap）；`backgroundWallpaper.ts` 的 `homeText.linksEnable: false` + `links: []`；`profileConfig.links: []`（`Profile.astro` 对 0 个链接不渲染整行，布局不会塌）。`siteConfig.feed` 配置块已注释掉并标注"无消费方"（保留上游类型定义）。**恢复清单见 §14.4**。注意：这 4 条路由删掉后是**真 404**，与 R-NAV-05/06 的 noindex 存根行为不同（因为文件不存在，没有任何页面去 redirect） |
 | R-ID-07 | `src/config/displaySettingsConfig.ts`（上游文件，**只改 `enable` 一个值**）+ `src/components/controls/DisplaySettingsIntegrated.svelte`（面板本体 38.4KB，**未改**） | 改 1 个值 | **上游自带、默认关闭**；从 P0 基线（`3dbc38d`）到开启前的 `git diff` 证明这批文件一个字节都没改过——不是被删，是默认关着。**发起人已决定对访客全开**（2026-09-24，原话"肯定要这个啊"）→ `enable: true`，其余条目保持开启。备用开启方式：环境变量 `PUBLIC_DISPLAY_SETTINGS=true`（优先级更高；实测 dev 下按钮与面板都在，未设变量的 `dist` 为 0）。**成本已实测**：全开（含 `wallpaperModeSwitchable`）→ 每页 HTML **+11.6 KB**（38 页共 +439.7 KB，dist 20.76→21.19 MB），`_astro/*.js` 总量无变化；**比上游注释估的 +33 KB/页低得多**。**注意**：面板"主题色相"改的就是 `--hue`，`siteConfig` 的 345 只是默认值，访客拖过会写进自己的 localStorage。**面板本身的改进待排期**（发起人：先做完 P2/P3） |
 | R-ID-08 | `src/config/licenseConfig.ts` + `src/components/widget/SiteInfo.astro` | 改值 + 改组件 | `licenseConfig.enable: true → false`（发起人 2026-09-24："这个许可协议似乎没有啥用啊"）；`SiteInfo.astro` 里许可那一项**改成条件展开**（`...(enable ? [{…}] : [])`）——原来关闭时会显示一个 `None` 假值。文章页的许可块由 `posts/[...slug].astro` 的 `licenseConfig.enable &&` 控制，配置一关就整块不渲染，**不用改页面**。想恢复：`enable: true` |
-| R-ID-09 | `src/config/siteConfig.ts` 的 `post.share` | 改值 | `share: true → false`（发起人 2026-09-24："这个二维码扫了也没啥用啊"）。**根因是占位域名而不是组件**：`SharePoster.svelte` 用 `url={Astro.url.href}` 生成二维码、`复制链接` 也用它，而 `site_url` 还是 `https://imiss.example.com`（B-01）→ 扫码/复制都指向不存在的站点。域名到位三步：`site_url` 填真值 → `share: true` → 重建，并把 `verify:ui` 的占位域名断言翻成真值断言 |
+| R-ID-09 | `src/config/siteConfig.ts` 的 `post.share`（**保持 `true`**）+ `src/components/misc/SharePoster.svelte`（**未改**） | 只加注释，不改行为 | 发起人 2026-09-24 评审时先问"这个二维码扫了也没啥用啊"，随后澄清"**我要分享块啊**，只是后面提醒我添加域名而已" → **分享块保留**。真正的临时问题在数据：`SharePoster.svelte` 用 `url={Astro.url.href}` 生成二维码、「复制链接」也用它，而 `site_url` 还是 `https://imiss.example.com`（B-01）→ 域名到位前扫码/复制指向假域名。**域名到位后三步**：`site_url` 填真值 → 重建 → 把 `verify:ui` 的占位域名断言翻成真值断言（**执行方要主动提醒**，见 `PROJECT_STATUS.md` §1 第 6 条） |
 | R-NAV-01 ~ R-NAV-06 | `src/config/navBarConfig.ts` | 重写 `getDynamicNavBarConfig()` 与 `LinkPresets` | 见 §4.1 的最终导航树。**P1 已落地**，另附带两处改名收尾：`i18n/languages/zh_CN.ts` 里 `vndb`→「轻小说」、`mal`→「番剧」，以及两个页面"未配置数据源"的文案（否则导航叫「轻小说」而页面标题还叫 VNDB，自相矛盾） |
 | R-NAV-07 | `src/config/siteConfig.ts` 的 `pages` | 改值 | 见 §4.2 的开关矩阵；`nav-menu-utils.ts`、sitemap 过滤、`llms.txt.ts` 都已按 `pageKey` 处理，**无需改代码**。⚠️ 关闭的页面在**静态输出**下不是 HTTP 404，而是 Astro 的 noindex 跳转存根，真 404 由生产 Nginx 给（§12.2、§14.3 T17） |
 | R-WDG-01 | `src/components/widget/SiteStats.astro` | 删代码 | `stats` 数组删掉 `running-days`/`last-update` 两项；随之删除 `getActivityDate`/`lastActivityDate`/`lastPostDate`/`siteStartDate`/`todayText` 与整个 `<script is:inline>` 块（不再有动态项）；`formatNumber` 保留给总字数用 |
