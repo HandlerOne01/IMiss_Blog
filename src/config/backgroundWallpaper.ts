@@ -40,24 +40,27 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 	 */
 	src: {
 		// 桌面背景图片（支持单张或多张随机）
-		// ⚠️ IMiss Blog（R-BG-01，P3 落地）：换成发起人给的 4 张爱弥斯图（`dosc/photo` → webp）。
-		//    上游示例图 d1~d6 / m1~m6 已从仓库删除（不再随构建分发），转换脚本见
-		//    `scripts/convert-wallpaper.mjs`（`node scripts/convert-wallpaper.mjs`）。
-		//    素材只有 1915×821（2.33:1），在 2560 宽屏上会被放大约 1.34 倍 → **属临时占位**，
-		//    正式方案是视频（R-BG-02，源宽度建议 ≥ 2560）。
+		// ⚠️ IMiss Blog（R-BG-01，P3 落地）：换成发起人给的 4 张爱弥斯图。
+		//    **原图直出，不做任何重编码**：我一开始转了一道 webp q82、Astro 又压一道 q85，
+		//    两代有损压缩叠起来细看发糊（原图 201KB → 我的 webp 143KB，尺寸没变，差的全是细节）。
+		//    现在原图（1916×821 / 181~251KB）直接放 src/assets，**压缩只交给 Astro 做一次**，
+		//    壁纸的 quality 提到 95（见 WallpaperSection.astro）。
+		//    转换脚本 `scripts/convert-wallpaper.mjs` 现在只做"复制改名"，不再重编码。
+		//    素材仍是 2.33:1 / 1916 宽 → 2560 宽屏会放大，正式方案是视频（R-BG-02）。
 		desktop: [
-			"assets/images/DesktopWallpaper/imiss-d1.webp",
-			"assets/images/DesktopWallpaper/imiss-d2.webp",
-			"assets/images/DesktopWallpaper/imiss-d3.webp",
-			"assets/images/DesktopWallpaper/imiss-d4.webp",
+			"assets/images/DesktopWallpaper/imiss-d1.jpg",
+			"assets/images/DesktopWallpaper/imiss-d2.jpg",
+			"assets/images/DesktopWallpaper/imiss-d3.jpg",
+			"assets/images/DesktopWallpaper/imiss-d4.jpg",
 		],
 		// 移动背景图片（支持单张或多张随机）
-		// 同一批素材先顶上（竖屏只需要覆盖高度），后续可换成正式竖构图
+		// 移动端**复用同一批原图**：ImageWrapper 在移动端只请求 640/828 宽的变体，
+		// Astro 会按需生成小图，所以没必要再存一份 1600 宽的中间产物（那又多一代压缩）
 		mobile: [
-			"assets/images/MobileWallpaper/imiss-m1.webp",
-			"assets/images/MobileWallpaper/imiss-m2.webp",
-			"assets/images/MobileWallpaper/imiss-m3.webp",
-			"assets/images/MobileWallpaper/imiss-m4.webp",
+			"assets/images/DesktopWallpaper/imiss-d1.jpg",
+			"assets/images/DesktopWallpaper/imiss-d2.jpg",
+			"assets/images/DesktopWallpaper/imiss-d3.jpg",
+			"assets/images/DesktopWallpaper/imiss-d4.jpg",
 		],
 		// 背景视频播放地址
 		// 支持单个视频路径（字符串）或多个视频循环（数组，参考上面壁纸配置）
@@ -153,7 +156,10 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 		// 图片位置
 		// 支持所有CSS object-position值，如: 'top', 'center', 'bottom', 'left top', 'right bottom', '25% 75%', '10px 20px'..
 		// 如果不知道怎么配置百分百之类的配置，推荐直接使用：'center'居中，'top'顶部居中，'bottom' 底部居中，'left'左侧居中，'right'右侧居中
-		position: "0% 20%",
+		// IMiss Blog（R-BG-01）：原来写的是 "0% 20%" —— x=0% 表示"裁的时候只从右边切"，
+		// 在宽屏上会把画面挤到左边、右边切掉一大块。改成 50%（水平居中）不受裁切方向影响；
+		// 纵向 35% 略偏上，保住人物面部（原图人物在上半部）。
+		position: "50% 35%",
 		// 文章横幅信息："description" 显示描述，"meta" 显示日期、字数和阅读时长
 		postInfo: {
 			mode: "description",

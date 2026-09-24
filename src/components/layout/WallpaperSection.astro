@@ -18,6 +18,13 @@ interface Props {
 	bannerPostMeta?: BannerPostMeta;
 }
 
+/**
+ * 壁纸专用图片质量（R-BG-01）：
+ * 首屏最大的一张图，发起人明确反馈"压缩到发糊不可以"，所以这里不走 siteConfig.imageQuality(85)，
+ * 单独提到 95。代价是壁纸变体文件更大（原图直出 → 只压这一道）。
+ */
+const WALLPAPER_QUALITY = 95;
+
 const { state, backgroundImages, title, bannerPostMeta } = Astro.props;
 const wallpaperPosition = state.isFullscreenMode
 	? (backgroundWallpaper.fullscreen?.position ??
@@ -170,7 +177,7 @@ const manualSwitchScript = `(function initManualSwitch() {
                         widths={[640, 828]}
                         sizes="100vw"
                         loading="eager"
-                        quality={state.mobileQuality}
+                        quality={WALLPAPER_QUALITY}
                     />
                 </template>
             </div>
@@ -187,7 +194,7 @@ const manualSwitchScript = `(function initManualSwitch() {
                         widths={[1280, 1920]}
                         sizes="100vw"
                         loading="eager"
-                        quality={state.configQuality}
+                        quality={WALLPAPER_QUALITY}
                     />
                 </template>
             </div>
@@ -206,7 +213,7 @@ const manualSwitchScript = `(function initManualSwitch() {
                         loading="eager"
                         fetchpriority="high"
                         fadeIn={false}
-                        quality={state.mobileQuality}
+                        quality={WALLPAPER_QUALITY}
                     />
                 </div>
             )}
@@ -223,7 +230,7 @@ const manualSwitchScript = `(function initManualSwitch() {
                         loading="eager"
                         fetchpriority="high"
                         fadeIn={false}
-                        quality={state.configQuality}
+                        quality={WALLPAPER_QUALITY}
                     />
                 </div>
             )}
@@ -246,7 +253,7 @@ const manualSwitchScript = `(function initManualSwitch() {
                         widths={[640, 828]}
                         sizes="100vw"
                         loading="eager"
-                        quality={state.mobileQuality}
+                        quality={WALLPAPER_QUALITY}
                     />
                 </template>
             </div>
@@ -263,7 +270,7 @@ const manualSwitchScript = `(function initManualSwitch() {
                         widths={[1280, 1920]}
                         sizes="100vw"
                         loading="eager"
-                        quality={state.configQuality}
+                        quality={WALLPAPER_QUALITY}
                     />
                 </template>
             </div>
@@ -282,7 +289,7 @@ const manualSwitchScript = `(function initManualSwitch() {
                         loading="eager"
                         fetchpriority="high"
                         fadeIn={false}
-                        quality={state.mobileQuality}
+                        quality={WALLPAPER_QUALITY}
                     />
                 </div>
             )}
@@ -299,7 +306,7 @@ const manualSwitchScript = `(function initManualSwitch() {
                         loading="eager"
                         fetchpriority="high"
                         fadeIn={false}
-                        quality={state.configQuality}
+                        quality={WALLPAPER_QUALITY}
                     />
                 </div>
             )}

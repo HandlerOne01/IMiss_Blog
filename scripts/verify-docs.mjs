@@ -109,7 +109,7 @@ const allDocs = { "prd.md": prd, "ARCH.md": arch, "PROJECT_STATUS.md": status, [
 	push(README, "期望输出", /期望输出：`功能断言\s*(\d+)\s*项/);
 	push(README, "常用命令表", /`pnpm verify:ui`\s*\|\s*界面验收：(\d+) 项断言/);
 	push("ARCH.md", "§11 脚本表", /\*\*(\d+) 项功能断言\*\*/);
-	push("PROJECT_STATUS.md", "§1 最近变更", /最近变更\*\*：[\s\S]{0,900}?\*\*(\d+)\s*项断言全绿\*\*/);
+	push("PROJECT_STATUS.md", "§1 当前口径行", /当前口径[^\n]*?\*\*(\d+)\s*项断言\*\*/);
 
 	const uniq = [...new Set(claimed.map((c) => c.n))];
 	record(
@@ -145,7 +145,7 @@ const allDocs = { "prd.md": prd, "ARCH.md": arch, "PROJECT_STATUS.md": status, [
 	};
 	claimShot(README, "常用命令表", /界面验收：\d+ 项断言[^|]*?(\d+) 张截图/);
 	claimShot("ARCH.md", "§11 说明", /脚本每轮输出\s*(\d+)\s*张截图/);
-	claimShot("PROJECT_STATUS.md", "§1 最近变更", /最近变更\*\*：[\s\S]{0,900}?截图[^*\n]{0,24}?\*\*(\d+)\s*张\*\*/);
+	claimShot("PROJECT_STATUS.md", "§1 当前口径行", /当前口径[^\n]*?截图\s*\*\*(\d+)\s*张\*\*/);
 	const shotUniq = [...new Set(shotClaims.map((c) => c.n))];
 	record(
 		"截图张数",

@@ -37,7 +37,7 @@ const CHROME_CANDIDATES = [
 
 // ─── 验收规格（单一事实来源，改需求改这里）───────────────
 // 横幅取景锚点：与 src/config/backgroundWallpaper.ts 的 banner.position 保持一致（R-BG-04）
-const EXPECT_BANNER_POSITION = "0% 20%";
+const EXPECT_BANNER_POSITION = "50% 35%";
 // 顶层导航顺序与子项顺序（prd.md R-NAV-01~04 / 第 2 章）
 const EXPECT_TOP_NAV = ["主页", "文章", "排行", "我的", "链接", "留言"];
 const EXPECT_RANK_CHILDREN = [

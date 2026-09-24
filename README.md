@@ -167,7 +167,9 @@ tags: [Linux, 进程]
 | 想做什么 | 怎么做 |
 | --- | --- |
 | 换/加图片 | 图片放进 `src/assets/images/DesktopWallpaper/`（桌面）与 `MobileWallpaper/`（手机），然后往 `src.common.src.desktop` / `.mobile` 数组里加路径；**数组多于 1 张时**横幅两侧就会出现隐藏换图区 |
-| 调整构图 | `banner.position`（现在是 `0% 20%`，保头脸）与 `common.dimOpacity`（暗罩，现在是 `0.2`）——只改配置，不用碰代码 |
+| 调整构图 | `banner.position`（现在是 `50% 35%`：水平居中、纵向略偏上保面部）与 `common.dimOpacity`（暗罩，现在是 `0.2`）——只改配置，不用碰代码 |
+| 横幅高度 / 画面被裁 | `src/constants/constants.ts` 的 `BANNER_HEIGHT` + `BANNER_HEIGHT_EXTEND`（现在 45+35 = **80vh**）。框越矮，`object-fit: cover` 裁掉的画面越多：65vh 时只看得到 76% 的高度，80vh 时 95% |
+| 画质 | **原图直出、不要自己重压**：素材原样放进 `src/assets`，压缩只交给构建管线；壁纸单独用 `WALLPAPER_QUALITY = 95`（在 `WallpaperSection.astro`）。自己先转一道 webp 再让 Astro 压一道 = 两代有损压缩，会明显发糊（踩过） |
 | 关掉手动换图 | `banner.manualSwitch.enable = false`（完全回到模板原有行为） |
 | 只关某一侧的行为 | `manualSwitch.zones`（桌面两侧交互区）/ `manualSwitch.drag`（拖动换图）/ `manualSwitch.dragThreshold`（拖动阈值，默认 60px） |
 | 从原始素材重新转 webp | `node scripts/convert-wallpaper.mjs [--src <目录>]`（把 `dosc/photo` 那批转成桌面/移动两套 webp） |
