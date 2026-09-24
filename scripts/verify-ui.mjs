@@ -41,6 +41,7 @@ const EXPECT_TOP_NAV = ["主页", "文章", "排行", "我的", "链接", "留�
 const EXPECT_RANK_CHILDREN = [
 	{ name: "日漫排行", href: "/rank/jp/" },
 	{ name: "国漫排行", href: "/rank/cn/" },
+	{ name: "二游排行", href: "/rank/game/" },
 ];
 const EXPECT_MY_CHILDREN = [
 	{ name: "动态", href: "/dynamic/" },
@@ -58,7 +59,7 @@ const EXPECT_ABSENT_STAT_TEXT = ["运行时长", "最后活动", "天前"];
 const FORBIDDEN_ROUTES = ["/friends/", "/bilibili/", "/bangumi/", "/sponsor/"];
 // R-ID-06：订阅功能整体移除后，这 4 条路由**连存根都没有**（文件已删），应该是真 404
 const REMOVED_FEED_ROUTES = ["/rss/", "/atom/", "/rss.xml", "/atom.xml"];
-const ALLOWED_ROUTES = ["/", "/about/", "/guestbook/", "/vndb/", "/myanimelist/", "/booknav/", "/dynamic/", "/projects/", "/gallery/", "/archive/", "/rank/jp/", "/rank/cn/"];
+const ALLOWED_ROUTES = ["/", "/about/", "/guestbook/", "/vndb/", "/myanimelist/", "/booknav/", "/dynamic/", "/projects/", "/gallery/", "/archive/", "/rank/jp/", "/rank/cn/", "/rank/game/"];
 // P2 之前：/rank/jp/、/rank/cn/ 还不存在，这里是"待建路由"的登记处。
 // P2 建好后两条路由已进 ALLOWED_ROUTES（断言 200），登记处随之清空——
 // 留着这个常量是为了下个阶段再出现"说好要建但还没建"的路由时有地方记，别再退回"catch 住就算过"的假绿写法。
@@ -179,6 +180,8 @@ const COLLECT = `(() => {
       const rows = [...board.querySelectorAll("[data-rank-panel]:not(.rank-panel--off) .rank-row")];
       return {
         kind: board.dataset.rankKind,
+        // R-RANK-07：单一榜（二游排行）标记 —— 没有全剧/单集维度
+        single: board.dataset.rankSingle === "true",
         // R-RANK-02：切换维度后 URL 要同步（读 location.search 判断 pushState 是否执行）
         search: window.location.search,
         title: (board.querySelector("h2") || {}).textContent || null,
@@ -584,6 +587,9 @@ async function main() {
 		{ name: "rank-jp-ep-1440", path: "/rank/jp/?kind=ep", width: 1440, height: 1000, mobile: false },
 		// 宽屏再量一次比例（"行高 = 内容宽 17.4%"用 cqw 实现，越宽的屏越能暴露用 vw 的写法）
 		{ name: "rank-jp-1920", path: "/rank/jp/", width: 1920, height: 1080, mobile: false },
+		// R-RANK-07 二游排行：单一榜（没有全剧/单集）
+		{ name: "rank-game-1440", path: "/rank/game/", width: 1440, height: 1000, mobile: false },
+		{ name: "rank-game-390", path: "/rank/game/", width: 390, height: 844, mobile: true },
 		// 亮色主题下的榜单（缺图占位是半透明色罩在卡片底上，亮色下白字最容易糊 → 单独留一张图）
 		{ name: "rank-jp-light-1440", path: "/rank/jp/", width: 1440, height: 1000, mobile: false, light: true },
 	];
@@ -1079,6 +1085,50 @@ async function main() {
 
 		record("R-RANK-06", "排行榜页在 390px 下无横向溢出", (facts["rank-jp-390"].overflowX ?? 99) <= 2, `溢出 ${facts["rank-jp-390"].overflowX}px`);
 
+		// ── R-RANK-07：二游排行（单一榜，没有「全剧 / 单集」）──
+		{
+			const game = facts["rank-game-1440"]?.rank;
+			const gameMobile = facts["rank-game-390"];
+			record(
+				"R-RANK-07",
+				"二游排行渲染出单一榜单板且带 single 标记",
+				game?.single === true && game?.title === "二游排行",
+				`single=${game?.single} title=${game?.title}`,
+			);
+			record(
+				"R-RANK-07",
+				"二游排行**没有**维度切换按钮、只有一块面板",
+				(game?.tabs?.length ?? -1) === 0 && (game?.panels?.length ?? -1) === 1 && game?.panels?.[0]?.off === false,
+				`按钮 ${game?.tabs?.length} 个 / 面板 ${JSON.stringify(game?.panels)}`,
+			);
+			record(
+				"R-RANK-07",
+				"二游排行 10 条且版式规格与另两榜一致",
+				game?.rows?.length === 10 &&
+					game.rows[0].h / game.rows[0].w >= 0.14 &&
+					game.rows[0].h / game.rows[0].w <= 0.21 &&
+					game.rows[0].badgeW / game.rows[0].w >= 0.11 &&
+					game.rows[0].badgeW / game.rows[0].w <= 0.17 &&
+					game.rows[0].badgeBg === jp?.rows?.[0]?.badgeBg &&
+					game.rows[3].badgeBg === rest[0]?.badgeBg,
+				`${game?.rows?.length} 条，行高比 ${((game?.rows?.[0]?.h / game?.rows?.[0]?.w) * 100).toFixed(1)}%，1 名底色 ${game?.rows?.[0]?.badgeBg}`,
+			);
+			record(
+				"R-RANK-07",
+				"二游排行 390px 下无横向溢出",
+				(gameMobile?.overflowX ?? 99) <= 2,
+				`溢出 ${gameMobile?.overflowX}px`,
+			);
+			// 单一榜不该被写进 ?kind=：它没有维度，URL 上出现 kind 参数说明渲染走错了分支
+			// 注意 search 在 rank 子对象里（不是整页事实）
+			record(
+				"R-RANK-07",
+				"二游排行的 URL 上没有 kind 参数",
+				game?.search === "",
+				`search="${game?.search}"`,
+			);
+		}
+
 		// R-RANK-01 / SEO：排行页自己的标题与 canonical（静态产物下 canonical 不带查询串，
 		// 两个维度共用同一张榜单页 → 不会产生 ?kind= 的重复内容）
 		record(
@@ -1150,10 +1200,10 @@ async function main() {
 			const sm = await fs.readFile(path.resolve("dist/sitemap-0.xml"), "utf8");
 			const gone = FORBIDDEN_ROUTES.filter((r) => sm.includes(r));
 			record("R-NAV-07", "sitemap 不含已关闭页面", gone.length === 0, gone.join(",") || "干净");
-			const kept = ["/vndb/", "/myanimelist/", "/guestbook/", "/booknav/", "/rank/jp/", "/rank/cn/"].filter(
+			const kept = ["/vndb/", "/myanimelist/", "/guestbook/", "/booknav/", "/rank/jp/", "/rank/cn/", "/rank/game/"].filter(
 				(r) => sm.includes(r),
 			);
-			record("R-NAV-07", "sitemap 含保留页面（含两个排行页）", kept.length === 6, kept.join(","));
+			record("R-NAV-07", "sitemap 含保留页面（含三个排行页）", kept.length === 7, kept.join(","));
 			// /rank/ 是 noindex 存根，不该出现在 sitemap 里。
 			// 注意不能直接 sm.includes("/rank/")——"/rank/jp/" 也含这个子串，必须按 <loc> 整条匹配。
 			const rankStubInSitemap = /<loc>[^<]*\/rank\/<\/loc>/.test(sm);

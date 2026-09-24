@@ -73,7 +73,7 @@ pnpm preview      # 另开一个终端窗口跑这个并保持运行
 pnpm verify:ui    # 再另开一个终端窗口跑这个
 ```
 
-期望输出：`功能断言 101 项：通过 101，失败 0`。
+期望输出：`功能断言 107 项：通过 107，失败 0`。
 若输出 `检测到 astro dev 服务器` 的提示，说明你对 `pnpm dev` 跑了它——
 那会把"关闭页面"等断言误判，请改成对 `pnpm preview` 跑。
 
@@ -88,7 +88,7 @@ pnpm verify:ui    # 再另开一个终端窗口跑这个
 | 现在**还没有**桌宠、聊天 | 正常：桌宠在 P3、Agent 后端在 P5（见 `PROJECT_STATUS.md`） |
 | 排行榜里是"示例作品 01"这类内容 | 正常：真实榜单数据还没给（`PROJECT_STATUS.md` 的 `B-08`），页面底部也有同样的提示 |
 
-> 📌 当前阶段：**P0 / P1 / P2 已完成，等审查**。`/rank/jp/`（日漫排行）与 `/rank/cn/`（国漫排行）已经能访问，
+> 📌 当前阶段：**P0 / P1 / P2 已完成，等审查**。`/rank/jp/`（日漫排行）、`/rank/cn/`（国漫排行）、`/rank/game/`（二游排行，单一榜）都已经能访问，
 > 「全剧 / 单集」可切换（URL 带 `?kind=ep`）；`/rank/` 本地是跳转存根，线上由 Nginx 301 到 `/rank/jp/`。
 
 ## 常用命令
@@ -100,7 +100,7 @@ pnpm verify:ui    # 再另开一个终端窗口跑这个
 | `pnpm type-check` | `tsc --noEmit`，覆盖 `src/` 与 `scripts/` |
 | `pnpm build` | 生产构建：LQIP → VNDB 封面（未配置则跳过）→ Astro → 清理未用看板娘资源 → 字体子集 → 内联脚本压缩 → Pagefind 索引 |
 | `pnpm preview` | 预览 `dist/` |
-| `pnpm verify:ui` | 界面验收：101 项断言 + 泄漏扫描 + 对比度 A/B + 13 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
+| `pnpm verify:ui` | 界面验收：107 项断言 + 泄漏扫描 + 对比度 A/B + 15 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
 | `pnpm make:logo` | 从 `imiss-logo.svg` 重新栅格化 Logo 与 favicon |
 | `pnpm format` / `pnpm lint` | Biome 格式化 / 检查并安全修复（只针对 `src/`） |
 | `pnpm new-post` | 新建文章脚手架 |
@@ -154,7 +154,7 @@ tags: [Linux, 进程]
 
 排行榜数据在 `src/config/rankConfig.ts`：四组数据（日漫 / 国漫 × 全剧 / 单集），**数组顺序就是名次**，只有一期、手工维护。条目配图放 `src/assets/images/rank/`；不填配图会自动用主题色渐变占位，不会出现裂图。
 
-页面：`/rank/jp/`（日漫排行）、`/rank/cn/`（国漫排行），右上角可在「全剧 / 单集」间切换（状态写在 URL 的 `?kind=` 上，可以直接分享链接）。
+页面：`/rank/jp/`（日漫排行）、`/rank/cn/`（国漫排行），右上角可在「全剧 / 单集」间切换（状态写在 URL 的 `?kind=` 上，可以直接分享链接）；`/rank/game/`（二游排行）**没有维度**，直接是一份名单——它的数据在同一个文件里写成一个数组即可（`game: { ..., data: [ … ] }`）。
 
 > 现在是**占位数据**（示例作品 01~10），所以页面底部有一条提示。填完真实数据后，把同一个文件里的 `dataStatus` 从 `"placeholder"` 改成 `"final"`，提示就会消失；两张演示剧照 `_demo-0*.webp` 也可以一并删掉。
 

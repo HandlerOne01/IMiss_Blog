@@ -17,7 +17,7 @@
 import ImageWrapper from "@/components/common/ImageWrapper.astro";
 import { Icon } from "astro-icon/components";
 import type { ImageMetadata } from "astro";
-import type { RankBoardConfig, RankKind } from "@/types/rankConfig";
+import type { RankBoardConfig, RankEntry, RankKind } from "@/types/rankConfig";
 
 interface Props {
 	board: RankBoardConfig;
@@ -51,6 +51,25 @@ const labelOf = (k: RankKind): string => board.labels?.[k] ?? kindLabels[k];
 const initialKind: RankKind = kinds.includes(kind) ? kind : "all";
 
 /**
+ * 单一榜（二游排行，R-RANK-07）：`data` 直接是数组 → 只有一份名单，页面上不出现维度切换。
+ * 判据就是 `Array.isArray(board.data)`，别用 `board.id === "game"` 这类硬编码（加榜时容易忘）。
+ */
+const isSingle = Array.isArray(board.data);
+/** 单一榜的图标换一个（静态字符串，astro-icon 需要在构建期就能解析出图标名） */
+const boardIcon = isSingle
+	? "material-symbols:sports-esports"
+	: "material-symbols:emoji-events";
+
+/**
+ * 把两种数据形态归一成 `Record<RankKind, RankEntry[]>`，后面模板只认 panels。
+ * ⚠️ 这里**必须在同一个表达式里做 Array.isArray 判断**，TypeScript 才会收窄类型
+ * （把结果先存进 `isSingle` 再判，收窄传不过来，`board.data[k]` 会报 ts(7053)）。
+ */
+const boardData: Record<RankKind, RankEntry[]> = Array.isArray(board.data)
+	? { all: board.data, ep: [] }
+	: board.data;
+
+/**
  * 自己先判一次配图到底在不在。
  *
  * 为什么要自己判：`ImageWrapper` 找不到文件时**什么都不渲染**（只剩一层空壳 div，见 ARCH §14.3 T7）。
@@ -79,8 +98,9 @@ const hasCoverFile = (cover?: string): boolean => {
 	return false;
 };
 
-const panels = kinds.map((k) => {
-	const rows: RankRowView[] = board.data[k].map((entry, index) => ({
+const panels = (isSingle ? (["all"] as RankKind[]) : kinds).map((k) => {
+	const entries: RankEntry[] = boardData[k] ?? [];
+	const rows: RankRowView[] = (entries ?? []).map((entry, index) => ({
 		rank: index + 1,
 		isTop: index < 3,
 		title: entry.title,
@@ -96,7 +116,12 @@ const panels = kinds.map((k) => {
 });
 ---
 
-<section class="rank-board" data-rank-board data-rank-kind={initialKind}>
+<section
+  class="rank-board"
+  data-rank-board
+  data-rank-kind={initialKind}
+  data-rank-single={isSingle ? "true" : undefined}
+>
   {/*
     入场动效的"隐藏态"开关：必须在榜单行被解析**之前**落定。
     只有「JS 可用 + 没开 reduced-motion」时才挂上 html[data-rank-anim="1"]，
@@ -123,11 +148,12 @@ const panels = kinds.map((k) => {
     })();
   </script>
 
-  {/* 页头：标题在左，维度切换在右上（发起人要求"页面右上有选择全剧/单集"） */}
+  {/* 页头：标题在左，维度切换在右上（发起人要求"页面右上有选择全剧/单集"）。
+      单一榜（二游排行）没有维度，这一块整个不渲染。 */}
   <div class="rank-head">
     <div class="page-heading">
       <div class="page-icon" aria-hidden="true">
-        <Icon name="material-symbols:emoji-events" />
+        <Icon name={boardIcon} />
       </div>
       <div>
         <h2>{board.title}</h2>
@@ -135,24 +161,26 @@ const panels = kinds.map((k) => {
       </div>
     </div>
 
-    <div class="rank-tabs" role="tablist" aria-label="榜单维度">
-      {
-        panels.map((panel) => (
-          <button
-            type="button"
-            role="tab"
-            class="rank-tab"
-            data-rank-tab={panel.kind}
-            aria-selected={panel.kind === initialKind ? "true" : "false"}
-            tabindex={panel.kind === initialKind ? 0 : -1}
-            aria-controls={`rank-panel-${board.id}-${panel.kind}`}
-            id={`rank-tab-${board.id}-${panel.kind}`}
-          >
-            {panel.label}
-          </button>
-        ))
-      }
-    </div>
+    {
+      panels.length > 1 && (
+        <div class="rank-tabs" role="tablist" aria-label="榜单维度">
+          {panels.map((panel) => (
+            <button
+              type="button"
+              role="tab"
+              class="rank-tab"
+              data-rank-tab={panel.kind}
+              aria-selected={panel.kind === initialKind ? "true" : "false"}
+              tabindex={panel.kind === initialKind ? 0 : -1}
+              aria-controls={`rank-panel-${board.id}-${panel.kind}`}
+              id={`rank-tab-${board.id}-${panel.kind}`}
+            >
+              {panel.label}
+            </button>
+          ))}
+        </div>
+      )
+    }
   </div>
 
   {/* 两组面板：都在 DOM 里，靠 `rank-panel--off` 这个 class 切换显隐
@@ -163,7 +191,7 @@ const panels = kinds.map((k) => {
         id={`rank-panel-${board.id}-${panel.kind}`}
         class:list={["rank-panel", panel.kind !== initialKind && "rank-panel--off"]}
         data-rank-panel={panel.kind}
-        data-rank-label={panel.label}
+        data-rank-label={panels.length > 1 ? panel.label : undefined}
         role="tabpanel"
         aria-labelledby={`rank-tab-${board.id}-${panel.kind}`}
       >
@@ -218,6 +246,7 @@ const panels = kinds.map((k) => {
   {/*
     无 JS 兜底：没有 JS 时 `rank-panel--off` 不会被 CSS 认领（那条规则挂在 html[data-rank-js="1"] 上），
     所以两块榜单本来就都看得见——这里只需要把点了没反应的维度按钮藏掉、并给两块榜加个小标题。
+    单一榜没有维度按钮与第二块面板，这段对它没有任何影响。
     （打印的情况在 rank.css 的 @media print 里做同一件事；两处规则长得像是因为
       <noscript> 里没法引用外部样式表，只能各写一份。）
   */}
@@ -248,7 +277,8 @@ const panels = kinds.map((k) => {
 
       var panels = root.querySelectorAll("[data-rank-panel]");
       var tabs = root.querySelectorAll("[data-rank-tab]");
-      if (!panels.length || !tabs.length) return;
+      // 注意这里只要求"有面板"：单一榜（二游排行）没有维度按钮，但入场动效照样要跑
+      if (!panels.length) return;
 
       function apply(kind, updateUrl) {
         // 只有"维度真的变了"才写历史：点已经选中的那个按钮不该多出一条历史记录
@@ -289,41 +319,44 @@ const panels = kinds.map((k) => {
         return tabs[0].dataset.rankTab;
       }
 
-      // 解析期按 URL 落定：静态输出读不到 ?kind=，只能在这里纠正
-      apply(kindFromUrl(), false);
+      // 维度切换只在"有两个面板"时才接线；单一榜直接跳过这一整段
+      if (tabs.length > 1) {
+        // 解析期按 URL 落定：静态输出读不到 ?kind=，只能在这里纠正
+        apply(kindFromUrl(), false);
 
-      // 让 document 级的 popstate 监听能复用同一套切换逻辑（否则两处逻辑会各写一遍、迟早走样）
-      root.__rankApply = apply;
+        // 让 document 级的 popstate 监听能复用同一套切换逻辑（否则两处逻辑会各写一遍、迟早走样）
+        root.__rankApply = apply;
 
-      tabs.forEach(function (tab) {
-        tab.addEventListener("click", function () {
-          apply(tab.dataset.rankTab, true);
-        });
-        // tablist 的标准键盘交互：左右方向键切换
-        tab.addEventListener("keydown", function (e) {
-          if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-          e.preventDefault();
-          var list = Array.prototype.slice.call(tabs);
-          var i = list.indexOf(tab);
-          var next = list[(i + (e.key === "ArrowRight" ? 1 : list.length - 1)) % list.length];
-          next.focus();
-          apply(next.dataset.rankTab, true);
-        });
-      });
-
-      // 浏览器前进 / 后退
-      if (!window.__rankTabsPopstate) {
-        window.__rankTabsPopstate = true;
-        window.addEventListener("popstate", function () {
-          document.querySelectorAll("[data-rank-board]").forEach(function (r) {
-            var k = new URL(window.location.href).searchParams.get("kind");
-            var first = r.querySelector("[data-rank-tab]");
-            var hit = k ? r.querySelector('[data-rank-tab="' + k + '"]') : null;
-            var target = hit ? k : first && first.dataset.rankTab;
-            // 复用面板实例上的 apply（切页后旧节点上的实现随节点一起消失，所以每次都重新取）
-            if (target && r.__rankApply) r.__rankApply(target, false);
+        tabs.forEach(function (tab) {
+          tab.addEventListener("click", function () {
+            apply(tab.dataset.rankTab, true);
+          });
+          // tablist 的标准键盘交互：左右方向键切换
+          tab.addEventListener("keydown", function (e) {
+            if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+            e.preventDefault();
+            var list = Array.prototype.slice.call(tabs);
+            var i = list.indexOf(tab);
+            var next = list[(i + (e.key === "ArrowRight" ? 1 : list.length - 1)) % list.length];
+            next.focus();
+            apply(next.dataset.rankTab, true);
           });
         });
+
+        // 浏览器前进 / 后退
+        if (!window.__rankTabsPopstate) {
+          window.__rankTabsPopstate = true;
+          window.addEventListener("popstate", function () {
+            document.querySelectorAll("[data-rank-board]").forEach(function (r) {
+              var k = new URL(window.location.href).searchParams.get("kind");
+              var first = r.querySelector("[data-rank-tab]");
+              var hit = k ? r.querySelector('[data-rank-tab="' + k + '"]') : null;
+              var target = hit ? k : first && first.dataset.rankTab;
+              // 复用面板实例上的 apply（切页后旧节点上的实现随节点一起消失，所以每次都重新取）
+              if (target && r.__rankApply) r.__rankApply(target, false);
+            });
+          });
+        }
       }
 
       // 入场动效：逐行淡入，延迟随名次递增；reduced-motion 下直接显示

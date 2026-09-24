@@ -39,8 +39,13 @@ export interface RankBoardConfig {
 	description?: string;
 	/** 覆盖全局的维度名称（可选，两个榜单要分别叫别的名字时用） */
 	labels?: Partial<Record<RankKind, string>>;
-	/** 两组数据 */
-	data: Record<RankKind, RankEntry[]>;
+	/**
+	 * 榜单数据，有两种形态：
+	 *  · `Record<RankKind, RankEntry[]>` —— 有「全剧 / 单集」两个维度（日漫排行、国漫排行）
+	 *  · `RankEntry[]`                  —— **单一榜，页面上没有维度切换**（二游排行）
+	 * 判据就是 `Array.isArray(data)`，组件里据此决定要不要渲染那对切换按钮。
+	 */
+	data: Record<RankKind, RankEntry[]> | RankEntry[];
 }
 
 export interface RankConfig {

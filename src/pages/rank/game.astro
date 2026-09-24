@@ -1,0 +1,32 @@
+---
+/**
+ * 二游排行（R-RANK-07）
+ * 与日漫/国漫排行共用同一个榜单板，区别只有一个：**这一榜没有「全剧 / 单集」维度**，
+ * 数据在 rankConfig 里是"直接给数组"（不是 { all, ep }），组件据此不渲染切换按钮。
+ * 数据在 src/config/rankConfig.ts；版式规格见 ARCH.md §5；样式在 src/styles/pages/rank.css
+ */
+import RankBoard from "@/components/pages/rank/RankBoard.astro";
+import { rankConfig } from "@/config";
+import MainGridLayout from "@/layouts/MainGridLayout.astro";
+import "@/styles/pages/common.css";
+import "@/styles/pages/rank.css";
+
+const board = rankConfig.boards.game;
+
+// 榜单数据被删掉时不要让构建炸在页面里，直接跳 404（与模板其它页面一致的做法）
+if (!board) {
+	return Astro.redirect("/404/");
+}
+---
+
+<MainGridLayout title={board.title} description={board.description ?? ""}>
+  <div class="flex w-full rounded-(--radius-large) overflow-hidden relative min-h-32">
+    <div class="card-base z-10 px-6 sm:px-9 py-6 relative w-full">
+      <RankBoard
+        board={board}
+        kindLabels={rankConfig.kindLabels}
+        dataStatus={rankConfig.dataStatus}
+      />
+    </div>
+  </div>
+</MainGridLayout>

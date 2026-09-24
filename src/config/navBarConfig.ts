@@ -57,7 +57,6 @@ const getDynamicNavBarConfig = (): NavBarConfig => {
 	// 注意：排行页是本站新增页面，不属于 siteConfig.pages 的开关体系，所以这两个预设**不带 pageKey**。
 	// （顺带纠正一个容易搞反的规则：nav-menu-utils 的判据是 `pages[key] !== false`，
 	//   所以随便写一个不存在的 pageKey 其实**不会**隐藏，而是照常显示——别指望用它来"先藏起来"。）
-	// 另：/rank/jp/ 与 /rank/cn/ 的路由在 P2 才建，在那之前这两个子项是死链，P1 不要单独上线。
 	links.push({
 		name: "排行",
 		url: "#",
@@ -68,6 +67,9 @@ const getDynamicNavBarConfig = (): NavBarConfig => {
 
 			// 国漫排行
 			LinkPresets.RankCN,
+
+			// 二游排行（R-RANK-07：单一榜，页面上没有全剧/单集切换）
+			LinkPresets.RankGame,
 		],
 	});
 
@@ -178,6 +180,12 @@ export const LinkPresets: Record<string, NavBarLink> = {
 		name: "国漫排行",
 		url: "/rank/cn/",
 		icon: "material-symbols:military-tech",
+	},
+	// R-RANK-07：二游排行只有一份名单（页面上没有全剧/单集切换），数据也直接是数组
+	RankGame: {
+		name: "二游排行",
+		url: "/rank/game/",
+		icon: "material-symbols:sports-esports",
 	},
 	// ─── 留言（原「社交」的子项，现提升为顶层最后一项）──────
 	Guestbook: {

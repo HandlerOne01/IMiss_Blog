@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.10 |
+| 文档版本 | v1.11 |
 | 最后更新 | 2026-09-24 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -175,7 +175,7 @@ src/
 | R-BG-02 | `backgroundWallpaper.ts`（`src.playerUrl`）+ `public/assets/videos/*` | 改值 + 新增资源 | 见 §6.2 |
 | R-BG-03 | `backgroundWallpaper.ts` 的 `common.homeText` | 改值 | ⚠️ **P1 已提前处理一部分**（因为它是"站点身份 + 打赏移除"的盲区，见 §14.3 T18）：横幅 `links` 里上游作者的 GitHub / 邮箱 / **Sponsor 打赏入口**已全部删除，换成 RSS + Atom；主标题从 `Lovely firefly!` 换成本站名占位。**正式横幅文案仍等发起人定稿（B-10）** |
 | R-BG-04 | `backgroundWallpaper.ts` 的 `banner.position` + `common.dimOpacity` | 改值 | `position` 控制 cover 取景锚点（默认 `"0% 20%"` 保头脸），`dimOpacity` 控制暗罩（默认 0.2）；换素材后按 §6.4 复量 |
-| R-RANK-01 ~ R-RANK-06 | 见 §5.2 文件清单 | 新增为主 | 复用 `ImageWrapper.astro` 解析配图，不新造图片机制 |
+| R-RANK-01 ~ R-RANK-07 | 见 §5.2 文件清单 | 新增为主 | 复用 `ImageWrapper.astro` 解析配图（组件里另做一次存在性判定，见 §5.6），不新造图片机制 |
 | R-PET-01 ~ R-PET-05 | `src/components/features/AemeathPet.astro`（新增）+ `petConfig.ts`（新增）+ `Layout.astro` 插一行 | 新增 + 插一行 | 见 §7；`Layout.astro` 只在 `<WavesEffect />` 之后插 `<AemeathPet />` |
 | R-AGT-01 ~ R-AGT-06 | `agent/**`（新增）+ `src/utils/pet-agent-client.ts`（新增） | 新增 | 见 §8 |
 | R-CNT-01 ~ R-CNT-08 | `scripts/import-posts.mjs`、`scripts/verify-posts.mjs`（新增）+ `src/content/posts/**`、`public/images/posts/**` | 新增 | 见 §9 |
@@ -254,6 +254,7 @@ src/
 | `scripts/convert-wallpaper.mjs` + `src/assets/images/DesktopWallpaper/*` + `backgroundWallpaper.ts` | R-BG-01 / R-BG-03 / R-BG-04 | §6.1 |
 | `public/assets/videos/*` + `backgroundWallpaper.src.playerUrl` | R-BG-02 | §6.2 |
 | `src/pages/rank/index.astro` / `jp.astro` / `cn.astro` | R-RANK-01 | §5.2 |
+| `src/pages/rank/game.astro` + `rankConfig.boards.game`（单一榜） | R-RANK-07 | §5.2、§5.3 |
 | `RankBoard.astro` 的内联脚本 + URL 契约（`?kind=`） | R-RANK-02 | §5.4 |
 | `src/components/pages/rank/RankBoard.astro` + `src/styles/pages/rank.css` | R-RANK-03 / R-RANK-05 / R-RANK-06 | §5.5、§5.6 |
 | `src/config/rankConfig.ts` + `src/types/rankConfig.ts` | R-RANK-04 | §5.3 |
@@ -295,6 +296,7 @@ src/
 | `src/pages/rank/index.astro` | `return Astro.redirect("/rank/jp/")` |
 | `src/pages/rank/jp.astro` | 读取 `rankConfig.boards.jp`，渲染 `<RankBoard>` |
 | `src/pages/rank/cn.astro` | 读取 `rankConfig.boards.cn`，渲染 `<RankBoard>` |
+| `src/pages/rank/game.astro` | 二游排行（R-RANK-07）：同一套榜单板，数据是单一数组 → 组件不渲染维度切换 |
 | `src/assets/images/rank/*.webp` | 条目配图（可选，缺图走占位）。现有的 `_demo-01.webp` / `_demo-02.webp` 是**演示图**，只在 `rankConfig` 的占位数据里引用，填真数据时一并删掉 |
 
 ### 5.3 数据模型
@@ -315,11 +317,16 @@ export interface RankBoardConfig {
   title: string;        // 页面主标题，如「日漫排行」
   description?: string; // 页面副标题
   labels?: Partial<Record<RankKind, string>>;  // 覆盖默认的「全剧 / 单集」
-  data: Record<RankKind, RankEntry[]>;
+  /**
+   * 两种形态（判据 Array.isArray）：
+   *  · Record<RankKind, RankEntry[]> —— 有「全剧 / 单集」两个维度（日漫、国漫）
+   *  · RankEntry[]                  —— 单一榜，页面没有维度切换（二游排行，R-RANK-07）
+   */
+  data: Record<RankKind, RankEntry[]> | RankEntry[];
 }
 
 export interface RankConfig {
-  kindLabels: Record<RankKind, string>;         // 两个榜单共用一套维度名称
+  kindLabels: Record<RankKind, string>;         // 有维度的榜共用一套维度名称
   dataStatus: "placeholder" | "final";          // placeholder 时页面显示"当前为占位数据"
   boards: Record<string, RankBoardConfig>;
 }
@@ -328,15 +335,17 @@ export interface RankConfig {
 **约定**
 
 - 数组顺序 = 名次，第 1 项是第 1 名；不写名次数字。
+- **单一榜不引入假维度**：二游排行在 `rankConfig` 里直接写数组，组件按 `Array.isArray(board.data)` 决定是否渲染切换按钮——不要靠 `board.id === "game"` 这类硬编码判断（加榜时容易忘）。类型收窄必须在**同一个表达式**里做 `Array.isArray` 判断（先存进布尔变量再判，TS 收窄不到，`board.data[k]` 会报 ts(7053)）。
 - `cover` 用**不带前导 `/`** 的相对路径（与 `siteConfig` 里壁纸写法一致），交给 `ImageWrapper` 的 glob 解析；以 `/` 开头则视为 `public` 资源原样引用。
-- 没有 `cover` 时渲染主题色渐变占位（§5.5），不出现裂图。
+- 没有 `cover`、或 `cover` 指向的文件不存在时渲染主题色渐变占位（§5.5/§5.6），不出现裂图。
 - 数据规模按 10~30 条/榜设计，不做分页。
 
 ### 5.4 页面与交互
 
 ```astro
 ---
-// src/pages/rank/jp.astro（cn.astro 同构，只换 board id）
+// src/pages/rank/jp.astro（cn.astro / game.astro 同构，只换 board id）
+// game.astro 的区别只有一个：它的 data 是数组（单一榜），组件因此不渲染维度切换
 import RankBoard from "@/components/pages/rank/RankBoard.astro";
 import { rankConfig } from "@/config";
 import MainGridLayout from "@/layouts/MainGridLayout.astro";
@@ -355,6 +364,8 @@ if (!board) return Astro.redirect("/404/");     // 数据被删时别炸在页�
 > **改动说明**：原计划用 `RankTabs.svelte`（Svelte 岛）做切换，实测后改成组件内的 `<script is:inline>`，**没有新增 Svelte 岛**。两个理由：
 > ① 站是静态输出，服务端**读不到 `?kind=`**——SSR 只能先渲染「全剧」，若交给 Svelte 在 `onMount` 里纠正，会先闪一下「全剧」再跳；内联脚本在**解析期**就落定，无闪烁。
 > ② 两个按钮的显隐切换不值得付一次 hydration；两组面板都在 DOM 里，切换零请求。
+
+**单一榜（二游排行，R-RANK-07）**：`data` 是数组时组件只生成**一块面板**、整个不渲染 `.rank-tabs`，内联脚本里所有与维度切换有关的代码（`apply`/`kindFromUrl`/click/键盘/popstate）都跳过；入场动效照旧运行（守卫条件是"有面板"而不是"有按钮"，第一版写成后者会让单一榜丢掉动效）。
 
 1. 服务端固定渲染「全剧」为初始选中态（`kind` prop 默认 `"all"`）。
 2. 客户端脚本在**解析期**读 `location.search` 里的 `?kind=` 并纠正选中态（直接打开分享链接就是对的榜单；实测面板翻转约 63ms，早于首帧 80ms，不会闪一下「全剧」）。
