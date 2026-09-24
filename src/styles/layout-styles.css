@@ -663,3 +663,44 @@ html[data-wallpaper-mode="fullscreen"][data-fullscreen-layout="classic"] #wallpa
     }
 }
 
+
+/* ============================================================================
+ * 横幅两侧的隐藏换图交互区（R-BG-05，本站新增）
+ *   · 平时完全看不见；鼠标移上去 / Tab 聚焦到它时才淡出箭头
+ *   · 只在桌面端出现（模板的桌面断点就是 1024px，和 getVisibleSlides 一致）
+ *   · 宽度用 clamp 保证点按区域够大，同时不侵占画面中心的标题
+ * ========================================================================== */
+.banner-switch-zone {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 30;                 /* 高于 dim(10) 与 overlay(20)，箭头不会被暗罩压灰 */
+    width: clamp(56px, 9vw, 140px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    background: linear-gradient(to right, rgb(0 0 0 / 0.28), rgb(0 0 0 / 0));
+    color: #fff;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+.banner-switch-zone.is-prev { left: 0; }
+.banner-switch-zone.is-next { right: 0; background: linear-gradient(to left, rgb(0 0 0 / 0.28), rgb(0 0 0 / 0)); }
+.banner-switch-zone svg { width: 30px; height: 30px; filter: drop-shadow(0 1px 3px rgb(0 0 0 / 0.5)); }
+.banner-switch-zone:hover,
+.banner-switch-zone:focus-visible { opacity: 1; }
+.banner-switch-zone:focus-visible { outline: 2px solid var(--primary); outline-offset: -4px; }
+.banner-switch-zone[hidden] { display: none; }
+
+/* 手机端不显示两侧交互区（发起人要求：手机只用手势，不用点按） */
+@media (max-width: 1023px) {
+    .banner-switch-zone { display: none; }
+}
+
+/* 拖动换图过程中：别选中文字、光标给个"抓着"的反馈 */
+#wallpaper-wrapper.is-swiping { cursor: grabbing; }
+#wallpaper-wrapper.is-swiping, #wallpaper-wrapper.is-swiping * { user-select: none; -webkit-user-select: none; }

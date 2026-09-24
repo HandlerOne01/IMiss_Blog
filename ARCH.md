@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.14 |
+| 文档版本 | v1.15 |
 | 最后更新 | 2026-09-24 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -446,6 +446,19 @@ if (!board) return Astro.redirect("/404/");     // 数据被删时别炸在页�
 5. ⚠️ **两个实测陷阱（不处理会出"点了没反应"的死按钮）**：
    - 导航栏视频按钮的渲染条件是 `playerEnable && mode !== "none"`（`Navbar.astro:212`），**不看 `playerUrl`**；而播放器实体还要求 `src` 是对象且 `src.playerUrl` 存在（`WallpaperSection.astro:532`）。所以**图片期要把 `playerEnable` 设为 `false`**，否则导航栏会出现一个点了没反应的按钮；视频到位后再改回 `true`。
    - `src` 必须保持**对象形态**（`{ desktop, mobile, playerUrl }`）。若把 `src` 写成字符串或数组（模板注释里推荐的"单张图/随机图 API"写法），播放器实体的判断同样不成立 → 同一个死按钮问题。
+
+### 6.1.1 手动换壁纸（R-BG-05，本站新增）
+
+横幅两侧各有一个**隐藏交互区**（真 `<button>`），桌面端（≥1024px）hover 或 Tab 聚焦才淡出箭头；
+鼠标与触屏都可以**按住横向拖动**超过 60px 换图（同一套 pointer 手势）。手机端不显示交互区，只用手势。
+
+| 决策 | 做法 | 为什么 |
+| --- | --- | --- |
+| 复用而不是另写 | 直接调模板已有的 `changeToSlide()`（循环、懒实例化、1000ms 过渡、`transitioning` 防连点都在那边） | 重写一套必然与轮播/断点/懒加载打架 |
+| 脚本怎么拿到那个函数 | 在轮播脚本末尾把 `changeToSlide` / `getVisibleSlides` 挂到 `window.__imiss*` | 两个 `<script is:inline>` 之间没有闭包共享 |
+| 交互区放哪 | `#wallpaper-wrapper` 内、**Swup 容器（`#banner-overlay-container`）之外**，`z-index: 30`（高于 dim 10 / overlay 20） | 放进 Swup 容器会被切页换掉、监听全失效；z 低了会被 0.2 暗罩压灰 |
+| 拖动 vs 点击 | 先要求"横向意图"（位移 > 10px 且大于纵向位移）才进入拖动，从 `a/button/input` 上按下的直接放过 | 否则会抢掉横幅上的链接点击与文字选择 |
+| 让位 | 置 `window.__imissManualSwitchActive`，模板原有的触摸滑动看到它就 return | 同一次滑动不能切两张 |
 
 > ⚠️ 素材质量提示：4 张源图是 1916×821 的预裁图，在 2560 宽屏上会被放大约 1.34 倍，属于**临时占位**。正式方案是视频（源宽度建议 ≥ 2560）。
 
@@ -906,7 +919,7 @@ dosc/blog/**/*.md
 | `pnpm preview` | 预览构建产物 | — |
 | `pnpm format` / `pnpm lint` | Biome 格式化与检查 | — |
 | `pnpm verify:posts` | 内容与排行数据校验（阻断式） | ✅（P4 新增） |
-| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **133 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底），并输出 **19 张**截图到 `reports/screenshots/`。P3 起含桌宠与壁纸全项（九状态触发 / 键盘 / 拖拽 / 菜单 / 联动 / reduced-motion / 与浮动按钮不重叠 / 移动端隐藏 / 取景与暗罩）| ✅（P1 新增，P2/P3 两次扩容） |
+| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **142 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底），并输出 **20 张**截图到 `reports/screenshots/`。P3 起含桌宠与壁纸全项（九状态触发 / 键盘 / 拖拽 / 菜单 / 联动 / reduced-motion / 与浮动按钮不重叠 / 移动端隐藏 / 取景与暗罩）| ✅（P1 新增，P2/P3 两次扩容） |
 | `pnpm verify:docs` | **文档一致性自检**（`scripts/verify-docs.mjs`）：核对三份文档互相之间、以及文档与仓库事实是否一致——版本号与"最后更新"日期、断言/截图数与最近一次实测、排行页清单与路由文件、导航子项与 `navBarConfig.ts`、需求编号引用闭环、阻塞项条数与编号连续、§2 与 §3 阶段状态，以及**配置事实**（`displaySettingsConfig.enable`、`rankConfig.dataStatus`、"4 组数据"类说法是否漏了第 5 份）。**每次收工前跑一次**（P2 加二游排行时文档漂移了 12 处，就是没有这道关卡） | ✅（v1.12 新增） |
 | `pnpm make:logo` | 把 `src/assets/images/logo/imiss-logo.svg`（手写矢量设计源）栅格化成导航栏 Logo（webp）与 favicon 四档 PNG | ✅（P1 新增） |
 | `node scripts/make-rank-cover-guide.mjs` | 生成榜单配图比例对照图 `docs/imiss/rank-cover-guide.png`（16:9 原图裁成 5.7:1 后哪一条留下；发起人准备素材时看这张） | ✅（v1.13 新增） |
@@ -914,7 +927,7 @@ dosc/blog/**/*.md
 > **关于 `verify:ui` 的对比度检查**：主体走"token 级"校验（`--deep-text`/`--content-meta`/`--btn-content`/`--primary` 对卡片底/页面底），不是"扫全站文字元素"。
 > 原因：这个主题里大量文字压在封面图、壁纸、半透明面板上，逐元素自动判定无法可靠取得背景色（试了三版：canvas 转色 → 逐层合成 → Node 侧解析，期间还产出过"66/71 元素低于 3:1"的假警报）。
 > P2 补了两处**具体**的对比度断言（不依赖背景取色）：① 名次数字对名次底色（`getComputedStyle` 直接读两个颜色，白字压粉底 ≥ 3:1、深字压橙底 ≥ 4.5:1）；② 缺图占位把渐变各档合成到不透明底色上取最亮值，与白字算对比度（暗/亮主题各一条）。
-> 观感部分仍然是"**可复现的数字交给脚本，观感交给截图**"：脚本每轮输出 19 张截图并人工核对；另外把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
+> 观感部分仍然是"**可复现的数字交给脚本，观感交给截图**"：脚本每轮输出 20 张截图并人工核对；另外把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
 | `pnpm import:posts -- --write` | 内容迁移（默认 dry-run） | ✅ |
 | `pnpm export:agent` | 导出 `agent/data/*.json` | ✅ |
 | `node scripts/convert-wallpaper.mjs` | 壁纸图 → webp | ✅ |
@@ -1098,6 +1111,9 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | T27 | **模板的 `--deep-text` 在暗色下不生效**：`src/styles/variables.styl` 里 `--deep-text: oklch(0.25 …)` **只在浅色 `:root` 定义了一次，`:root.dark` 没有覆盖它**（上游遗留）。拿它当"通用正文色"用，暗色下就是深字压深卡片——桌宠气泡第一版就这样，几乎看不见（截图才发现） | 自己写的浮动组件（气泡/菜单/面板）在暗色下文字"消失"，而且不报错 | 浮动组件的文字色**分主题写**（模板自己的做法是配 `dark:text-white`）：`:root.dark .pet-bubble { color: rgb(255 255 255 / .92) }`。判断一个变量能不能跨主题用，先去 `variables.styl` 里确认 `:root.dark` 有没有覆盖它 |
 | T28 | **`<script is:inline>` 里的 `{表达式}` 不会被求值**：把 `if (${hideOnMobile} && …)` 直接写在 `is:inline` 的 script 标签体里，Astro **不当作表达式处理**——变量不会被插值（还会被 TS 报"声明未使用"）。P3 的"移动端要不要桌宠"判断第一版就这么写，产物里是字面量 `${hideOnMobile}` | 内联脚本里的构建期开关全部失效，且看起来"写了" | 把整段脚本在 frontmatter 里拼成字符串，再 `<script is:inline set:html={petHideScript} />`；产物里能看到值真的被替换（实测 `767px`） |
 | T29 | **验收脚本里的"等待"要跟着物理走**：拖拽测试把宠物丢在半空，紧接着做双击测试——它**落地那一帧会 `setState("jumping")`**，把刚触发的 `review` 盖掉，于是断言读到 `jumping` 并误判成"双击没生效"。同理"键盘 →"在宠物已经贴右边时会被 clamp、根本走不动 | 交互断言时红时绿（取决于时序），很容易被当成偶发 | 交互测试要显式等待物理过程（这里加 `sleep(1400)` 等落地）；"走到边界"的用例换方向（用 ← 而不是 →）；断言详情里把实际状态打出来，别只说 true/false |
+
+| T30 | **绑事件的脚本必须排在目标节点之后**：把"给两侧交互区绑 click"的脚本插在按钮**之前**，`wrapper.querySelectorAll('.banner-switch-zone')` 抓到空列表 → **监听一个都没绑上**，而同一个脚本里绑在父容器上的拖拽手势却照常工作（P3 实测：点击/键盘失效、拖拽正常，很容易误判成"按钮有问题"） | 交互"半死不活"，症状取决于你把监听绑在谁身上 | 内联脚本要么放在目标节点之后，要么用事件委托绑在稳定祖先上；验收时**每条路径都要单独点一遍**（点击 / 键盘 / 手势是三条不同的代码路径） |
+| T31 | **CDP 的 `rawKeyDown` 不触发浏览器默认行为**：用 `type: "rawKeyDown"` 发 Enter，能触发页面上自己写的 `keydown` 监听，但**不会**触发 `<button>` 的原生激活（那是 keydown 的默认动作）。P3 验收"键盘 Enter 换图"因此假失败过一次 | 依赖原生行为的键盘断言会误判成"功能没做" | 要验证原生行为就发 `type: "keyDown"` + `text: "\\r"`（Enter）/ `" "`（Space），或干脆用 `Input.dispatchKeyEvent` 的 `char` 事件类型 |
 
 ### 14.4 被移除的上游功能怎么找回来
 

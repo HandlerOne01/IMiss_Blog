@@ -23,6 +23,126 @@ const wallpaperPosition = state.isFullscreenMode
 	? (backgroundWallpaper.fullscreen?.position ??
 		backgroundWallpaper.banner?.position)
 	: backgroundWallpaper.banner?.position;
+
+/**
+ * 手动换壁纸（R-BG-05，本站新增）：两侧隐藏交互区 + 按住横向拖动换图。
+ * 脚本必须在这里拼成字符串（`<script is:inline>` 里的 `${}` 不会被 Astro 求值，
+ * 见 ARCH §14.3 T28）。
+ */
+const manualSwitch = backgroundWallpaper.banner?.manualSwitch;
+const manualSwitchScript = `(function initManualSwitch() {
+	var container = document.getElementById('banner-images-container');
+	var wrapper = document.getElementById('wallpaper-wrapper');
+	if (!container || !wrapper) return;
+
+	var cfg = {
+		zones: ${manualSwitch?.zones === false ? "false" : "true"},
+		drag: ${manualSwitch?.drag === false ? "false" : "true"},
+		threshold: ${Number(manualSwitch?.dragThreshold) || 60}
+	};
+
+	function isBannerMode() {
+		return document.documentElement.dataset.wallpaperMode === 'banner';
+	}
+	function visibleSlides() {
+		if (window.__imissGetVisibleSlides) return window.__imissGetVisibleSlides();
+		var all = container.querySelectorAll('.slide-item');
+		var isLg = window.innerWidth >= 1024;
+		var out = [];
+		for (var i = 0; i < all.length; i++) {
+			var el = all[i];
+			if (isLg && el.classList.contains('lg:hidden')) continue;
+			if (!isLg && el.classList.contains('hidden') && !el.classList.contains('lg:hidden')) continue;
+			out.push(el);
+		}
+		return out;
+	}
+	function canSwitch() {
+		return isBannerMode() && visibleSlides().length > 1;
+	}
+	/** 把 ±1 交给模板现成的换图函数（循环 / 懒实例化 / 过渡 / 防连点都在那边） */
+	function switchBy(dir) {
+		if (!canSwitch() || !window.__imissChangeToSlide) return false;
+		var slides = visibleSlides();
+		var cur = 0;
+		for (var i = 0; i < slides.length; i++) {
+			if (slides[i].classList.contains('active')) { cur = i; break; }
+		}
+		window.__imissChangeToSlide(cur + dir);
+		return true;
+	}
+
+	// ① 两侧交互区：CSS 保证只在 ≥1024px 显示，这里只处理"能不能用"
+	var zones = wrapper.querySelectorAll('.banner-switch-zone');
+	for (var z = 0; z < zones.length; z++) {
+		(function (btn) {
+			btn.addEventListener('click', function (e) {
+				e.preventDefault();
+				switchBy(Number(btn.dataset.bannerSwitch) || 1);
+			});
+			btn.hidden = !canSwitch();
+		})(zones[z]);
+	}
+
+	// ② 按住横向拖动（鼠标）/ 滑动（触屏）：同一套 pointer 手势
+	if (cfg.drag) {
+		var startX = 0, startY = 0, dragging = false, pointerId = null;
+		var INTERACTIVE = 'a, button, input, textarea, select, [role="button"], [contenteditable="true"]';
+
+		wrapper.addEventListener('pointerdown', function (e) {
+			if (!canSwitch()) return;
+			if (e.button !== 0 && e.pointerType === 'mouse') return;
+			var t = e.target;
+			// 从链接/按钮上开始拖就交给它们自己，否则会把点击抢掉
+			if (t && t.closest && t.closest(INTERACTIVE)) return;
+			pointerId = e.pointerId;
+			startX = e.clientX;
+			startY = e.clientY;
+			dragging = false;
+		});
+
+		wrapper.addEventListener('pointermove', function (e) {
+			if (pointerId === null || e.pointerId !== pointerId) return;
+			var dx = e.clientX - startX;
+			var dy = e.clientY - startY;
+			if (!dragging) {
+				// 先要求"横向意图"明确，免得把纵向滚动 / 文字选择误判成换图
+				if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy)) return;
+				dragging = true;
+				wrapper.classList.add('is-swiping');
+			}
+			if (e.cancelable) e.preventDefault();
+		}, { passive: false });
+
+		var endDrag = function (e) {
+			if (pointerId === null || (e && e.pointerId !== pointerId)) return;
+			var dx = (e ? e.clientX : startX) - startX;
+			var wasDragging = dragging;
+			pointerId = null;
+			dragging = false;
+			wrapper.classList.remove('is-swiping');
+			if (!wasDragging || Math.abs(dx) < cfg.threshold) return;
+			switchBy(dx < 0 ? 1 : -1); // 往左拖 = 下一张
+		};
+		wrapper.addEventListener('pointerup', endDrag);
+		wrapper.addEventListener('pointercancel', endDrag);
+		wrapper.addEventListener('pointerleave', endDrag);
+	}
+
+	// 让模板原有的触摸滑动让位（同一次滑动不能切两张）
+	window.__imissManualSwitchActive = true;
+
+	// 断点跨过 1024px 时交互区的可用性跟着变
+	if (window.matchMedia) {
+		var mq = window.matchMedia('(min-width: 1024px)');
+		var syncZones = function () {
+			var zs = wrapper.querySelectorAll('.banner-switch-zone');
+			for (var i = 0; i < zs.length; i++) zs[i].hidden = !canSwitch();
+		};
+		if (mq.addEventListener) mq.addEventListener('change', syncZones);
+		else if (mq.addListener) mq.addListener(syncZones);
+	}
+})();`;
 ---
 
 <!-- Wallpaper - 如果允许切换则始终渲染，否则只渲染当前模式 -->
@@ -383,11 +503,13 @@ const wallpaperPosition = state.isFullscreenMode
                 }
             });
 
-            // 触屏滑动
+            // 触屏滑动：模板原有这条只在「轮播开着」时生效。
+            // 本站的手势（见下面 R-BG-05 那段）接管之后这条要让位，否则一次滑动会切两张
             document.addEventListener('touchstart', function(e) {
                 appState.touchStartX = e.changedTouches[0].screenX;
             }, { passive: true });
             document.addEventListener('touchend', function(e) {
+                if (window.__imissManualSwitchActive) return;
                 if (!isBannerWallpaperMode() || !isCarouselEnabled()) return;
                 appState.touchEndX = e.changedTouches[0].screenX;
                 var diff = appState.touchEndX - appState.touchStartX;
@@ -463,8 +585,41 @@ const wallpaperPosition = state.isFullscreenMode
             if (isCarouselEnabled() && isBannerWallpaperMode()) {
                 startAutoPlay();
             }
+
+            // 暴露给 R-BG-05 的手动换图脚本：它在**另一个** <script> 里，拿不到这里的闭包。
+            // 只暴露这两个：换图（复用循环/懒实例化/过渡/防连点）与"当前可见的幻灯片"。
+            window.__imissChangeToSlide = changeToSlide;
+            window.__imissGetVisibleSlides = getVisibleSlides;
         })();
     </script>
+    )}
+
+    {/* 手动换壁纸：桌面端两侧隐藏交互区（R-BG-05，本站新增）
+        · 放在 #banner-overlay-container **之外**：它是 Swup 容器，切页会整块换掉，
+          按钮跟着重生、绑在上面的监听就没了；放在这里（#wallpaper-wrapper 内、容器外）
+          节点跨页常驻，脚本只在启动时绑一次
+        · z-30 高于 dim(10) 与 overlay(20)：箭头不会被 0.2 的暗罩压灰
+        · 只有"这一侧有多张图"时才渲染；JS 还会在运行时再确认一次（getVisibleSlides） */}
+    {(state.isBannerMode || state.isWallpaperSwitchable) && backgroundWallpaper.banner?.manualSwitch?.enable && backgroundWallpaper.banner.manualSwitch.zones && (backgroundImages.desktop.length > 1 || backgroundImages.mobile.length > 1) && (
+        <>
+            <button type="button" class="banner-switch-zone is-prev" data-banner-switch="-1" aria-label="上一张壁纸" title="上一张壁纸">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button type="button" class="banner-switch-zone is-next" data-banner-switch="1" aria-label="下一张壁纸" title="下一张壁纸">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+        </>
+    )}
+
+    {/* ── 手动换壁纸（R-BG-05，本站新增）────────────────────────────────
+        桌面：两侧隐藏交互区（hover / Tab 聚焦才淡出箭头）
+        鼠标与触屏：按住横向拖动超过阈值就换图（同一套 pointer 手势）
+        复用上面那个脚本里的 changeToSlide()（它已经处理好循环、懒实例化、
+        淡入过渡与防连点），所以这段只做"把用户意图翻译成 ±1"。
+        ⚠️ 脚本内容在 frontmatter 里拼成字符串再 set:html —— `<script is:inline>`
+        里的 `${}` **不会被 Astro 求值**（ARCH §14.3 T28，P3 踩过一次）。 */}
+    {manualSwitch?.enable && state.hasMultipleImages && (
+    <script is:inline data-swup-ignore-script set:html={manualSwitchScript} />
     )}
 
     <!-- 单图模式：只实例化当前断点匹配的那一侧 -->
@@ -556,6 +711,7 @@ const wallpaperPosition = state.isFullscreenMode
     <BannerPostMetaOverlay showBannerPostMeta={state.showBannerPostMeta} bannerPostInfoMode={state.bannerPostInfoMode} bannerDescriptionWidth={state.bannerDescriptionWidth} bannerPostMeta={bannerPostMeta} />
 
     </div>
+
 
     <!-- Fullscreen 模式下显示向下滚动指示器（仅首页显示；放在 overlay 容器外，避免被标题视差 transform 带离）。
          始终渲染：壁纸区在 Swup 容器外、切页不重渲染，若首开非首页则指示器不会出现。

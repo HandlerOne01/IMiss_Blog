@@ -73,7 +73,7 @@ pnpm preview      # 另开一个终端窗口跑这个并保持运行
 pnpm verify:ui    # 再另开一个终端窗口跑这个
 ```
 
-期望输出：`功能断言 133 项：通过 133，失败 0`。
+期望输出：`功能断言 142 项：通过 142，失败 0`。
 若输出 `检测到 astro dev 服务器` 的提示，说明你对 `pnpm dev` 跑了它——
 那会把"关闭页面"等断言误判，请改成对 `pnpm preview` 跑。
 
@@ -108,7 +108,7 @@ pnpm verify:docs    # 期望输出：`文档检查 … ：通过 N，失败 0`�
 | `pnpm type-check` | `tsc --noEmit`，覆盖 `src/` 与 `scripts/` |
 | `pnpm build` | 生产构建：LQIP → VNDB 封面（未配置则跳过）→ Astro → 清理未用看板娘资源 → 字体子集 → 内联脚本压缩 → Pagefind 索引 |
 | `pnpm preview` | 预览 `dist/` |
-| `pnpm verify:ui` | 界面验收：133 项断言 + 泄漏扫描 + 对比度 A/B + 19 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
+| `pnpm verify:ui` | 界面验收：142 项断言 + 泄漏扫描 + 对比度 A/B + 20 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
 | `pnpm verify:docs` | 文档自检：核对三份文档与仓库事实是否一致（版本号、断言/截图数、排行页清单、导航子项、需求编号、阻塞项、阶段状态）。**改完东西收工前跑一次** |
 | `node scripts/convert-wallpaper.mjs` | 把 `dosc/photo` 的 4 张壁纸转成 webp（桌面 + 移动两套），改壁纸素材时用 |
 | `pnpm make:logo` | 从 `imiss-logo.svg` 重新栅格化 Logo 与 favicon |
@@ -159,6 +159,21 @@ tags: [Linux, 进程]
 ```
 
 > 为什么不放 `src/assets/`：文章图片数量大，进构建期图片优化管线会显著拖长构建时间；只有壁纸、封面、排行榜配图、桌宠图集这些少量图才交给 Astro 优化。
+
+## 怎么换壁纸 / 加壁纸
+
+壁纸配置在 `src/config/backgroundWallpaper.ts`：
+
+| 想做什么 | 怎么做 |
+| --- | --- |
+| 换/加图片 | 图片放进 `src/assets/images/DesktopWallpaper/`（桌面）与 `MobileWallpaper/`（手机），然后往 `src.common.src.desktop` / `.mobile` 数组里加路径；**数组多于 1 张时**横幅两侧就会出现隐藏换图区 |
+| 调整构图 | `banner.position`（现在是 `0% 20%`，保头脸）与 `common.dimOpacity`（暗罩，现在是 `0.2`）——只改配置，不用碰代码 |
+| 关掉手动换图 | `banner.manualSwitch.enable = false`（完全回到模板原有行为） |
+| 只关某一侧的行为 | `manualSwitch.zones`（桌面两侧交互区）/ `manualSwitch.drag`（拖动换图）/ `manualSwitch.dragThreshold`（拖动阈值，默认 60px） |
+| 从原始素材重新转 webp | `node scripts/convert-wallpaper.mjs [--src <目录>]`（把 `dosc/photo` 那批转成桌面/移动两套 webp） |
+
+**怎么用**：桌面端鼠标移到横幅**最左/最右边缘**会淡出一个箭头，点它换上一张/下一张（可循环）；也可以**按住横幅左右拖**。
+手机端不显示箭头，**左右滑动**换图。键盘：Tab 能聚焦到两侧箭头，按 Enter / 空格换图。
 
 ## 维护排行榜
 

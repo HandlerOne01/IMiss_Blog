@@ -166,6 +166,17 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 			// 注意：导航栏子菜单与浮动面板始终保留毛玻璃，模糊度跟随此项但有最小值
 			blur: 12,
 		},
+		// 手动换壁纸（R-BG-05，本站新增）
+		//   · 桌面端：左右两侧各一个**隐藏**交互区（平时看不见，鼠标移上去 / Tab 聚焦才淡出箭头）
+		//   · 鼠标与触屏都可以按住横向拖动换图（同一套 pointer 手势，阈值见 dragThreshold）
+		//   · 手机端不显示两侧交互区（横幅在手机上很矮，点按区域容易误触），只用手势
+		// 关掉 enable 即完全回到模板原有行为（那时换图只受「壁纸轮播」开关控制）
+		manualSwitch: {
+			enable: true,
+			zones: true,
+			drag: true,
+			dragThreshold: 60,
+		},
 	},
 	// 覆盖透明覆盖模式特有配置
 	overlay: {

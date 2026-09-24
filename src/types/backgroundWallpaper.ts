@@ -93,6 +93,13 @@ export type BackgroundWallpaperConfig = {
 			transparentMode?: "semi" | "semifull" | "none"; // 导航栏透明模式："semi" 半透明，"semifull" 动态透明，"none" 纯色不透明
 			blur?: number; // 毛玻璃模糊度，0 即关闭导航栏毛玻璃
 		};
+		// 手动换壁纸（R-BG-05，本站新增）：桌面两侧隐藏交互区 + 按住横向拖动换图
+		manualSwitch?: {
+			enable?: boolean; // 总开关；false 时回到模板原有行为（换图仍然只受轮播开关控制）
+			zones?: boolean; // 桌面端（≥1024px）左右两侧的隐藏交互区，hover / Tab 聚焦才淡出箭头
+			drag?: boolean; // 按住横向拖动换图（鼠标与触屏共用一套 pointer 手势）
+			dragThreshold?: number; // 拖动多远算一次换图（px），默认 60
+		};
 	};
 	// 全屏透明覆盖模式特有配置
 	overlay?: {

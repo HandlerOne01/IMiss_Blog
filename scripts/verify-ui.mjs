@@ -307,6 +307,40 @@ const COLLECT = `(() => {
         dimOpacity: dimAlpha,
       };
     })(),
+    // ── R-BG-05 手动换壁纸：两侧交互区 + 拖动 ──────────────
+    wallpaperSwitch: (() => {
+      const zones = [...document.querySelectorAll(".banner-switch-zone")];
+      const all = [...document.querySelectorAll(".slide-item")];
+      const isLg = window.innerWidth >= 1024;
+      const visible = all.filter((el) => {
+        if (isLg && el.classList.contains("lg:hidden")) return false;
+        if (!isLg && el.classList.contains("hidden") && !el.classList.contains("lg:hidden")) return false;
+        return true;
+      });
+      const activeIdx = visible.findIndex((el) => el.classList.contains("active"));
+      const activeImg = visible[activeIdx]?.querySelector("img");
+      return {
+        count: visible.length,
+        activeIndex: activeIdx,
+        activeSrc: (activeImg?.currentSrc || activeImg?.src || "").split("/").pop() || "",
+        zones: zones.map((z) => {
+          const cs = getComputedStyle(z);
+          return {
+            dir: z.dataset.bannerSwitch,
+            hidden: z.hidden,
+            display: cs.display,
+            opacity: cs.opacity,
+            tabIndex: z.tabIndex,
+            aria: z.getAttribute("aria-label") || "",
+            rect: (() => {
+              const r = z.getBoundingClientRect();
+              return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) };
+            })(),
+            focused: document.activeElement === z,
+          };
+        }),
+      };
+    })(),
     // R-RANK-01 / SEO：静态产物下 canonical 不该带查询串（两个维度共用一张榜单页）
     canonical: (document.querySelector('link[rel="canonical"]') || {}).href || null,
     rowsText: (document.querySelector(".rank-rows") || {}).innerText || "",
@@ -1076,6 +1110,154 @@ async function main() {
 		});
 	}
 
+	// ── R-BG-05 手动换壁纸：交互区点击 / hover 显形 / 键盘 / 拖动 ──
+	{
+		await cdp.send("Emulation.setDeviceMetricsOverride", {
+			width: 1440,
+			height: 900,
+			deviceScaleFactor: 1,
+			mobile: false,
+		});
+		const loaded = cdp.once("Page.loadEventFired");
+		await cdp.send("Page.navigate", { url: `${BASE}/` });
+		await loaded;
+		await sleep(1400);
+
+		const snap = async (key) => {
+			const { result } = await cdp.send("Runtime.evaluate", { expression: COLLECT, returnByValue: true });
+			facts[key] = result.value;
+			return result.value.wallpaperSwitch;
+		};
+		const clickZone = async (sel) => {
+			const { result } = await cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					const z = document.querySelector('${sel}');
+					if (!z) return "missing";
+					z.click();
+					return "ok";
+				})()`,
+				returnByValue: true,
+			});
+			return result.value;
+		};
+
+		const start = await snap("wp-switch-start");
+
+		// ① 默认不可见（opacity 0），但存在且可聚焦
+		// ② 点「下一张」→ active 前进一张
+		await clickZone(".banner-switch-zone.is-next");
+		await sleep(1200); // 等 1000ms 的过渡
+		const afterNext = await snap("wp-switch-next");
+
+		// ③ 点「上一张」→ 退回原来那张
+		await clickZone(".banner-switch-zone.is-prev");
+		await sleep(1200);
+		const afterPrev = await snap("wp-switch-prev");
+
+		// ④ 连点「下一张」→ 能循环回起点
+		const total = start.count || 1;
+		const end = await cdp.send("Runtime.evaluate", {
+			expression: `(async () => {
+				const btn = document.querySelector('.banner-switch-zone.is-next');
+				for (let i = 0; i < ${total}; i++) {
+					btn.click();
+					await new Promise((r) => setTimeout(r, 1150));
+				}
+				return "done";
+			})()`,
+			returnByValue: true,
+			awaitPromise: true,
+		});
+		const afterLoop = await snap("wp-switch-loop");
+
+		// ⑤ hover 才淡出箭头：鼠标移到交互区上 → opacity 变 1
+		const zone = afterLoop.zones.find((z) => z.dir === "1");
+		await cdp.send("Input.dispatchMouseEvent", {
+			type: "mouseMoved",
+			x: (zone?.rect.x ?? 0) + 20,
+			y: (zone?.rect.y ?? 0) + 100,
+		});
+		await sleep(450);
+		await snap("wp-switch-hover");
+
+		// ⑥ 键盘：聚焦交互区后按 Enter 也能换图（走的是 button 的**原生默认行为**，
+		//    所以这里必须发 keyDown + text:"\r"；rawKeyDown 不触发默认动作，第一版就这么假失败了）
+		await cdp.send("Runtime.evaluate", {
+			expression: `document.querySelector('.banner-switch-zone.is-next').focus(); "focused"`,
+			returnByValue: true,
+		});
+		await cdp.send("Input.dispatchKeyEvent", {
+			type: "keyDown",
+			key: "Enter",
+			code: "Enter",
+			windowsVirtualKeyCode: 13,
+			nativeVirtualKeyCode: 13,
+			text: "\r",
+			unmodifiedText: "\r",
+		});
+		await cdp.send("Input.dispatchKeyEvent", {
+			type: "keyUp",
+			key: "Enter",
+			code: "Enter",
+			windowsVirtualKeyCode: 13,
+			nativeVirtualKeyCode: 13,
+		});
+		await sleep(1250);
+		await snap("wp-switch-keyboard");
+
+		// ⑦ 鼠标按住往左拖 → 下一张（同一套 pointer 手势）
+		await cdp.send("Runtime.evaluate", {
+			expression: `(() => {
+				const w = document.getElementById("wallpaper-wrapper");
+				const r = w.getBoundingClientRect();
+				const cx = Math.round(r.left + r.width / 2);
+				const cy = Math.round(r.top + r.height * 0.55);
+				w.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 11, pointerType: "mouse", button: 0, clientX: cx, clientY: cy }));
+				w.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 11, pointerType: "mouse", button: 0, clientX: cx - 40, clientY: cy }));
+				w.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 11, pointerType: "mouse", button: 0, clientX: cx - 140, clientY: cy }));
+				w.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 11, pointerType: "mouse", button: 0, clientX: cx - 140, clientY: cy }));
+				return "dragged";
+			})()`,
+			returnByValue: true,
+		});
+		await sleep(1250);
+		await snap("wp-switch-drag");
+
+		const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+		await fs.writeFile(path.join(OUT_DIR, "banner-switch-hover-1440.png"), Buffer.from(shot.data, "base64"));
+
+		// ⑧ 手机端：交互区不显示（CSS），但触屏滑动仍能换图
+		await cdp.send("Emulation.setDeviceMetricsOverride", {
+			width: 390,
+			height: 844,
+			deviceScaleFactor: 1,
+			mobile: true,
+		});
+		const loadedMobile = cdp.once("Page.loadEventFired");
+		await cdp.send("Page.navigate", { url: `${BASE}/` });
+		await loadedMobile;
+		await sleep(1400);
+		const mobileStart = await snap("wp-switch-mobile-start");
+		await cdp.send("Runtime.evaluate", {
+			expression: `(() => {
+				const w = document.getElementById("wallpaper-wrapper");
+				const r = w.getBoundingClientRect();
+				const cx = Math.round(r.left + r.width / 2);
+				const cy = Math.round(r.top + r.height * 0.5);
+				w.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 21, pointerType: "touch", isPrimary: true, clientX: cx, clientY: cy }));
+				w.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 21, pointerType: "touch", isPrimary: true, clientX: cx - 50, clientY: cy }));
+				w.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 21, pointerType: "touch", isPrimary: true, clientX: cx - 130, clientY: cy }));
+				w.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 21, pointerType: "touch", isPrimary: true, clientX: cx - 130, clientY: cy }));
+				return "swiped";
+			})()`,
+			returnByValue: true,
+		});
+		await sleep(1250);
+		await snap("wp-switch-mobile-after");
+		void mobileStart;
+		void end;
+	}
+
 	// ── 用采集到的事实做判定 ──
 	const home = facts["home-1440"];
 	const mobileHome = facts["home-390"];
@@ -1664,6 +1846,79 @@ async function main() {
 			"暗罩按配置生效（dimOpacity 0.2）",
 			Math.abs((wp?.dimOpacity ?? -1) - 0.2) < 0.06,
 			`dimOpacity=${wp?.dimOpacity}`,
+		);
+	}
+
+	// ── R-BG-05 横幅两侧隐藏换图键 + 拖动换图 ──
+	{
+		const start = facts["wp-switch-start"].wallpaperSwitch;
+		const next = facts["wp-switch-next"].wallpaperSwitch;
+		const prev = facts["wp-switch-prev"].wallpaperSwitch;
+		const loop = facts["wp-switch-loop"].wallpaperSwitch;
+		const hover = facts["wp-switch-hover"].wallpaperSwitch;
+		const kbd = facts["wp-switch-keyboard"].wallpaperSwitch;
+		const drag = facts["wp-switch-drag"].wallpaperSwitch;
+		const mStart = facts["wp-switch-mobile-start"].wallpaperSwitch;
+		const mAfter = facts["wp-switch-mobile-after"].wallpaperSwitch;
+		const step = (a, b) => (b - a + start.count) % start.count;
+
+		record(
+			"R-BG-05",
+			"桌面端渲染出左右两个隐藏交互区（带 aria-label、可聚焦）",
+			start.zones.length === 2 &&
+				start.zones.every((z) => z.tabIndex >= 0 && z.aria.length > 0 && z.display !== "none"),
+			start.zones.map((z) => `dir=${z.dir} aria=${z.aria} tab=${z.tabIndex} ${z.rect.w}×${z.rect.h}`).join(" ｜ "),
+		);
+		// 只 hover 了"下一张"那个：被 hover 的显形，另一个必须仍是 0（否则等于"一直显示"）
+		record(
+			"R-BG-05",
+			"默认完全不可见（opacity 0），hover 到哪侧哪侧才淡出箭头",
+			start.zones.every((z) => Number.parseFloat(z.opacity) === 0) &&
+				Number.parseFloat(hover.zones.find((z) => z.dir === "1")?.opacity ?? "0") === 1 &&
+				Number.parseFloat(hover.zones.find((z) => z.dir === "-1")?.opacity ?? "1") === 0,
+			`默认 ${start.zones.map((z) => z.opacity).join("/")} → 只 hover 右侧后 ${hover.zones.map((z) => `dir${z.dir}=${z.opacity}`).join(" ")}`,
+		);
+		record(
+			"R-BG-05",
+			"点右侧交互区 → 切到下一张",
+			start.count > 1 && step(start.activeIndex, next.activeIndex) === 1,
+			`第 ${start.activeIndex + 1} 张 → 第 ${next.activeIndex + 1} 张（共 ${start.count} 张）`,
+		);
+		record(
+			"R-BG-05",
+			"点左侧交互区 → 退回上一张",
+			step(next.activeIndex, prev.activeIndex) === start.count - 1,
+			`第 ${next.activeIndex + 1} 张 → 第 ${prev.activeIndex + 1} 张`,
+		);
+		record(
+			"R-BG-05",
+			"连点一圈能循环回同一张（4 张图点 4 次）",
+			loop.activeIndex === start.activeIndex,
+			`起点第 ${start.activeIndex + 1} 张 → 转一圈后第 ${loop.activeIndex + 1} 张`,
+		);
+		record(
+			"R-BG-05",
+			"键盘 Enter 也能换图（原生 button 行为）",
+			step(loop.activeIndex, kbd.activeIndex) === 1,
+			`第 ${loop.activeIndex + 1} 张 → 第 ${kbd.activeIndex + 1} 张`,
+		);
+		record(
+			"R-BG-05",
+			"鼠标按住往左拖 → 下一张",
+			step(kbd.activeIndex, drag.activeIndex) === 1,
+			`第 ${kbd.activeIndex + 1} 张 → 第 ${drag.activeIndex + 1} 张`,
+		);
+		record(
+			"R-BG-05",
+			"手机端不显示交互区（只用手势）",
+			mStart.zones.length === 2 && mStart.zones.every((z) => z.display === "none" || z.hidden),
+			mStart.zones.map((z) => `dir=${z.dir} display=${z.display} hidden=${z.hidden}`).join(" ｜ "),
+		);
+		record(
+			"R-BG-05",
+			"手机端左右滑动 → 下一张",
+			mStart.count > 1 && (mAfter.activeIndex - mStart.activeIndex + mStart.count) % mStart.count === 1,
+			`第 ${mStart.activeIndex + 1} 张 → 第 ${mAfter.activeIndex + 1} 张（共 ${mStart.count} 张）`,
 		);
 	}
 
