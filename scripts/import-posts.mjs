@@ -114,6 +114,18 @@ const CPP_DIRECTIVES = new Set([
 	"endregion",
 ]);
 
+/** 暂不导入的源文件（发起人 2026-09-24：AI应用 那两篇配图整批缺失，先不导，之后提醒） */
+const SKIP_SOURCES = new Map([
+	[
+		"AI应用/LangChain 能力详解.md",
+		"发起人 2026-09-24：暂不导入（125 张 page-*.png 整批缺图），之后主动提醒",
+	],
+	[
+		"AI应用/LangGraph 能力详解 · 学习笔记.md",
+		"发起人 2026-09-24：暂不导入（80 张 page-*.png 整批缺图），之后主动提醒",
+	],
+]);
+
 /** 批次划分（ARCH §9.3） */
 const BATCHES = {
 	1: [
@@ -138,8 +150,10 @@ const BATCHES = {
 	],
 	2: { cats: ["C++11", "C与C++", "stL"] },
 	3: { cats: ["Linux系统", "linux网络", "MySQL"] },
-	4: { cats: ["基础算法", "AI应用"] },
+	4: { cats: ["基础算法"] },
 	5: { cats: ["八股", "项目"] },
+	// AI应用 那两篇缺图的等发起人发话（B-06）；SDD 已在批次 1 导过
+	6: { cats: ["AI应用"] },
 };
 
 /* ─────────────────────────── 小工具 ─────────────────────────── */
@@ -236,13 +250,18 @@ function codeRanges(text) {
 	let inFence = null;
 	let offset = 0;
 	for (const line of lines) {
-		// 围栏允许任意缩进：源笔记里大量代码块嵌在列表项里（缩进 4 空格），
-		// 按 CommonMark 的 0~3 空格判会漏掉，代码里的 #include / ![] 就会被误判（实测踩过）
-		const m = /^\s*(`{3,}|~{3,})/.exec(line);
+		// 围栏判定按 CommonMark：**收栏行不能带语言名**（只有空白跟在标记后面），
+		// 带内容的行（`   ```shell`、`  - ```shel`）一律当**开栏**。
+		// 原版不分"开/收"、也不认列表项里的 `- ```lang`，导致配对整体错位一格 ——
+		// 独立复核抓到：`八股/其他技术栈.md` 后半篇 644 行被判定翻转、7 行代码被改、
+		// 1 张本地图被当代码跳过（连"缺图"提示都没生成）。
+		const m = /^\s*(?:[-*+]\s+|\d+[.)]\s+)?(`{3,}|~{3,})(.*)$/.exec(line);
 		if (m) {
+			const marker = m[1][0];
+			const rest = m[2].trim();
 			if (!inFence) {
-				inFence = { start: offset, marker: m[1][0], len: m[1].length };
-			} else if (m[1][0] === inFence.marker && m[1].length >= inFence.len) {
+				inFence = { start: offset, marker, len: m[1].length };
+			} else if (marker === inFence.marker && m[1].length >= inFence.len && rest === "") {
 				dead.push([inFence.start, offset + line.length]);
 				inFence = null;
 			}
@@ -325,8 +344,14 @@ async function buildImageIndex(src) {
 			pool.set(nameKey(name), { abs, top, prio, rel: `${top}/${rest.join("/")}` });
 		}
 		const gk = nameKey(name);
-		if (!global.has(gk)) global.set(gk, []);
-		global.get(gk).push(abs);
+		if (!global.has(gk)) global.set(gk, new Map());
+		const gmap = global.get(gk);
+		// ⚠️ 全局索引也要按"合并组"去重：`图片/linux` 与 `图片/linux系统` 是同一批图，
+		// 不去重的话同一个名字会有 2 个候选 → "全库唯一同名"的兜底永远命中不了
+		// （独立复核抓到：`Linux系统/ELF文件` 的 5 张图其实都在库里，却被判成缺失并误下线）
+		const group = mergeTo.get(top) ?? top;
+		const cur = gmap.get(group);
+		if (!cur || prio < cur.prio) gmap.set(group, { abs, prio });
 		pools.push({ top, article, rel: `${top}/${rest.join("/")}` });
 	}
 
@@ -337,7 +362,9 @@ async function buildImageIndex(src) {
 		for (const [fk, v] of pool) m.set(fk, v.abs);
 		clean.set(k, m);
 	}
-	return { byArticle: clean, global, pools };
+	const globalFlat = new Map();
+	for (const [k, gmap] of global) globalFlat.set(k, [...gmap.values()].map((v) => v.abs));
+	return { byArticle: clean, global: globalFlat, pools };
 }
 
 /* ─────────────────────── 引用解析 ─────────────────────── */
@@ -459,21 +486,31 @@ function splitTags(text) {
 	return { tags, bodyStart: i };
 }
 
-/** 正文里（非代码、非标题行、非 URL）的 Obsidian 行内标签（带位置，用于从正文里摘掉） */
-function inlineTags(text, dead) {
+/**
+ * 正文里的 Obsidian 行内标签（带位置，用于从正文里摘掉）。
+ * ⚠️ 两条硬约束，都是被独立复核抓出来的血案：
+ *  1. **只摘"文首标签行里已经出现过的标签"**（allowlist）。原版见到 `#xxx` 就删，
+ *     结果把 Markdown 的锚点链接 `[目录](#0-学习路线与环境准备)` 里的 `#0-学习路线与环境准备`
+ *     当标签删掉 → 29 条目录链接变成空链接 `[目录]()`，另外还吃掉了
+ *     `Shift+3(#)查找` 与 `Expression #N of SELECT list` 两处正文文字。
+ *  2. 前缀不允许 `(`（`](#` 是最典型的误判来源），字符集也只收"字母/数字/CJK/下划线"。
+ * 宁可漏摘（正文里留一个 `#标签` 字样，纯观感）也不能错删（会毁内容）。
+ */
+function inlineTags(text, dead, allowedTags) {
+	if (!allowedTags || allowedTags.size === 0) return [];
 	const live = makeIsLive(dead);
 	const out = [];
-	for (const m of text.matchAll(/(^|[\s(（>])#([^\s#|]+)/gu)) {
+	for (const m of text.matchAll(/(^|[\s>（])(#[\p{L}\p{N}_]+)/gu)) {
 		const at = m.index + m[1].length;
 		if (!live(at)) continue;
 		const lineStart = text.lastIndexOf("\n", at) + 1;
 		const lineHead = text.slice(lineStart, at);
 		if (/^\s{0,3}#{1,6}\s*$/.test(lineHead)) continue; // 标题行
-		if (text.slice(Math.max(0, at - 3), at).includes("://")) continue;
-		const tag = m[2].replace(/[.,;:!?，。；：！？)）\]]+$/, "");
-		if (!tag || /^\d+$/.test(tag)) continue;
-		if (CPP_DIRECTIVES.has(tag.toLowerCase())) continue;
-		out.push({ tag, start: at, end: at + 1 + tag.length });
+		const tag = m[2].slice(1);
+		if (!allowedTags.has(tag.toLowerCase())) continue;
+		// 紧跟着 `(` 的（例如 `#tag(...)` 这类正文写法）保守跳过
+		if (text[at + m[2].length] === "(") continue;
+		out.push({ tag, start: at, end: at + m[2].length });
 	}
 	return out;
 }
@@ -514,6 +551,67 @@ function tidyWhitespace(body) {
 		out.push(trimmed);
 	}
 	return out.join("\n");
+}
+
+/**
+ * 围栏语言名归一化。
+ * 为什么需要：源笔记里大量随手写的语言名 —— ```` ```CPP ````、```` ```C ````、```` ```c+ ````、
+ * ```` ```shel ````、```` ```ba ````（想写 bash）—— Shiki 是**大小写敏感**的，
+ * 认不出来就回落成 txt，**整个代码块没有高亮**（构建日志里一堆
+ * `Error while highlighting code block using language "CPP"`，实测 6 篇中招）。
+ */
+const FENCE_LANG_MAP = {
+	cpp: "cpp",
+	"c++": "cpp",
+	"c+": "cpp",
+	cplusplus: "cpp",
+	cxx: "cpp",
+	c: "c",
+	"c#": "csharp",
+	cs: "csharp",
+	csharp: "csharp",
+	sh: "bash",
+	shel: "bash",
+	shell: "bash",
+	ba: "bash",
+	bash: "bash",
+	zsh: "bash",
+	py: "python",
+	python3: "python",
+	python: "python",
+	js: "javascript",
+	javascript: "javascript",
+	ts: "typescript",
+	typescript: "typescript",
+	yml: "yaml",
+	yaml: "yaml",
+	md: "markdown",
+	markdown: "markdown",
+	make: "makefile",
+	makefile: "makefile",
+	mysql: "sql",
+	sql: "sql",
+	text: "txt",
+	txt: "txt",
+};
+
+/** 只改"围栏行上的语言名"，代码块内容一字不动 */
+function normalizeFenceLanguages(body) {
+	const lines = body.split("\n");
+	let inFence = false;
+	return lines
+		.map((line) => {
+			const fence = /^\s*(?:`{3,}|~{3,})/.exec(line);
+			if (!fence) return line;
+			const isOpen = !inFence;
+			inFence = !inFence;
+			if (!isOpen) return line;
+			const m = /^(\s*)(`{3,}|~{3,})([A-Za-z][\w+#-]*)\s*$/.exec(line);
+			if (!m) return line;
+			const mapped = FENCE_LANG_MAP[m[3].toLowerCase()];
+			return mapped && mapped !== m[3] ? `${m[1]}${m[2]}${mapped}` : line;
+		})
+		.join("\n");
 }
 
 /**
@@ -685,6 +783,10 @@ async function collectSource() {
 		const cat = rel.split("/")[0];
 		if (!CATEGORY_MAP[cat]) {
 			ignored.push({ rel, reason: `未知分类 ${cat}` });
+			continue;
+		}
+		if (SKIP_SOURCES.has(rel)) {
+			ignored.push({ rel, reason: SKIP_SOURCES.get(rel) });
 			continue;
 		}
 		const buf = await fs.readFile(abs);
@@ -983,8 +1085,9 @@ async function importOne(p, { args, index, titleIndex, report }) {
 	}
 	edits.push(...wikiEdits);
 
-	// 行内 Obsidian 标签（#cpp 之类）：已经进 frontmatter，从正文里摘掉
-	const inlineTagHits = inlineTags(p.text, dead);
+	// 行内 Obsidian 标签（已在文首标签行出现过的那些）：已经进 frontmatter，从正文里摘掉
+	const headTagSet = new Set(headTags.map((t) => t.toLowerCase()));
+	const inlineTagHits = inlineTags(p.text, dead, headTagSet);
 	for (const hit of inlineTagHits) {
 		const before = p.text[hit.start - 1];
 		const start =
@@ -1008,7 +1111,9 @@ async function importOne(p, { args, index, titleIndex, report }) {
 		}
 	}
 	body = separateAdjacentImages(
-		tidyWhitespace(lines.join("\n").replace(/\r\n/g, "\n")).trim(),
+		normalizeFenceLanguages(
+			tidyWhitespace(lines.join("\n").replace(/\r\n/g, "\n")).trim(),
+		),
 	);
 
 	// 标签：作者标签 + 分类 + 子目录，按规范化去重（"Linux系统" 与 "Linux 系统" 算同一个；
@@ -1032,7 +1137,11 @@ async function importOne(p, { args, index, titleIndex, report }) {
 	const localRefs = refs.filter(
 		(r) => !isRemote(r.srcValue ?? r.name) && isImageName(r.name),
 	);
-	const draft = localRefs.length > 0 && copied.length === 0;
+	const remoteRefs = refs.filter((r) => isRemote(r.srcValue ?? r.name));
+	// ⚠️ 判据要同时看"本地全缺"和"有没有远端图"：
+	// `八股/C++.md` 本地缺 2 张、但还有 22 张 jsDelivr 外链图是好的 —— 这种只该在缺图处打提示，
+	// 不该整篇 draft（第一版只看"本地缺且一张都没复制成功"，把 4 篇八股长文全判成 draft 了）
+	const draft = localRefs.length > 0 && copied.length === 0 && remoteRefs.length === 0;
 	if (draft) {
 		body =
 			`> [!IMPORTANT]\n> 本篇 ${localRefs.length} 张配图在源导出里全部缺失，` +
@@ -1087,6 +1196,8 @@ async function importOne(p, { args, index, titleIndex, report }) {
 			if (!same) await fs.copyFile(rec.srcAbs, target);
 		}
 		const mapPath = path.join("reports", `image-mapping-${p.slug}.json`);
+		// 独立复核抓到：只 mkdir 了 --report 的目录，干净仓库里 reports/ 不存在时这里会 ENOENT
+		await fs.mkdir(path.dirname(mapPath), { recursive: true });
 		await fs.writeFile(
 			mapPath,
 			JSON.stringify(

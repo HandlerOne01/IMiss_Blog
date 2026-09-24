@@ -32,7 +32,7 @@ comment: true
 
   因为不加锁的话当线程并发时会产生多个实例，导致线程不安全
 
-  ```c++
+  ```cpp
   ///  普通懒汉式实现 -- 线程不安全 //
   #include <iostream> // std::cout
   #include <mutex>    // std::mutex
@@ -115,7 +115,7 @@ comment: true
   > 2. 不需要使用共享指针和锁
   > 3. get_instance()函数要返回引用而尽量不要返回指针，
 
-  ```c++
+  ```cpp
   ///  内部静态变量的懒汉实现  //
   class Singleton
   {
@@ -151,7 +151,7 @@ comment: true
   >
   > 不足之处在于： 使用智能指针会要求用户也得使用智能指针，非必要不应该提出这种约束; 使用锁也有开销; 同时代码量也增多了，实现上我们希望越简单越好。
 
-  ```c++
+  ```cpp
   #include <iostream>
   #include <memory> // shared_ptr
   #include <mutex>  // mutex
@@ -197,7 +197,7 @@ comment: true
 
 ## 饿汉式
 
-```c++
+```cpp
 
 // 饿汉实现 /
 class Singleton
@@ -366,7 +366,7 @@ https://blog.csdn.net/qq_55882840/article/details/139043332
 简单工厂模式也有一些限制。例如，当需要创建多种类型的产品实例时，工厂类的代码可能会变得复杂，并且随着产品类型的增加，工厂类的责任也会越来越大。因此，在一些复杂的场景下，可能需要使用其他更灵活的创建型设计模式，如工厂方法模式或抽象工厂模式。总的来说，简单工厂模式提供了一种简单而灵活的方式来创建对象，对于一些简单的对象创建场景是很有用的。
 
 简单工厂模式
-```c++
+```cpp
 class Product {
 public:
     virtual void operation() = 0;
@@ -385,7 +385,7 @@ public:
 };
 ```
 简单工厂类
-```c++
+```cpp
 class SimpleFactory {
 public:
     static Product* createProduct(const std::string& type) {
@@ -400,7 +400,7 @@ public:
 };
 ```
 客户端调用方式
-```c++
+```cpp
 int main() {
     Product* productA = SimpleFactory::createProduct("A");
     productA->operation(); // 调用具体产品A的操作
@@ -420,7 +420,7 @@ int main() {
 抽象工厂（Factory）：定义了一个工厂的接口，包含一个创建产品的抽象方法，具体的工厂类必须实现这个接口。
 具体工厂（ConcreteFactory）：实现了抽象工厂接口，负责实例化具体的产品对象。
         工厂方法模式的关键在于通过抽象工厂和具体工厂的组合，将对象的创建过程推迟到子类中实现。客户端通过使用抽象工厂来创建产品对象，而无需关心具体的产品类和实例化细节。
-```c++
+```cpp
 // 抽象产品
 class Product {
 public:
@@ -460,7 +460,7 @@ public:
     }
 };
 ```
-```c++
+```cpp
 int main() {
     Factory* factoryA = new ConcreteFactoryA();
     Product* productA = factoryA->createProduct();
@@ -482,7 +482,7 @@ int main() {
 具体工厂（Concrete Factory）：实现了抽象工厂接口，负责创建具体的产品对象。
 抽象产品（Abstract Product）：定义了产品的共同接口，具体的产品类必须实现这个接口。
 具体产品（Concrete Product）：实现了抽象产品接口，是抽象工厂模式中具体创建的对象。
-```c++
+```cpp
 // 抽象产品 A
 class AbstractProductA {
 public:
@@ -549,7 +549,7 @@ public:
 };
 ```
 客户端
-```c++
+```cpp
 int main() {
     AbstractFactory* factory1 = new ConcreteFactory1();
     AbstractProductA* productA1 = factory1->createProductA();

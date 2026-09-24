@@ -128,8 +128,11 @@ for (const file of files) {
 	if (!data.title || typeof data.title !== "string") {
 		err(rel, "frontmatter.title 缺失或不是字符串");
 	} else {
-		if (titles.has(data.title)) warn(rel, `标题与 ${titles.get(data.title)} 重复：${data.title}`);
-		else titles.set(data.title, rel);
+		// 标题重复只在**同分类内**才算问题：`stl/vector.md` 与 `cpp/vector.md` 是两篇
+		// 不同来源、不同语境的笔记，同名是正常的（跨分类比较会制造噪音）
+		const key = `${data.category ?? ""}::${data.title}`;
+		if (titles.has(key)) warn(rel, `同分类内标题与 ${titles.get(key)} 重复：${data.title}`);
+		else titles.set(key, rel);
 	}
 	if (!data.category || typeof data.category !== "string") {
 		err(rel, "frontmatter.category 缺失或不是字符串");

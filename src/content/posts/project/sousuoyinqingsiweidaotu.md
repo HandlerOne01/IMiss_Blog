@@ -1,0 +1,468 @@
+---
+title: "搜索引擎思维导图"
+published: 2026-07-22 18:53:13
+description: "🎯 项目定位 搜索对象：Boost 1.82.0 HTML 文档 核心目标：输入关键词，返回按相关性排序的文档结果 总体模式：离线数据清洗 + 启动时建索引 + 在线查询服务 技术栈 C++11 Boost.Filesystem：递归枚…"
+category: "项目实战"
+tags: ["项目实战", "搜索引擎"]
+series: "搜索引擎"
+seriesOrder: 2
+lang: "zh_CN"
+draft: false
+comment: true
+---
+
+# 🔍 C++ Boost 搜索引擎
+
+- 🎯 项目定位
+  - 搜索对象：Boost 1.82.0 HTML 文档
+  - 核心目标：输入关键词，返回按相关性排序的文档结果
+  - 总体模式：离线数据清洗 + 启动时建索引 + 在线查询服务
+  - 技术栈
+    - C++11
+    - Boost.Filesystem：递归枚举 HTML 文件
+    - Boost.Algorithm：字符串切分与大小写归一
+    - cppjieba：中英文搜索模式分词
+    - JsonCpp：搜索结果序列化
+    - cpp-httplib：HTTP 服务与静态资源托管
+    - jQuery：浏览器端 AJAX 与结果渲染
+
+- 🌊 一次完整数据流
+  - ① 原始语料 `data/input/**/*.html`
+    - 约 6955 个 HTML 文件
+    - 内容来自 Boost 官方文档
+  - ② `parser.cc` 离线清洗
+    - 枚举 HTML → 读取文件 → 提取标题 → 去除标签 → 生成官网 URL
+  - ③ 中间语料 `data/raw_html/raw.txt`
+    - 每个文档占一行
+    - 格式：`title \3 content \3 url \n`
+  - ④ `Index::BuildIndex` 启动建索引
+    - 每行 → `DocInfo`
+    - `DocInfo` → 正排索引
+    - 标题/正文分词 → `InvertedElem` → 倒排索引
+  - ⑤ 浏览器提交关键词
+    - `Search()` → `GET /s?word=关键词`
+  - ⑥ `Searcher::Search` 在线检索
+    - 查询分词 → 查倒排 → 按 `doc_id` 合并 → 按权重排序
+    - 查正排补齐标题、摘要、URL → JsonCpp 序列化
+  - ⑦ HTTP 返回 JSON
+    - `[{title, desc, url, id, weight}, ...]`
+  - ⑧ `BuildHtml` 渲染搜索结果
+    - 标题链接 + 内容摘要 + 绿色 URL
+
+- 🧹 阶段一：离线预处理 `parser.cc`
+  - 输入与输出
+    - `src_path = data/input`
+    - `output = data/raw_html/raw.txt`
+    - 与在线服务分离：先运行 `parser`，再启动 `http_server`
+  - 数据结构 `DocInfo_t`
+    - `title : string`：HTML 的 `<title>` 文本
+    - `content : string`：去除标签后的正文
+    - `url : string`：对应的 Boost 官网地址
+    - 与索引层 `ns_index::DocInfo` 的区别
+      - 此处没有 `doc_id`
+      - `doc_id` 在建立正排索引时按数组下标生成
+  - 入口 `main()`
+    - 创建 `vector<string> files_list`
+    - `EnumFile(src_path, &files_list)`
+    - 创建 `vector<DocInfo_t> results`
+    - `ParseHtml(files_list, &results)`
+    - `SaveHtml(results, output)`
+  - 接口 `EnumFile(src_path, files_list*)`
+    - 使用 `boost::filesystem::recursive_directory_iterator`
+    - 只保留普通文件
+    - 只保留扩展名为 `.html` 的路径
+    - 输出：完整文件路径列表 `vector<string>`
+  - 调度接口 `ParseHtml(files_list, results*)`
+    - 对每个路径调用 `FileUtil::ReadFile`
+    - 创建临时 `DocInfo_t doc`
+    - 调用 `ParseTitle` 填充 `doc.title`
+    - 调用 `ParseContent` 填充 `doc.content`
+    - 调用 `ParseUrl` 填充 `doc.url`
+    - 完成后 `move` 进入 `vector<DocInfo_t>`
+  - 内部接口 `ParseTitle(file, title*)`
+    - `find("<title>")` 定位起点
+    - `find("</title>")` 定位终点
+    - `substr` 截取标题文本
+  - 内部接口 `ParseContent(file, content*)`
+    - 两状态枚举 `status`
+      - `LABLE`：位于标签内部，字符不写入正文
+      - `CONTENT`：位于标签外部，字符写入正文
+    - 状态转换
+      - `LABLE` 遇到 `>` → `CONTENT`
+      - `CONTENT` 遇到 `<` → `LABLE`
+    - 文本规范化
+      - `\n`、`\r` 替换为空格
+      - 连续空格压缩成一个空格
+  - 内部接口 `ParseUrl(file_path, url*)`
+    - 去掉本地前缀 `data/input`
+    - 拼接 `https://www.boost.org/doc/libs/1_82_0/doc/html`
+  - 调试接口 `ShowDoc(doc)`
+    - 打印 `title / content / url`
+    - 只用于观察解析结果，不参与主流程
+  - 输出接口 `SaveHtml(results, output)`
+    - 使用二进制模式打开 `raw.txt`
+    - 字段分隔符 `SEP = '\3'`（ASCII ETX）
+    - 文档分隔符为换行 `\n`
+    - 建立了与 `Index::BuildForwardIndex` 的格式契约
+
+- 🧰 公共工具层 `util.hpp` · `ns_util`
+  - 类 `FileUtil`
+    - 定位：无状态静态文件工具
+    - 接口 `static ReadFile(file_path, out*) -> bool`
+      - `ifstream` 按行读取
+      - 将各行追加到输出字符串
+      - 被 `parser.cc::ParseHtml` 调用
+  - 类 `StringUtil`
+    - 定位：无状态静态字符串工具
+    - 接口 `static Split(target, out*, sep)`
+      - 封装 `boost::split`
+      - `token_compress_on` 压缩连续分隔符
+      - 被 `Index::BuildForwardIndex` 用于切分 `raw.txt` 行
+  - 类 `JiebaUtil`
+    - 定位：对 cppjieba 的项目级单例封装
+    - 私有数据
+      - `cppjieba::Jieba jieba`：实际分词器
+      - `unordered_map<string, bool> stop_words`：停用词集合
+      - `static JiebaUtil* instance`：唯一实例指针
+    - 单例约束
+      - 私有构造函数：外部不能直接实例化
+      - 删除拷贝构造：不能复制实例
+      - `get_instance()`：双重检查锁获取唯一实例
+    - 初始化接口 `InitJiebaUtil()`
+      - 读取 `stop_words.utf8`
+      - 每行作为键写入 `stop_words`
+    - 内部接口 `CutStringHelper(src, out*)`
+      - 调用 `jieba.CutForSearch(src, *out)`
+      - 遍历分词结果并删除停用词
+    - 对外接口 `static CutString(src, out*)`
+      - 获取 `JiebaUtil` 单例
+      - 转调 `CutStringHelper`
+      - 同时服务于建索引和在线查询
+  - cppjieba 直接依赖边界
+    - `JiebaUtil` 持有 `cppjieba::Jieba`
+    - 项目直接调用 `Jieba::CutForSearch`
+    - 使用搜索模式细粒度切词，提高检索召回率
+    - 五类配置文件
+      - `jieba.dict.utf8`：核心词库与词频
+      - `hmm_model.utf8`：HMM 未登录词模型
+      - `user.dict.utf8`：用户自定义词典
+      - `idf.utf8`：逆文档频率数据
+      - `stop_words.utf8`：停用词表
+
+- 🗂️ 阶段二：索引层 `index.hpp` · `ns_index`
+  - 数据结构 `DocInfo`
+    - `title : string`：文档标题
+    - `content : string`：清洗后的正文
+    - `url : string`：官方文档 URL
+    - `doc_id : uint64_t`：文档唯一编号
+    - 存放位置：正排索引 `vector<DocInfo>`
+  - 数据结构 `InvertedElem`
+    - `doc_id : uint64_t`：命中文档编号
+    - `word : string`：索引词
+    - `weight : int`：该词在该文档中的相关性权重
+    - 默认构造：`weight = 0`
+  - 类型 `InvertedList`
+    - 定义：`vector<InvertedElem>`
+    - 含义：一个关键词对应的全部文档命中项
+  - 类 `Index`
+    - 定位：正排索引与倒排索引的唯一拥有者
+    - 私有数据 `forward_index`
+      - 类型：`vector<DocInfo>`
+      - 映射：`doc_id → DocInfo`
+      - 利用数组下标天然充当 `doc_id`
+      - 负责搜索结果的详细信息展示
+    - 私有数据 `inverted_index`
+      - 类型：`unordered_map<string, InvertedList>`
+      - 映射：`word → vector<InvertedElem>`
+      - 负责从关键词快速找到候选文档
+    - 单例数据
+      - `static Index* instance`
+      - `static mutex mtx`
+    - 单例约束
+      - 私有构造函数
+      - 删除拷贝构造与赋值运算符
+      - 对外接口 `GetInstance()` 使用双重检查锁
+    - 查询接口 `GetForwardIndex(doc_id) -> DocInfo*`
+      - 检查 `doc_id < forward_index.size()`
+      - 返回对应数组元素地址
+      - 被 `Searcher::Search` 用于补齐结果详情
+    - 查询接口 `GetInvertedList(word) -> InvertedList*`
+      - 使用 `unordered_map::find`
+      - 关键词不存在则返回 `nullptr`
+      - 被 `Searcher::Search` 用于取得候选文档
+    - 建索引入口 `BuildIndex(input) -> bool`
+      - 按行读取 `raw.txt`
+      - 每行先调用 `BuildForwardIndex`
+      - 成功得到 `DocInfo*` 后调用 `BuildInvertedIndex`
+      - 每完成一个文档使用 `LOG` 记录进度
+    - 内部接口 `BuildForwardIndex(line) -> DocInfo*`
+      - `StringUtil::Split(line, results, "\3")`
+      - 要求切分结果恰好为三段
+      - 三段依次写入 `title / content / url`
+      - `doc_id = forward_index.size()`
+      - `move` 到 `forward_index` 并返回末元素地址
+    - 内部接口 `BuildInvertedIndex(doc) -> bool`
+      - 局部结构 `word_cnt`
+        - `title_cnt : int`：词在标题中的次数
+        - `content_cnt : int`：词在正文中的次数
+      - 局部映射 `word_map`
+        - 类型：`unordered_map<string, word_cnt>`
+        - 作用：暂存当前文档的词频
+      - 标题处理
+        - `JiebaUtil::CutString(doc.title, title_words*)`
+        - `boost::to_lower` 统一小写
+        - 累加 `title_cnt`
+      - 正文处理
+        - `JiebaUtil::CutString(doc.content, content_words*)`
+        - `boost::to_lower` 统一小写
+        - 累加 `content_cnt`
+      - 权重计算
+        - `weight = 10 × title_cnt + 1 × content_cnt`
+        - 标题命中比正文命中更重要
+      - 倒排写入
+        - 每个词生成一个 `InvertedElem`
+        - `inverted_index[word]` 取得或创建倒排拉链
+        - 将元素追加到对应 `InvertedList`
+
+- 🚀 阶段三：启动并加载索引
+  - HTTP 入口 `http_server.cc::main`
+    - 栈上创建 `ns_searcher::Searcher search`
+    - 调用 `search.InitSearcher(data/raw_html/raw.txt)`
+  - `Searcher::InitSearcher(input)`
+    - `Index::GetInstance()` 获取索引单例
+    - 将指针保存到成员 `index`
+    - `index->BuildIndex(input)` 构建正排与倒排
+  - 共享关系
+    - 一个 `Searcher` 持有一个 `Index*`
+    - `Index` 在进程内只有一个实例
+    - `Index` 建索引时共享唯一的 `JiebaUtil` 分词实例
+  - 启动后内存状态
+    - `forward_index` 已保存全部 `DocInfo`
+    - `inverted_index` 已保存每个词的 `InvertedList`
+    - HTTP 服务随后开始监听端口 8081
+
+- 🔎 阶段四：搜索调度 `searcher.hpp` · `ns_searcher`
+  - 中间结构 `InvertedElemPrint`
+    - `doc_id : uint64_t`：候选文档编号
+    - `weight : int`：查询阶段使用的排序权重
+    - `words : vector<string>`：该文档命中的查询词
+    - 默认构造：`doc_id = 0`、`weight = 0`
+    - 与 `InvertedElem` 的区别
+      - `InvertedElem` 属于永久倒排索引，一个元素只对应一个词
+      - `InvertedElemPrint` 属于单次查询，可汇集同一文档命中的多个词
+  - 类 `Searcher`
+    - 私有数据 `ns_index::Index* index`
+      - 指向索引单例
+      - 由 `InitSearcher` 初始化
+    - 接口 `InitSearcher(input)`
+      - 获取 `Index` 单例
+      - 触发 `BuildIndex`
+    - 核心接口 `Search(query, json_string*)`
+      - 输入：用户查询字符串
+      - 输出：JSON 字符串
+      - 步骤 ① 查询分词
+        - `JiebaUtil::CutString(query, words*)`
+        - 每个词经 `boost::to_lower` 转小写
+      - 步骤 ② 触发倒排索引
+        - 每个词调用 `index->GetInvertedList(word)`
+        - 词不存在则跳过
+        - 遍历命中的每个 `InvertedElem`
+      - 步骤 ③ 按文档合并
+        - 临时容器 `tokens_map`
+        - 类型：`unordered_map<uint64_t, InvertedElemPrint>`
+        - 映射：`doc_id → 当前查询的候选结果`
+        - 写入 `doc_id`、当前倒排元素的 `weight`
+        - 将命中词追加到 `words`
+      - 步骤 ④ 转换并排序
+        - `tokens_map` 的值转入 `vector<InvertedElemPrint> inverted_list_all`
+        - `std::sort` 按 `weight` 降序排列
+      - 步骤 ⑤ 查正排补齐信息
+        - `Index::GetForwardIndex(item.doc_id)` 返回 `DocInfo*`
+        - `DocInfo.title` → JSON `title`
+        - `GetDesc(DocInfo.content, item.words[0])` → JSON `desc`
+        - `DocInfo.url` → JSON `url`
+        - `doc_id` → JSON `id`
+        - 查询权重 → JSON `weight`
+      - 步骤 ⑥ 序列化
+        - 每项追加到 `Json::Value root`
+        - `Json::FastWriter::write(root)`
+        - 写入调用方传入的 `json_string*`
+    - 摘要接口 `GetDesc(html_content, word) -> string`
+      - `std::search` 不区分大小写查找首次命中位置
+      - 命中点前取最多 50 字节
+      - 命中点后取最多 100 字节
+      - `substr` 截取后追加 `...`
+
+- 🌐 阶段五：HTTP 服务 `http_server.cc`
+  - 常量
+    - `input = data/raw_html/raw.txt`
+    - `root_path = ./wwwroot`
+  - 对象关系
+    - `main` 创建 `Searcher search`
+    - `main` 创建 `httplib::Server svr`
+    - 路由 lambda 以引用捕获 `search`
+  - 静态资源
+    - `svr.set_base_dir(root_path)`
+    - 浏览器访问根路径时获得 `wwwroot/index.html`
+  - 搜索接口 `GET /s`
+    - 请求参数：`word`
+    - 无 `word`：返回“必须要有搜索关键字！”
+    - 有 `word`
+      - `req.get_param_value("word")`
+      - `search.Search(word, &json_string)`
+      - `rsp.set_content(json_string, "application/json")`
+  - 服务监听
+    - 地址：`0.0.0.0`
+    - 端口：`8081`
+
+- 🖥️ 阶段六：前端 `wwwroot/index.html`
+  - 页面结构
+    - `.container`：页面居中容器
+    - `.search`
+      - `<input>`：输入关键词
+      - `<button onclick="Search()">`：触发搜索
+    - `.result`：动态结果容器
+  - 函数 `Search()`
+    - jQuery 读取输入框内容到 `query`
+    - 发起 `GET /s?word=` + query
+    - HTTP 成功后调用 `BuildHtml(data)`
+  - 函数 `BuildHtml(data)`
+    - 获取并清空 `.result`
+    - 遍历 JSON 数组
+    - `elem.title + elem.url` → 新窗口标题链接 `<a>`
+    - `elem.desc` → 摘要 `<p>`
+    - `elem.url` → 绿色地址 `<i>`
+    - 三者装入结果卡片 `<div class="item">`
+    - 卡片追加到结果容器
+  - 前后端字段契约
+    - 后端 `title` → 前端链接文字
+    - 后端 `desc` → 前端摘要
+    - 后端 `url` → 链接地址与可见 URL
+    - 后端 `id / weight` → 已返回，但当前页面不显示
+
+- ⌨️ 辅助入口 `debug.cc`
+  - 定位：绕过 HTTP 和浏览器的命令行检索工具
+  - 创建 `Searcher* search`
+  - `InitSearcher(raw.txt)` 建立索引
+  - 无限循环
+    - `fgets` 读取查询词
+    - 去掉末尾换行
+    - `Searcher::Search` 生成 JSON
+    - 直接打印 JSON
+  - 与 HTTP 服务共用
+    - 同一个 `Searcher`
+    - 同一个 `Index`
+    - 同一套查询与排序逻辑
+
+- 📝 横切模块 `log.hpp`
+  - 日志等级宏
+    - `NORMAL`
+    - `WARNING`
+    - `DEBUG`
+    - `FATAL`
+  - 宏接口 `LOG(LEVEL, MESSAGE)`
+    - `#LEVEL` 将等级标识符转成字符串
+    - 自动附加 `__FILE__` 与 `__LINE__`
+    - 转调全局函数 `log`
+  - 函数 `log(level, message, file, line)`
+    - 输出等级
+    - 输出 `time(nullptr)` 时间戳
+    - 输出消息
+    - 输出源文件与行号
+  - 使用位置
+    - `JiebaUtil` 加载停用词失败
+    - `Index` 建索引进度
+    - `Searcher` 初始化状态
+    - HTTP 服务启动与用户查询
+
+- 🔗 类、结构体与接口关系总览
+  - `parser.cc::DocInfo_t`
+    - 由 `ParseTitle / ParseContent / ParseUrl` 填充
+    - 多个条目组成 `vector<DocInfo_t>`
+    - 经 `SaveHtml` 序列化成 `raw.txt`
+  - `FileUtil`
+    - 被 `parser.cc::ParseHtml` 调用
+    - 将 HTML 文件内容提供给解析函数
+  - `StringUtil`
+    - 被 `Index::BuildForwardIndex` 调用
+    - 将 `raw.txt` 一行还原为三字段
+  - `JiebaUtil`
+    - 内部组合 `cppjieba::Jieba`
+    - 被 `Index::BuildInvertedIndex` 调用：文档分词
+    - 被 `Searcher::Search` 调用：查询分词
+  - `Index`
+    - 拥有 `vector<DocInfo> forward_index`
+    - 拥有 `unordered_map<string, InvertedList> inverted_index`
+    - 创建 `DocInfo` 与 `InvertedElem`
+    - 向 `Searcher` 提供两个查询接口
+      - `GetInvertedList(word)`：关键词 → 候选文档
+      - `GetForwardIndex(doc_id)`：文档 ID → 展示信息
+  - `Searcher`
+    - 聚合 `Index*`
+    - 消费 `InvertedElem`
+    - 生成查询中间态 `InvertedElemPrint`
+    - 消费 `DocInfo`
+    - 生成 JSON
+  - `httplib::Server`
+    - 路由回调持有 `Searcher` 引用
+    - 把 HTTP 参数交给 `Searcher::Search`
+    - 把 JSON 字符串写入 HTTP 响应
+  - 浏览器 JavaScript
+    - `Search()` 调用 HTTP `/s`
+    - `BuildHtml()` 消费后端 JSON
+
+- 🔄 数据结构转换速记
+  - HTML 文件
+    - ↓ `FileUtil::ReadFile`
+  - 原始 HTML 字符串
+    - ↓ `ParseTitle + ParseContent + ParseUrl`
+  - `parser.cc::DocInfo_t {title, content, url}`
+    - ↓ `SaveHtml` 使用 `\3` 分隔
+  - `raw.txt` 单行
+    - ↓ `StringUtil::Split`
+  - `ns_index::DocInfo {title, content, url, doc_id}`
+    - ↙ 存入正排索引 `vector<DocInfo>`
+    - ↓ `JiebaUtil::CutString + 词频统计 + 10:1 加权`
+  - `InvertedElem {doc_id, word, weight}`
+    - ↓ 按 `word` 分组
+  - 倒排索引 `unordered_map<string, vector<InvertedElem>>`
+    - ↓ 查询词调用 `GetInvertedList`
+  - `InvertedElemPrint {doc_id, weight, words}`
+    - ↓ 按 `doc_id` 合并 + 按 `weight` 降序
+  - 排序后的候选结果
+    - ↓ `GetForwardIndex + GetDesc`
+  - `Json::Value {title, desc, url, id, weight}`
+    - ↓ `Json::FastWriter`
+  - HTTP JSON 响应
+    - ↓ `BuildHtml`
+  - 浏览器搜索结果卡片
+
+- 🏗️ 文件与构建关系 `makefile`
+  - 默认目标 `all`
+    - 构建 `parser`
+    - 构建 `debug`
+    - 构建 `http_server`
+  - `parser ← parser.cc`
+    - 链接 `boost_system`
+    - 链接 `boost_filesystem`
+  - `debug ← debug.cc`
+    - 通过头文件包含搜索、索引与工具实现
+    - 链接 `jsoncpp`
+  - `http_server ← http_server.cc`
+    - 通过 `searcher.hpp` 间接包含索引与工具实现
+    - 链接 `jsoncpp`
+    - 链接 `pthread`
+    - 链接 `cpp-httplib`
+  - 全部使用 `-std=c++11`
+  - `clean`
+    - 删除三个可执行文件 `parser / debug / http_server`
+
+- 🧭 快速回忆口诀
+  - 预处理：HTML 三步抽取，`\3` 三字段落盘
+  - 建索引：正排负责展示，倒排负责检索
+  - 分词：文档与查询共用 `JiebaUtil::CutString`
+  - 权重：标题词频 × 10，正文词频 × 1
+  - 搜索：查询分词 → 倒排召回 → 文档合并 → 权重排序
+  - 展示：正排补齐 → 摘要截取 → JSON → AJAX 渲染
+  - 主关系：`HTTP → Searcher → Index → JiebaUtil → cppjieba`
+  - 离线关系：`parser → FileUtil → DocInfo_t → raw.txt → Index`

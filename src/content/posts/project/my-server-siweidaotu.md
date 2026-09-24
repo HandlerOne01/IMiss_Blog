@@ -1,0 +1,1184 @@
+---
+title: "My_Server思维导图"
+published: 2026-07-24 14:37:11
+description: "🎯 项目定位 项目类型：基于 Linux 系统调用实现的 C++11 网络服务器框架 核心模式：Reactor 事件驱动 + 非阻塞 I/O + 主从事件循环 + 回调式业务层 能力边界 底层 TCP 网络通信 epoll I/O 多路…"
+category: "项目实战"
+tags: ["项目实战", "My_Server"]
+series: "My_Server"
+seriesOrder: 2
+lang: "zh_CN"
+draft: false
+comment: true
+---
+
+# 🌐 My_Server：C++ Reactor 网络服务器
+
+- 🎯 项目定位
+  - 项目类型：基于 Linux 系统调用实现的 C++11 网络服务器框架
+  - 核心模式：Reactor 事件驱动 + 非阻塞 I/O + 主从事件循环 + 回调式业务层
+  - 能力边界
+    - 底层 TCP 网络通信
+    - epoll I/O 多路复用
+    - 跨线程任务调度
+    - 时间轮定时器与非活跃连接回收
+    - HTTP/1.0、HTTP/1.1 请求解析与响应
+    - 正则路由与静态文件服务
+  - 运行平台依赖
+    - Linux Socket API
+    - `epoll`
+    - `eventfd`
+    - `timerfd`
+    - POSIX signal
+    - pthread
+  - 总体分层
+    - HTTP 应用示例层
+      - `http/main.cc + http/wwwroot`
+    - HTTP 协议层
+      - `http/http.hpp`
+      - `HttpServer / HttpContext / HttpRequest / HttpResponse / Util`
+    - TCP 与连接管理层
+      - `server.hpp`
+      - `TcpServer / Acceptor / Connection / Socket / Buffer`
+    - Reactor 与并发层
+      - `EventLoop / Poller / Channel`
+      - `LoopThread / LoopThreadPool`
+    - 定时与通用设施层
+      - `TimerWheel / TimerTask / Any / NetWork / LOG`
+
+- 🧭 一眼看懂核心对象关系
+  - `HttpServer`
+    - 组合一个 `TcpServer`
+    - 向 `TcpServer` 注册 `OnConnected / OnMessage`
+    - 维护四张 HTTP 路由表
+    - 调用 `Util` 完成文件、URL、MIME、状态码处理
+  - `TcpServer`
+    - 拥有一个主线程 `_baseloop : EventLoop`
+    - 拥有一个 `_acceptor : Acceptor`
+    - 拥有一个 `_pool : LoopThreadPool`
+    - 拥有连接表 `_conns : unordered_map<uint64_t, PtrConnection>`
+  - `Acceptor`
+    - 组合监听 `_socket : Socket`
+    - 组合监听 `_channel : Channel`
+    - `Channel` 可读 → `Acceptor::HandleRead` → `Socket::Accept`
+    - Accept 成功 → 回调 `TcpServer::NewConnection`
+  - `Connection`
+    - 组合通信 `Socket`
+    - 组合事件 `Channel`
+    - 组合输入与输出两个 `Buffer`
+    - 持有所属 `EventLoop*`
+    - 用 `Any` 保存协议上下文
+    - 由 `shared_ptr` 管理生命周期
+  - `EventLoop`
+    - 组合 `_poller : Poller`
+    - 组合 `_timer_wheel : TimerWheel`
+    - 组合 eventfd 对应的 `_event_channel : Channel`
+    - 串行处理 I/O 事件与跨线程任务
+  - `Poller`
+    - 维护 `fd → Channel*`
+    - 调用 `epoll_ctl / epoll_wait`
+  - `Channel`
+    - 绑定一个 fd 与一个 `EventLoop*`
+    - 保存关注事件、就绪事件及五类回调
+    - 自己不直接操作 epoll
+    - `Update / Remove` 委托 `EventLoop`，再由 `Poller` 操作 epoll
+  - `TimerWheel`
+    - 绑定一个 `EventLoop*`
+    - 使用 `timerfd + Channel` 获得每秒 tick
+    - 使用 `shared_ptr<TimerTask>` 控制定时任务寿命
+  - 主调用链口诀
+    - 应用 → `HttpServer` → `TcpServer`
+    - `TcpServer` → `Acceptor + LoopThreadPool + Connection`
+    - `Connection` → `Channel + Socket + Buffer + Any`
+    - `Channel` → `EventLoop` → `Poller` → epoll
+
+- 🌊 一次 TCP 连接的完整生命周期
+  - ① 服务器启动
+    - 应用构造 `TcpServer(port)`
+    - `TcpServer` 构造主 `_baseloop`
+    - `TcpServer` 构造 `_acceptor(&_baseloop, port)`
+    - `Acceptor` 创建、复用地址、绑定、监听、设为非阻塞
+    - `Acceptor::Linst` 使能监听 fd 的读事件
+    - `TcpServer::Start`
+      - `_pool.Create()` 创建 Sub Reactor 线程
+      - `_baseloop.Start()` 启动 Main Reactor
+  - ② 新连接到来
+    - epoll 报告监听 fd 可读
+    - `Poller::Poll` 找到监听 `Channel`
+    - `Channel::HandleEvent` 调用读回调
+    - `Acceptor::HandleRead` 调用 `Socket::Accept`
+    - `Acceptor::_accept_callback(newfd)` 调用 `TcpServer::NewConnection`
+  - ③ 创建并分配连接
+    - `TcpServer::_next_id++`
+    - `LoopThreadPool::NextLoop` 轮询选择一个 Sub Reactor
+    - 创建 `shared_ptr<Connection>(loop, conn_id, fd)`
+    - 把业务层四类回调下发给 `Connection`
+    - 设置服务器内部关闭回调 `TcpServer::RemoveConnection`
+    - 可选启用非活跃超时释放
+    - `Connection::Established` 投递到所属 EventLoop
+    - 存入 `_conns[conn_id]` 保持对象生命周期
+  - ④ 连接建立完成
+    - `EstablishedInLoop`
+      - `CONNECTING → CONNECTED`
+      - `_channel.EnableRead()`
+      - 调用业务 `_connected_callback`
+    - HTTP 场景
+      - `HttpServer::OnConnected`
+      - `conn->SetContext(HttpContext())`
+  - ⑤ 收取数据
+    - `Connection::HandleRead`
+      - `Socket::NonBlockRecv`
+      - 数据写入 `_in_buffer`
+      - 调用 `_message_callback(conn, &_in_buffer)`
+    - HTTP 回调进入 `HttpServer::OnMessage`
+  - ⑥ 发送数据
+    - 业务调用 `Connection::Send(data, len)`
+    - 临时 `Buffer` 拷贝外部数据，保证跨线程生命周期
+    - `EventLoop::RunInLoop` 调用 `SendInLoop`
+    - 数据追加到 `_out_buffer`
+    - `_channel.EnableWrite()` 开启 EPOLLOUT
+    - epoll 报告可写后调用 `HandleWrite`
+    - `Socket::NonBlockSend` 发送可读区数据
+    - 移动 `_out_buffer` 读偏移
+    - 全部发完后 `DisableWrite`，避免 LT 模式空转
+  - ⑦ 活跃度刷新
+    - `Channel::HandleEvent` 最后调用任意事件回调
+    - `Connection::HandleEvent`
+      - 若启用超时释放，调用 `EventLoop::TimerRefresh(conn_id)`
+      - 再调用应用层 `_event_callback`
+  - ⑧ 关闭与释放
+    - 业务调用 `Connection::ShutDown`
+    - `ShutdownInLoop`
+      - 状态改为 `DISCONNECTING`
+      - 先处理剩余输入
+      - 若仍有输出则继续等待可写
+      - 输出清空后调用 `Release`
+    - `Release` 强制用 `QueueInLoop` 延迟执行 `ReleaseInLoop`
+    - `ReleaseInLoop`
+      - 状态改为 `DISCONNECTED`
+      - 从 Poller 移除 Channel
+      - 关闭 Socket
+      - 取消非活跃定时器
+      - 调用应用关闭回调
+      - 调用服务器关闭回调
+    - `TcpServer::RemoveConnection`
+      - 将删除动作投回主 `_baseloop`
+      - `RemoveConnectionInLoop` 从 `_conns` 删除
+      - 引用计数归零后析构 `Connection`
+
+- 📨 一次 HTTP 请求的完整数据流
+  - ① TCP 数据进入
+    - `epoll_wait`
+    - ↓ `Poller::Poll`
+    - `Channel::HandleEvent`
+    - ↓ 读回调
+    - `Connection::HandleRead`
+    - ↓ `Socket::NonBlockRecv`
+    - `Connection::_in_buffer`
+  - ② 进入 HTTP 层
+    - `Connection::_message_callback`
+    - ↓
+    - `HttpServer::OnMessage(conn, buffer)`
+    - 从 `conn->_context : Any` 取出 `HttpContext*`
+  - ③ 增量解析
+    - `HttpContext::RecvHttpRequest(buffer)`
+    - 状态按顺序推进
+      - `RECV_HTTP_LINE`
+      - `RECV_HTTP_HEAD`
+      - `RECV_HTTP_BODY`
+      - `RECV_HTTP_OVER`
+    - 解析结果持续写入同一个 `HttpRequest`
+    - 数据不完整则保留状态，等待下一次可读事件
+  - ④ 路由
+    - 完整请求 → `HttpServer::Route`
+    - 优先尝试静态文件
+      - `IsFileHandler`
+      - `FileHandler`
+    - 否则按方法选择路由表
+      - GET/HEAD → `_get_route`
+      - POST → `_post_route`
+      - PUT → `_put_route`
+      - DELETE → `_delete_route`
+    - `Dispatcher` 用正则匹配 `_path`
+    - 命中 → 调用业务 `Handler(req, rsp)`
+    - 未命中 → 404
+  - ⑤ 构造响应
+    - 业务处理器填写 `HttpResponse`
+    - `WriteResponse`
+      - 根据请求决定 `Connection: close/keep-alive`
+      - 补充 `Content-length`
+      - 补充默认 `Content-Type`
+      - 重定向时补充 `Location`
+      - 拼接状态行、响应头、空行、正文
+    - `conn->Send` 回到底层异步发送链
+  - ⑥ 请求结束
+    - `HttpContext::ReSet` 为下一条请求复用连接
+    - 短连接 → `conn->ShutDown`
+    - 长连接 → 保持连接，继续解析下一条请求
+  - ⑦ 解析错误
+    - `HttpContext::_resp_statu >= 400`
+    - `ErrorHandler` 生成简单 HTML 错误页
+    - `WriteResponse`
+    - 清空剩余输入
+    - `conn->ShutDown`
+
+- 🧱 底层缓冲区 `Buffer` · `server.hpp`
+  - 定位：TCP 输入、输出及 HTTP 增量解析共享的动态字节缓冲区
+  - 私有数据
+    - `_buffer : vector<char>`：底层连续空间，默认 1024 字节
+    - `_reader_idx : uint64_t`：可读区起点
+    - `_writer_idx : uint64_t`：可写区起点
+  - 空间布局
+    - `[0, reader)`：头部空闲区
+    - `[reader, writer)`：可读数据区
+    - `[writer, size)`：尾部空闲区
+  - 地址与容量接口
+    - `Begin()`：底层首地址
+    - `WritePosition()`：当前写指针
+    - `ReadPosition()`：当前读指针
+    - `HandIdleSize()`：头部空闲大小
+    - `TailIdleSize()`：尾部空闲大小
+    - `ReadAbleSize()`：可读字节数
+  - 偏移接口
+    - `MoveReadOffset(len)`：消费数据
+    - `MoveWriteOffset(len)`：确认写入数据
+  - 空间整理 `EnsureWriteSpace(len)`
+    - 尾部足够 → 不处理
+    - 尾部不足但总空闲足够 → 可读数据前移
+    - 总空闲不足 → `vector::resize`
+  - 写接口
+    - `Write(data, len)`：复制但不移动写偏移
+    - `WriteAndPush(data, len)`：复制并移动写偏移
+    - `WriteString / WriteStringAndPush`
+    - `WriteBuffer / WriteBufferAndPush`
+  - 读接口
+    - `Read(buf, len)`：复制但不移动读偏移
+    - `ReadAndPop(buf, len)`：复制并消费
+    - `ReadAsString / ReadAsStringAndPop`
+    - `FindCRLF()`：查找换行符
+    - `GetLine / GetLineAndPop`：供 HTTP 行解析使用
+    - `Clear()`：读写偏移归零
+  - 主要使用者
+    - `Connection::_in_buffer`
+    - `Connection::_out_buffer`
+    - `HttpContext` 按行与按 Content-Length 消费输入
+
+- 🔌 套接字封装 `Socket` · `server.hpp`
+  - 私有数据
+    - `_sockfd : int`
+  - 生命周期
+    - 默认 fd 为 `-1`
+    - 可接管已有 fd
+    - 析构调用 `Close`
+  - 基础接口
+    - `Fd`
+    - `Create`
+    - `Bind`
+    - `Listen`
+    - `Connect`
+    - `Accept`
+    - `Recv / Send`
+    - `NonBlockRecv / NonBlockSend`
+    - `Close`
+  - 组合流程
+    - `CreateServer(port, ip, block_flag)`
+      - Create → ReuseAddress → 可选 NonBlock → Bind → Listen
+    - `CreateClient(port, ip)`
+      - Create → Connect
+  - 配置接口
+    - `ReuseAddress`
+      - `SO_REUSEADDR`
+      - `SO_REUSEPORT`
+    - `NonBlock`
+      - `fcntl + O_NONBLOCK`
+  - 关系
+    - `Acceptor::_socket`：监听套接字
+    - `Connection::_socket`：客户端通信套接字
+
+- ⚡ 事件通道 `Channel` · `server.hpp`
+  - 定位：一个 fd 在 Reactor 中的事件与回调载体
+  - 私有数据
+    - `_fd : int`
+    - `_loop : EventLoop*`
+    - `_events : uint32_t`：希望监控的事件
+    - `_revents : uint32_t`：本轮实际就绪事件
+  - 回调类型 `EventCallBack = function<void()>`
+  - 五类回调
+    - `_read_callback`
+    - `_write_callback`
+    - `_error_callback`
+    - `_close_callback`
+    - `_event_callback`
+  - 查询与设置
+    - `Fd / Events / SetREvents`
+    - `SetReadCallBack / SetWriteCallBack`
+    - `SetErrorCallBack / SetCloseCallBack / SetEventCallBack`
+    - `ReadAble / WriteAble`
+  - 事件开关
+    - `EnableRead / DisableRead`
+    - `EnableWrite / DisableWrite`
+    - `DisableAll`
+    - 每次变化调用 `Update`
+  - 委托接口
+    - `Update()` → `_loop->UpdateEvent(this)`
+    - `Remove()` → `_loop->RemoveEvent(this)`
+  - 分发接口 `HandleEvent`
+    - `EPOLLIN / EPOLLRDHUP / EPOLLPRI` → 读回调
+    - `EPOLLOUT` → 写回调
+    - 否则 `EPOLLERR` → 错误回调
+    - 否则 `EPOLLHUP` → 关闭回调
+    - 最后统一调用任意事件回调
+  - 被谁拥有
+    - 每个 `Connection` 一个通信 Channel
+    - `Acceptor` 一个监听 Channel
+    - `EventLoop` 一个 eventfd Channel
+    - `TimerWheel` 一个 timerfd Channel
+
+- 🔭 I/O 多路复用 `Poller` · `server.hpp`
+  - 定位：对 Linux epoll 的直接封装
+  - 私有数据
+    - `_epfd : int`
+    - `_evs[MAX_EPOLLEVENTS] : epoll_event[1024]`
+    - `_channels : unordered_map<int, Channel*>`
+  - 内部接口
+    - `Update(channel, op)` → `epoll_ctl`
+    - `HasChannel(channel)`：检查 fd 是否登记
+  - 对外接口
+    - `UpdateEvent`
+      - 未登记 → map 插入 + `EPOLL_CTL_ADD`
+      - 已登记 → `EPOLL_CTL_MOD`
+    - `RemoveEvent`
+      - map 删除 + `EPOLL_CTL_DEL`
+    - `Poll(active*)`
+      - `epoll_wait(..., -1)`
+      - fd 反查 `Channel*`
+      - `SetREvents`
+      - 加入活跃 Channel 列表
+  - 上下游关系
+    - 上游：只由 `EventLoop` 调用
+    - 下游：直接操作 epoll 内核接口
+    - 输出：活跃 `Channel*` 列表交回 `EventLoop`
+
+- 🔁 事件循环 `EventLoop` · `server.hpp`
+  - 定位：每个 Reactor 线程的串行执行核心
+  - 私有数据
+    - `_thread_id : thread::id`
+    - `_event_fd : int`
+    - `_event_channel : unique_ptr<Channel>`
+    - `_poller : Poller`
+    - `_tasks : vector<Functor>`
+    - `_mutex : mutex`
+    - `_timer_wheel : TimerWheel`
+  - 类型
+    - `Functor = function<void()>`
+  - 主循环 `Start`
+    - `Poller::Poll` 阻塞取就绪事件
+    - 遍历 `Channel::HandleEvent`
+    - `RunAllTask` 执行跨线程任务
+  - 跨线程唤醒
+    - `CreateEventFd` 创建非阻塞 eventfd
+    - `_event_channel` 监听 eventfd 可读
+    - `QueueInLoop`
+      - 加锁追加 `_tasks`
+      - `WakeUpEventFd`
+    - eventfd 可读 → `ReadEventFd` 清除唤醒计数
+    - `RunAllTask`
+      - 锁内 swap 到局部数组
+      - 锁外逐个执行
+  - 线程归属接口
+    - `IsInLoop`
+    - `AssertInLoop`
+    - `RunInLoop`
+      - 当前线程 → 立即执行
+      - 其他线程 → `QueueInLoop`
+  - 事件代理
+    - `UpdateEvent` → `Poller::UpdateEvent`
+    - `RemoveEvent` → `Poller::RemoveEvent`
+  - 定时器代理
+    - `TimerAdd`
+    - `TimerRefresh`
+    - `TimerCancel`
+    - `HasTimer`
+  - 在服务器中的两种角色
+    - Main Reactor
+      - `TcpServer::_baseloop`
+      - 监听新连接
+      - 串行修改 `_conns`
+    - Sub Reactor
+      - 每个 `LoopThread` 内一个
+      - 处理已连接客户端读写
+
+- ⏰ 时间轮 `TimerTask + TimerWheel` · `server.hpp`
+  - 类型别名
+    - `TaskFunc = function<void()>`
+    - `ReleaseFunc = function<void()>`
+  - `TimerTask`
+    - 数据
+      - `_id : uint64_t`
+      - `_timeout : uint32_t`
+      - `_canceled : bool`
+      - `_task_cb : TaskFunc`
+      - `_release : ReleaseFunc`
+    - 生命周期语义
+      - 最后一个 `shared_ptr` 释放时析构
+      - 未取消 → 执行 `_task_cb`
+      - 随后执行 `_release` 清理映射
+    - 接口
+      - `Cancel`
+      - `SetRelease`
+      - `DelayTime`
+  - `TimerWheel`
+    - 类型
+      - `PtrTask = shared_ptr<TimerTask>`
+      - `WeakTask = weak_ptr<TimerTask>`
+    - 数据
+      - `_tick : int`：当前秒针
+      - `_capacity : int`：60 个刻度
+      - `_wheel : vector<vector<PtrTask>>`
+      - `_timers : unordered_map<uint64_t, WeakTask>`
+      - `_loop : EventLoop*`
+      - `_timerfd : int`
+      - `_timer_channel : unique_ptr<Channel>`
+    - tick 驱动
+      - `CreateTimerFd` 设置首到期 1 秒、周期 1 秒
+      - timerfd 可读 → `OnTime`
+      - `ReadTimeFd` 获取累计超时次数
+      - 每次 `RunTimerTask`
+        - 秒针前进
+        - 清空当前槽
+        - 释放任务的最后引用时触发 `TimerTask` 析构回调
+    - 增删改查
+      - `TimerAddInLoop`
+        - 新建 `TimerTask`
+        - 计算 `(tick + delay) % capacity`
+        - 放入时间轮
+        - weak_ptr 登记到 `_timers`
+      - `TimerRefreshInLoop`
+        - weak_ptr 提升为 shared_ptr
+        - 将同一任务再次放入新到期槽
+      - `TimerCancelInLoop`
+        - 设置 canceled，析构时不执行业务任务
+      - `HasTimer`
+      - `RemoveTimer`
+    - 线程安全外壳
+      - `TimerAdd / TimerRefresh / TimerCancel`
+      - 均通过 `_loop->RunInLoop` 串行执行 InLoop 版本
+  - 与连接的关系
+    - `conn_id` 同时用作超时定时器 id
+    - 新连接可调用 `EnableInactiveRelease`
+    - 任意 I/O 事件调用 `TimerRefresh`
+    - 超时任务调用 `Connection::Release`
+    - 正常关闭调用 `TimerCancel`
+
+- 🧵 线程封装 `LoopThread + LoopThreadPool` · `server.hpp`
+  - `LoopThread`
+    - 数据
+      - `_mutex`
+      - `_cond : condition_variable`
+      - `_loop : EventLoop*`
+      - `_thread : thread`
+    - 构造即启动线程
+    - `ThreadEntry`
+      - 在线程栈中创建 `EventLoop loop`
+      - 保存 `_loop = &loop`
+      - `notify_all`
+      - `loop.Start`
+    - `GetLoop`
+      - 等待 `_loop != nullptr`
+      - 保证调用者拿到已初始化的 EventLoop
+  - `LoopThreadPool`
+    - 数据
+      - `_thread_count : int`
+      - `_next_idx : int`
+      - `_baseloop : EventLoop*`
+      - `_threads : vector<LoopThread*>`
+      - `_loops : vector<EventLoop*>`
+    - `SetThreadCount`
+    - `Create`
+      - 按配置创建 `LoopThread`
+      - 调用 `GetLoop` 收集 Sub Reactor
+    - `NextLoop`
+      - 线程数为 0 → 返回主 EventLoop
+      - 否则 Round-Robin 返回下一个 Sub Reactor
+  - 与 `TcpServer` 的关系
+    - `TcpServer` 拥有线程池
+    - `TcpServer::Start` 时创建线程
+    - `NewConnection` 时分配连接所属 EventLoop
+
+- 📦 类型擦除容器 `Any` · `server.hpp`
+  - 定位：让 `Connection` 保存任意协议的连接级上下文
+  - 内部抽象基类 `holder`
+    - 虚析构
+    - `type()`
+    - `clone()`
+  - 模板子类 `placeholder<T> : holder`
+    - `_val : T`
+    - `type()` 返回 `typeid(T)`
+    - `clone()` 深拷贝当前值
+  - `Any` 数据
+    - `_content : holder*`
+  - 接口
+    - 默认构造：空指针
+    - 模板构造：包装任意 `T`
+    - 拷贝构造：调用虚函数 `clone`
+    - 析构：删除 `_content`
+    - `swap`
+    - `Get<T>()`
+      - 用 `typeid` 断言类型一致
+      - 返回内部值指针
+    - 模板赋值与 Any 赋值
+      - copy-and-swap
+  - HTTP 中的具体关系
+    - `Connection::_context : Any`
+    - `HttpServer::OnConnected` 写入 `HttpContext`
+    - `HttpServer::OnMessage` 用 `Get<HttpContext>()` 取回
+    - 每条 TCP 连接独享自己的 HTTP 增量解析状态
+  - 协议升级关系
+    - `Connection::Upgrade`
+    - 同时替换 `Any` 上下文与四类业务回调
+
+- 🔗 连接对象 `Connection` · `server.hpp`
+  - 继承
+    - `enable_shared_from_this<Connection>`
+    - 回调期间通过 `shared_from_this()` 保持自身存活
+  - 核心数据
+    - 身份与状态
+      - `_conn_id : uint64_t`
+      - `_sockfd : int`
+      - `_statu : ConnStatu`
+      - `_enable_inactive_release : bool`
+    - 所属执行器
+      - `_loop : EventLoop*`
+    - 组合对象
+      - `_socket : Socket`
+      - `_channel : Channel`
+      - `_in_buffer : Buffer`
+      - `_out_buffer : Buffer`
+      - `_context : Any`
+  - 回调类型
+    - `ConnectedCallBack(conn)`
+    - `MessageCallBack(conn, Buffer*)`
+    - `ClosedCallBack(conn)`
+    - `AnyEventCallBack(conn)`
+  - 回调数据
+    - 应用层
+      - `_connected_callback`
+      - `_message_callback`
+      - `_closed_callback`
+      - `_event_callback`
+    - 框架内部
+      - `_server_closed_callback`
+      - 指向 `TcpServer::RemoveConnection`
+  - 构造时绑定 Channel
+    - read → `HandleRead`
+    - write → `HandleWrite`
+    - error → `HandleError`
+    - close → `HandleClose`
+    - any event → `HandleEvent`
+  - 私有 I/O 回调
+    - `HandleRead`：socket → 输入 Buffer → 消息回调
+    - `HandleWrite`：输出 Buffer → socket → 清空后停写监控
+    - `HandleClose`：处理剩余输入 → Release
+    - `HandleError` → `HandleClose`
+    - `HandleEvent`：刷新定时器 → 应用任意事件回调
+  - InLoop 生命周期接口
+    - `EstablishedInLoop`
+    - `ReleaseInLoop`
+    - `SendInLoop`
+    - `ShutdownInLoop`
+    - `EnableInactiveReleaseInLoop`
+    - `CancelInactiveReleaseInLoop`
+    - `UpgradeInLoop`
+  - 对外接口
+    - 查询
+      - `Fd`
+      - `Id`
+      - `Connected`
+    - 上下文
+      - `SetContext`
+      - `Getcontext`
+    - 回调注入
+      - `SetConnectedCallBack`
+      - `SetMessageCallBack`
+      - `SetClosedCallBack`
+      - `SetAnyEventCallBack`
+      - `SetSrvClosedCallBack`
+    - 生命周期
+      - `Established`
+      - `Send`
+      - `ShutDown`
+      - `Release`
+      - `EnableInactiveRelease`
+      - `CancelInactiveRelease`
+      - `Upgrade`
+
+- 🚦 连接状态 `ConnStatu`
+  - `CONNECTING`
+    - `Connection` 已创建但 Channel 尚未正式开始通信
+  - `CONNECTED`
+    - `EstablishedInLoop` 完成
+    - 已启用读监控，可正常收发
+  - `DISCONNECTING`
+    - 已请求关闭
+    - 等待剩余输入处理和输出发送
+  - `DISCONNECTED`
+    - 已移除事件监控并关闭 socket
+  - 主要转换
+    - `CONNECTING`
+      - ↓ `EstablishedInLoop`
+    - `CONNECTED`
+      - ↓ `ShutdownInLoop`
+    - `DISCONNECTING`
+      - ↓ 输出缓冲清空
+    - `DISCONNECTED`
+  - 异常或超时路径
+    - `CONNECTED` → `Release` → `DISCONNECTED`
+
+- 👂 监听器 `Acceptor` · `server.hpp`
+  - 数据
+    - `_socket : Socket`
+    - `_loop : EventLoop*`
+    - `_channel : Channel`
+    - `_accept_callback : function<void(int)>`
+  - 构造
+    - `CreateServer(port)` 获得监听 fd
+    - Channel 绑定 Main Reactor 与监听 fd
+    - 读回调绑定 `HandleRead`
+  - 接口
+    - `SetAcceptCallBack`
+    - `Linst`：使能读监控
+  - 新连接路径
+    - `HandleRead`
+    - ↓ `_socket.Accept()`
+    - `newfd`
+    - ↓ `_accept_callback`
+    - `TcpServer::NewConnection`
+
+- 🏢 TCP 服务器 `TcpServer` · `server.hpp`
+  - 定位：底层网络框架的总装配器与连接拥有者
+  - 数据
+    - `_next_id : uint64_t`
+    - `_port : int`
+    - `_timeout : int`
+    - `_enable_inactive_release : bool`
+    - `_baseloop : EventLoop`
+    - `_acceptor : Acceptor`
+    - `_pool : LoopThreadPool`
+    - `_conns : unordered_map<uint64_t, PtrConnection>`
+  - 应用回调
+    - `_connected_callback`
+    - `_message_callback`
+    - `_closed_callback`
+    - `_event_callback`
+  - 私有接口
+    - `RunAfterInLoop(task, delay)`
+      - 生成 id
+      - 在主 EventLoop 时间轮添加任务
+    - `NewConnection(fd)`
+      - 生成连接 id
+      - 选择 Sub Reactor
+      - 创建 Connection
+      - 注入应用回调和服务器关闭回调
+      - 启用可选超时
+      - Established
+      - 存入 `_conns`
+    - `RemoveConnection(conn)`
+      - 把删除动作投回主 EventLoop
+    - `RemoveConnectionInLoop(conn)`
+      - 从 `_conns` 删除
+  - 对外接口
+    - `SetThreadCount`
+    - 四类回调 setter
+    - `EnableInactiveRelease`
+    - `RunAfter`
+    - `Start`
+  - 主从 Reactor 职责
+    - Main Reactor
+      - 接收新连接
+      - 管理全局连接表
+      - 执行服务器级定时任务
+    - Sub Reactor
+      - 管理被分配的 Connection
+      - 执行客户端 I/O 与业务回调
+
+- 🛡️ 全局初始化与日志 · `server.hpp`
+  - 日志等级
+    - `INF = 0`
+    - `DBG = 1`
+    - `ERR = 2`
+    - 默认门槛 `DEFAULT_LOG_LEVEL = DBG`
+  - `LOG(level, format, ...)`
+    - 检查等级
+    - 格式化当前时间
+    - 输出线程 id、时间、文件、行号、消息
+  - 便捷宏
+    - `INF_LOG`
+    - `DBG_LOG`
+    - `ERR_LOG`
+  - `NetWork`
+    - 构造时调用 `signal(SIGPIPE, SIG_IGN)`
+    - 避免向已关闭连接写数据时信号终止进程
+  - 全局静态对象 `nw`
+    - 在 `main` 前构造
+    - 自动完成 SIGPIPE 初始化
+
+- 🧰 HTTP 工具类 `Util` · `http/http.hpp`
+  - 全局数据表
+    - `_statu_msg : unordered_map<int, string>`
+      - HTTP 状态码 → 原因短语
+    - `_mime_msg : unordered_map<string, string>`
+      - 扩展名 → MIME 类型
+  - 字符串
+    - `Split(src, sep, array*)`
+      - 查询字符串与路径分段共用
+  - 文件
+    - `ReadFile(filename, string*)`
+      - 二进制读取整个文件
+      - 被静态资源处理调用
+    - `WriteFile(filename, string)`
+      - 二进制覆盖写入
+      - 被 PUT 示例调用
+  - URL
+    - `UrlEncode(url, convert_space_to_plus)`
+      - 非保留字符保持原样
+      - 查询字符串空格可转 `+`
+      - 其他字符转 `%HH`
+    - `HEXTOT(c)`
+      - 十六进制字符转 0–15
+    - `UrlDecode(url, convert_plus_to_space)`
+      - `%HH` 解码
+      - 查询字符串中的 `+` 可转空格
+  - HTTP 元数据
+    - `StatuDesc(statu)`
+    - `ExtMime(filename)`
+  - 文件系统判断
+    - `IsDirectory`
+    - `IsRegular`
+    - 均基于 `stat`
+  - 路径约束
+    - `VaildPath(path)`
+    - 按 `/` 分段
+    - 用层级计数阻止路径越出静态根目录
+
+- 📥 HTTP 请求 `HttpRequest` · `http/http.hpp`
+  - 数据字段
+    - `_method : string`
+    - `_path : string`
+    - `_version : string`
+    - `_body : string`
+    - `_matches : smatch`：路由正则捕获结果
+    - `_headers : unordered_map<string, string>`
+    - `_params : unordered_map<string, string>`
+  - 默认值
+    - `_version = "HTTP/1.1"`
+  - 生命周期
+    - `ReSet` 清空本次请求并恢复默认版本
+  - Header 接口
+    - `SetHeader`
+    - `HasHeader`
+    - `GetHandler`
+  - Query Param 接口
+    - `SetParam`
+    - `HasParam`
+    - `GetParam`
+  - 协议辅助
+    - `ContentLength`
+      - 从 `Content-Length` 头转为整数
+    - `Close`
+      - 显式 `Connection: keep-alive` 才判定为长连接
+  - 数据生产者
+    - `HttpContext::ParseHttpLine`
+    - `HttpContext::ParseHttpHead`
+    - `HttpContext::RecvHttpBody`
+  - 数据消费者
+    - `HttpServer::Route`
+    - 静态文件处理
+    - 应用层 `Handler`
+    - `WriteResponse`
+
+- 📤 HTTP 响应 `HttpResponse` · `http/http.hpp`
+  - 数据字段
+    - `_statu : int`
+    - `_redirect_flag : bool`
+    - `_body : string`
+    - `_redirect_url : string`
+    - `_headers : unordered_map<string, string>`
+  - 默认值
+    - 状态码 200
+    - 非重定向
+  - 接口
+    - `ReSet`
+    - `SetHeader`
+    - `HasHeader`
+    - `GetHeader`
+    - `SetContent(body, type)`
+      - 写正文
+      - 写 Content-Type
+    - `SetRedirect(url, statu=302)`
+      - 写状态码、重定向标志和 URL
+    - `Close`
+      - 根据响应 `Connection` 头判断是否关闭
+  - 数据生产者
+    - 应用 Handler
+    - `FileHandler`
+    - `ErrorHandler`
+  - 数据消费者
+    - `HttpServer::WriteResponse`
+
+- 🧩 HTTP 增量解析状态机 `HttpContext` · `http/http.hpp`
+  - `HttpRecvStatu`
+    - `RECV_HTTP_ERROR`
+    - `RECV_HTTP_LINE`
+    - `RECV_HTTP_HEAD`
+    - `RECV_HTTP_BODY`
+    - `RECV_HTTP_OVER`
+  - 数据
+    - `_resp_statu : int`
+    - `_recv_statu : HttpRecvStatu`
+    - `_request : HttpRequest`
+  - 初始状态
+    - 响应状态 200
+    - 接收状态 `RECV_HTTP_LINE`
+  - 请求行 `ParseHttpLine`
+    - 正则识别
+      - 方法：GET/HEAD/POST/PUT/DELETE
+      - 路径
+      - 可选查询字符串
+      - HTTP/1.0 或 HTTP/1.1
+    - 方法统一转大写
+    - 路径 URL 解码但不把 `+` 转空格
+    - 查询串先按 `&` 分割
+    - 每项再按 `=` 分键值
+    - 参数 URL 解码并把 `+` 转空格
+    - 格式错误 → 状态 400
+  - 请求行接收 `RecvHttpLine`
+    - 从 `Buffer::GetLineAndPop` 取一行
+    - 数据不全 → 保持当前状态
+    - 超过 8192 字节 → 414
+    - 成功 → `RECV_HTTP_HEAD`
+  - Header `ParseHttpHead`
+    - 去掉 CRLF
+    - 按 `": "` 分割 key/value
+    - 写入 `HttpRequest::_headers`
+    - 格式错误 → 400
+  - Header 接收 `RecvHttpHead`
+    - 循环取行
+    - 空行代表头部结束
+    - 数据不全则等待
+    - 超限 → 414
+    - 完成 → `RECV_HTTP_BODY`
+  - Body 接收 `RecvHttpBody`
+    - 根据 `Content-Length`
+    - 无正文 → `RECV_HTTP_OVER`
+    - 数据足够 → 取剩余长度并完成
+    - 数据不足 → 全部追加后等待下一批
+  - 总入口 `RecvHttpRequest`
+    - switch 故意连续落入
+    - 同一次调用可依次处理请求行、头部、正文
+  - 对外查询
+    - `RespStatu`
+    - `RecvStatu`
+    - `Request`
+  - `ReSet`
+    - 响应状态回到 200
+    - 接收状态回到请求行
+    - 重置内部 `HttpRequest`
+
+- 🚀 HTTP 服务器 `HttpServer` · `http/http.hpp`
+  - 定位：把 HTTP 协议、路由和静态文件能力接到 `TcpServer`
+  - 路由类型
+    - `Handler = function<void(const HttpRequest&, HttpResponse*)>`
+    - `Handlers = vector<pair<regex, Handler>>`
+  - 路由表
+    - `_get_route`
+    - `_post_route`
+    - `_put_route`
+    - `_delete_route`
+  - 组合数据
+    - `_basedir : string`
+    - `_server : TcpServer`
+  - 连接回调
+    - `OnConnected`
+      - 向 `Connection::Any` 写入新的 `HttpContext`
+    - `OnMessage`
+      - 从 Any 取得当前连接的 `HttpContext`
+      - 循环消费 `Buffer`
+      - 未完成 → 等待后续数据
+      - 解析错误 → 错误页 + 响应 + 关闭
+      - 解析完成 → 路由 + 响应 + 重置
+  - 静态文件
+    - `SetBaseDir`
+      - 断言路径是目录
+    - `IsFileHandler`
+      - 要求已配置根目录
+      - 方法为 GET/HEAD
+      - 路径合法
+      - 对应普通文件存在
+      - 路径以 `/` 结尾时补 `index.html`
+    - `FileHandler`
+      - `Util::ReadFile`
+      - `Util::ExtMime`
+      - 填充响应体和 Content-Type
+  - 功能路由
+    - `Get / Post / Put / Delete`
+      - pattern 编译为 `regex`
+      - 与 Handler 一起追加到对应路由表
+    - `Dispatcher`
+      - 顺序尝试 `regex_match`
+      - 捕获数据写入 `req._matches`
+      - 命中即调用 Handler
+      - 全部未命中 → 404
+    - `Route`
+      - 静态文件优先
+      - 然后按方法选择路由表
+      - 不支持的方法 → 405
+  - 响应
+    - `ErrorHandler`
+      - 用状态码和 `Util::StatuDesc` 生成 HTML
+    - `WriteResponse`
+      - 完善响应头
+      - 序列化 HTTP 报文
+      - 调用 `Connection::Send`
+  - 服务器配置
+    - 构造 `(port, timeout=10)`
+      - 构造底层 `TcpServer`
+      - 开启非活跃连接回收
+      - 注册 OnConnected 和 OnMessage
+    - `SetThreadCount` → `TcpServer::SetThreadCount`
+    - `Listen` → `TcpServer::Start`
+
+- 🖥️ HTTP 示例应用 · `http/main.cc`
+  - 常量
+    - `WWWROOT = "./wwwroot/"`
+  - 辅助函数 `RequestStr(req)`
+    - 拼接请求方法、路径、版本
+    - 遍历查询参数
+    - 遍历请求头
+    - 追加请求正文
+    - 返回便于观察的纯文本
+  - 路由处理器
+    - `Hello(req, rsp)`
+      - 用 `RequestStr` 回显请求
+      - Content-Type 为 `text/plain`
+    - `Login(req, rsp)`
+      - 用 `RequestStr` 回显请求
+      - Content-Type 为 `text/plain`
+    - `PutFile(req, rsp)`
+      - 路径：`WWWROOT + req._path`
+      - `Util::WriteFile(pathname, req._body)`
+    - `DelFile(req, rsp)`
+      - 当前实现回显请求
+  - `main`
+    - 创建 `HttpServer(8085)`
+    - `SetThreadCount(3)`
+    - `SetBaseDir("./wwwroot/")`
+    - 注册
+      - GET `/hello` → `Hello`
+      - POST `/login` → `Login`
+      - PUT `/1234.txt` → `PutFile`
+      - DELETE `/1234.txt` → `DelFile`
+    - `Listen`
+  - 静态资源 `http/wwwroot`
+    - `index.html`
+      - 表单 action `/login`
+      - method `post`
+      - 用户名输入框
+      - 密码输入框
+      - 提交按钮
+      - 浏览器访问 `/` 时由静态文件分支返回
+    - `1234.txt`
+      - 可通过 GET 静态读取
+      - 可通过 PUT 路由覆盖正文
+
+- 🔄 HTTP 示例中的具体请求路径
+  - `GET /`
+    - `Route`
+    - ↓ 静态文件优先
+    - `IsFileHandler`
+    - ↓ `/` 补 `index.html`
+    - `FileHandler`
+    - ↓ `Util::ReadFile`
+    - 返回登录表单 HTML
+  - `POST /login`
+    - `HttpContext` 按 Content-Length 收集表单正文
+    - `Route` 选择 `_post_route`
+    - `Dispatcher` 命中 `/login`
+    - `Login`
+    - `RequestStr`
+    - 返回纯文本请求详情
+  - `GET /hello?name=abc`
+    - `ParseHttpLine`
+    - `_path = "/hello"`
+    - `_params["name"] = "abc"`
+    - `_get_route` 命中 `Hello`
+    - 返回纯文本请求详情
+  - `PUT /1234.txt`
+    - `_put_route` 命中 `PutFile`
+    - 请求正文写入 `./wwwroot/1234.txt`
+  - `GET /1234.txt`
+    - 静态文件优先于功能路由
+    - 返回文本文件
+  - `DELETE /1234.txt`
+    - `_delete_route` 命中 `DelFile`
+    - 返回纯文本请求详情
+
+- 🔀 关键回调关系总览
+  - 事件级回调
+    - `Channel` 保存无参回调
+    - fd 就绪 → `Channel::HandleEvent`
+  - 连接级回调
+    - `Connection` 把 Channel 回调转换为带 `PtrConnection` 的业务回调
+    - read → `MessageCallBack(conn, Buffer*)`
+    - connected/closed/any-event → 对应连接回调
+  - 服务器级回调
+    - `TcpServer` 接收上层注册的回调
+    - 新建 Connection 时复制给连接对象
+  - 应用级回调
+    - HTTP
+      - `TcpServer → HttpServer::OnConnected`
+      - `TcpServer → HttpServer::OnMessage`
+  - HTTP 路由回调
+    - `HttpServer::Dispatcher`
+    - ↓ `Handler(const HttpRequest&, HttpResponse*)`
+    - `Hello / Login / PutFile / DelFile`
+
+- 🧠 关键数据结构转换
+  - TCP 接收
+    - 内核 socket 接收缓冲区
+    - ↓ `Socket::NonBlockRecv`
+    - 栈上 `char[65536]`
+    - ↓ `Buffer::WriteAndPush`
+    - `Connection::_in_buffer`
+  - HTTP 解析
+    - Buffer 字节
+    - ↓ `HttpContext`
+    - `HttpRequest`
+      - method
+      - path
+      - version
+      - headers
+      - params
+      - body
+      - regex matches
+  - HTTP 路由
+    - `HttpRequest::_method`
+    - ↓ 选择 `Handlers`
+    - `HttpRequest::_path`
+    - ↓ `regex_match`
+    - `Handler`
+    - ↓ 写入
+    - `HttpResponse`
+  - HTTP 序列化
+    - `HttpResponse`
+    - ↓ `WriteResponse`
+    - HTTP 状态行 + headers + CRLF + body
+    - ↓ `Connection::Send`
+    - 临时 Buffer
+    - ↓ `SendInLoop`
+    - `Connection::_out_buffer`
+    - ↓ `HandleWrite`
+    - socket
+  - 连接上下文
+    - `HttpContext`
+    - ↓ `Any::placeholder<HttpContext>`
+    - `Connection::_context`
+    - ↓ `Any::Get<HttpContext>`
+    - 下一批 TCP 数据继续同一解析状态
+
+- 🧵 线程与数据归属
+  - 主线程 Main Reactor
+    - `TcpServer::_baseloop`
+    - `Acceptor`
+    - 监听 fd
+    - `_conns` 连接表的增删协调
+  - Sub Reactor 线程
+    - 每个 `LoopThread` 一个 `EventLoop`
+    - 每个 Connection 固定归属一个 EventLoop
+    - 该连接的 Channel、Buffer、上下文和 I/O 回调在所属线程串行处理
+  - 跨线程规则
+    - 普通操作 → `EventLoop::RunInLoop`
+    - 当前就是目标线程 → 立即执行
+    - 否则 → 任务队列 + eventfd 唤醒
+  - 典型跨线程动作
+    - 主线程把新 Connection 的 Established 投给 Sub Reactor
+    - 任意线程调用 Connection::Send
+    - Sub Reactor 关闭 Connection 后把 map 删除投回 Main Reactor
+    - 定时器增删刷新投给定时轮所属 EventLoop
+  - 共享与生命周期
+    - `_conns` 保存 `shared_ptr<Connection>`
+    - 回调参数也使用 `shared_ptr`
+    - `enable_shared_from_this` 防止回调中对象提前释放
+    - TimerWheel 用 shared_ptr 决定任务何时析构执行
+    - `_timers` 用 weak_ptr 查询而不延长任务寿命
+
+- 📁 文件与构建关系
+  - `source/server.hpp`
+    - 头文件内实现完整 TCP/Reactor 框架
+    - 被 HTTP 示例间接包含
+  - `source/http`
+    - `http.hpp`
+      - 包含 `../server.hpp`
+      - 定义 HTTP 工具、报文、状态机、服务器
+    - `main.cc`
+      - 包含 `http.hpp`
+      - 注册示例路由并启动 8085 端口
+    - `makefile`
+      - `g++ -g -std=c++11 main.cc -o main -lpthread`
+    - `main`
+      - 已生成的可执行文件
+    - `wwwroot/index.html`
+      - 登录表单静态首页
+    - `wwwroot/1234.txt`
+      - 静态文本与 PUT 示例目标
+
+- 🗺️ 从文件定位类
+  - `server.hpp`
+    - `Buffer`
+    - `Socket`
+    - `Channel`
+    - `Poller`
+    - `TimerTask`
+    - `TimerWheel`
+    - `EventLoop`
+    - `LoopThread`
+    - `LoopThreadPool`
+    - `Any`
+      - `holder`
+      - `placeholder<T>`
+    - `ConnStatu`
+    - `Connection`
+    - `Acceptor`
+    - `TcpServer`
+    - `NetWork`
+  - `http/http.hpp`
+    - `Util`
+    - `HttpRequest`
+    - `HttpResponse`
+    - `HttpRecvStatu`
+    - `HttpContext`
+    - `HttpServer`
+  - `http/main.cc`
+    - `RequestStr`
+    - `Hello`
+    - `Login`
+    - `PutFile`
+    - `DelFile`
+
+- 🧭 快速回忆口诀
+  - 一条连接
+    - Accept → 分配 Loop → Connection → Channel → 回调
+  - 一次读
+    - epoll → Poller → Channel → Connection → Buffer → 业务
+  - 一次写
+    - 业务 → Send → RunInLoop → 输出 Buffer → EPOLLOUT → socket
+  - 一次 HTTP
+    - Buffer → HttpContext → HttpRequest → Route → Handler → HttpResponse → Send
+  - 多线程
+    - Main Reactor 接连接，Sub Reactor 管读写
+  - 跨线程
+    - 任务进队列，eventfd 唤醒目标 Loop
+  - 超时回收
+    - timerfd 驱动时间轮，连接事件刷新任务，超时触发 Release
+  - 生命周期
+    - `_conns` 持有 shared_ptr，关闭后回主 Loop 删除
+  - 核心主线
+    - 应用层 → HTTP → TcpServer → Connection → EventLoop → Poller → epoll

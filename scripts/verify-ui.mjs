@@ -2190,19 +2190,25 @@ async function main() {
 			);
 		}
 
-		// 分批导入：另一篇（差分）里的两条 [[前缀和]] 都要改写成功，直接查产物
+		// 分批导入：另一篇（差分）里的两条 [[前缀和]] 都要改写成功，直接查产物。
+		// ⚠️ 必须**只数正文区域**：全量导入后 `/posts/algorithm/qianzhuihe/` 还会出现在
+		// 「相关文章 / 上一篇下一篇」卡片里，整页数会得到 4 条（实测踩过）。
+		// 正文区域的右边界取「文章分享」卡片（它紧跟在正文之后）。
 		try {
 			const chafenHtml = await fs.readFile(
 				path.resolve("dist/posts/algorithm/chafen/index.html"),
 				"utf8",
 			);
-			const hits = (chafenHtml.match(/href="\/posts\/algorithm\/qianzhuihe\/"/g) ?? []).length;
-			const area = chafenHtml.slice(chafenHtml.indexOf("markdown-content"));
+			const start = chafenHtml.indexOf("markdown-content");
+			const share = chafenHtml.indexOf("文章分享", start);
+			const region = chafenHtml.slice(start, share > start ? share : undefined);
+			const inBody = (region.match(/href="\/posts\/algorithm\/qianzhuihe\/"/g) ?? []).length;
+			const total = (chafenHtml.match(/href="\/posts\/algorithm\/qianzhuihe\/"/g) ?? []).length;
 			record(
 				"R-CNT-04",
 				"同一篇里的多条双链全部改写（差分 → 前缀和 ×2）",
-				(area.match(/href="\/posts\/algorithm\/qianzhuihe\/"/g) ?? []).length === 2,
-				`产物里 ${hits} 条链接`,
+				inBody === 2,
+				`正文区域 ${inBody} 条（整页 ${total} 条，其余是相关文章/上下篇卡片）`,
 			);
 		} catch (err) {
 			record("R-CNT-04", "同一篇里的多条双链全部改写", false, `读不到产物：${err.message}`);
