@@ -1,0 +1,810 @@
+---
+/**
+ * 桌宠「爱弥斯」（R-PET-01 ~ R-PET-05）
+ * ============================================================================
+ * 素材：`src/assets/images/pet/pet-aemeath.webp`（8 列 × 9 行，单格 144×156）
+ *   Codex 自定义宠物图集（MIT），九行 = 九个状态。
+ * 行为：从原型 `my_-blog/blog_test` 的 `assets/js/pet.js` 移植（那份是验证过的实现），
+ *   按本站的钩子重接：主题切换用模板的 `theme-change` 事件、切页用 Swup 的
+ *   `astro:page-load`、阅读页安静模式按 pathname 判断。
+ * 样式：`src/styles/pet.css`（**不是**组件的 scoped style —— JS 动态创建的星屑节点
+ *   拿不到 Astro 的 scope 属性，样式会静默失效，见该文件头注释）。
+ *
+ * 为什么挂在这里能跨页常驻：Layout 是 Swup 的宿主页，本组件渲染在 Swup 的
+ * 6 个替换容器**之外**，切页时节点不重建（ARCH.md §7.2 / §14.3 T10）。
+ * ============================================================================
+ */
+import { petConfig } from "@/config";
+import "@/styles/pet.css";
+
+const { enable, hideOnMobile, mobileBreakpoint, scale, zIndex } = petConfig;
+
+/**
+ * 解析期的"这台设备要不要桌宠"判断（R-PET-01）。
+ * 写成 frontmatter 里的字符串再 set:html，而不是把表达式塞进 <script is:inline> 里——
+ * 后者在 `is:inline` 下不会被当成 Astro 表达式处理（实测：变量没被插值，
+ * 而且 TS 还会报"变量声明未使用"）。
+ */
+const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(max-width: ${mobileBreakpoint - 1}px)").matches){document.documentElement.dataset.petOff="1";}}catch(e){}})();`;
+---
+
+{
+	enable && (
+		<>
+			{/* 解析期就决定"这台设备要不要桌宠"：移动端隐藏时连脚本都不启动（R-PET-01）。
+			    用 html 上的标记而不是 hidden 属性，理由同排行榜面板（ARCH §14.3 T24）。 */}
+			<script is:inline set:html={petHideScript} />
+
+			<div
+				class="pet"
+				id="pet"
+				data-pet
+				style={`--pet-scale:${scale};z-index:${zIndex}`}
+			>
+				<p class="pet-bubble" id="pet-bubble" role="status" aria-live="polite"></p>
+				<span
+					class="pet-body"
+					id="pet-body"
+					role="button"
+					tabindex="0"
+					aria-label="桌宠爱弥斯：点一下会跳起来，可以拖着走，左右方向键也能指挥它；按回车和我说话"
+				>
+					<span class="pet-shadow" aria-hidden="true"></span>
+					<span class="pet-sprite" id="pet-sprite" aria-hidden="true"></span>
+				</span>
+			</div>
+
+			{/* 右键菜单用真实 DOM 渲染（不是 JS 现拼），读屏与键盘都能用 */}
+			<div class="pet-menu" id="pet-menu" role="menu" aria-label="和爱弥斯互动" hidden>
+				<button type="button" role="menuitem" data-pet-act="say">
+					说句话
+				</button>
+				<button type="button" role="menuitem" data-pet-act="jump">
+					跳一下
+				</button>
+				<button type="button" role="menuitem" data-pet-act="follow">
+					跟过来
+				</button>
+				<button type="button" role="menuitem" data-pet-act="sleep">
+					睡一会儿
+				</button>
+				<button type="button" role="menuitem" data-pet-act="chat">
+					和爱弥斯聊天
+				</button>
+			</div>
+		</>
+	)
+}
+
+<script>
+	import { petConfig } from "@/config";
+	import {
+		PET_COLS,
+		PET_ROWS,
+		PET_STATES,
+		PET_TUNING,
+		type PetStateName,
+	} from "@/utils/pet-utils";
+
+	(function () {
+		const root = document.documentElement;
+		// 幂等守卫：无论什么原因重复执行，都只初始化一次
+		if ((window as Window & { __imissPetReady?: boolean }).__imissPetReady) return;
+		(window as Window & { __imissPetReady?: boolean }).__imissPetReady = true;
+
+		// 移动端隐藏：解析期已经打了标记，这里直接不启动
+		if (root.dataset.petOff === "1") return;
+
+		const el0 = document.getElementById("pet");
+		const hit0 = document.getElementById("pet-body");
+		const sprite0 = document.getElementById("pet-sprite");
+		const bubble0 = document.getElementById("pet-bubble");
+		const menu0 = document.getElementById("pet-menu");
+		if (!el0 || !hit0 || !sprite0 || !bubble0 || !menu0) return;
+		// 收窄后再绑定成新常量：闭包里引用它们时类型才稳定是 HTMLElement（不然 ts(18047)）
+		const el: HTMLElement = el0;
+		const hit: HTMLElement = hit0;
+		const sprite: HTMLElement = sprite0;
+		const bubble: HTMLElement = bubble0;
+		const menu: HTMLElement = menu0;
+
+		const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+		const PET_KEY = "imiss.pet.pos";
+		const COLS = PET_COLS;
+		const ROWS = PET_ROWS;
+		const { gravity, walkSpeed, floorGap, edge, workLinger, safeRight } = PET_TUNING;
+		const sleepAfter = petConfig.idleSecondsToSleep * 1000;
+
+		let vw = 0;
+		let vh = 0;
+		let floorY = 0;
+		let w = 0;
+		let h = 0;
+		let footPx = 0;
+		let raf = 0;
+		let last = 0;
+		let drag: {
+			id: number;
+			dx: number;
+			dy: number;
+			moved: number;
+			x0: number;
+			y0: number;
+		} | null = null;
+		let moveAcc = 0;
+		let sayTimer = 0;
+		let lastLine = -1;
+		let workTimer = 0;
+		let chatOpen = false;
+
+		const pet = {
+			x: 0,
+			y: 0,
+			vy: 0,
+			state: "idle" as PetStateName,
+			frame: 0,
+			acc: 0,
+			face: 1 as 1 | -1,
+			walking: false,
+			targetX: 0,
+			airborne: false,
+			dragging: false,
+			nextAt: 0,
+			busyUntil: 0,
+			asleep: false,
+			lastActive: 0,
+			cursorX: 0,
+			px: -1,
+			py: -1,
+			lastClick: 0,
+			userMoved: false,
+		};
+
+		/* ── 量尺寸 ─────────────────────────────────────── */
+		/**
+		 * 右侧"让给浮动按钮"的宽度（R-PET-05）。
+		 * 返回顶部按钮是滚下去才出现的，所以**不能只看它当前是否可见**——
+		 * 第一版就是这么写的：出场时按钮还没显示（宽 0 → 跳过），
+		 * 等滚到下面按钮冒出来，宠物正好压在它上面（实测 1416 > 1409）。
+		 * 现在按固定预留算，按钮真可见时再用它的实际位置收窄一次。
+		 */
+		const FLOAT_RESERVE = 64;
+
+		function rightLimit(): number {
+			let limit = vw - w - safeRight - FLOAT_RESERVE;
+			for (const node of document.querySelectorAll<HTMLElement>(
+				"#back-to-top-btn, .floating-controls-container",
+			)) {
+				const r = node.getBoundingClientRect();
+				if (r.width === 0 || r.height === 0) continue;
+				if (r.bottom < floorY - h || r.top > floorY + h) continue;
+				limit = Math.min(limit, r.left - w - 12);
+			}
+			return Math.max(edge, limit);
+		}
+
+		function clampX(x: number): number {
+			return Math.max(edge, Math.min(rightLimit(), x));
+		}
+
+		function measure(): void {
+			vw = window.innerWidth;
+			vh = window.innerHeight;
+			w = sprite?.offsetWidth || 144;
+			h = sprite?.offsetHeight || 156;
+			footPx = h * (152 / 156);
+			floorY = vh - floorGap - footPx;
+			if (pet.airborne) return;
+			pet.y = floorY;
+			pet.x = clampX(pet.x);
+			pet.targetX = clampX(pet.targetX);
+		}
+
+		/** 默认出场位置：贴着自己那一侧，但**永远避开右下角的浮动按钮区**（R-PET-05） */
+		function defaultX(): number {
+			const side =
+				petConfig.startSide === "random" ? (Math.random() < 0.5 ? "left" : "right") : petConfig.startSide;
+			if (side === "left") return edge + 8;
+			return clampX(vw - w - safeRight - FLOAT_RESERVE);
+		}
+
+		/* ── 状态与帧 ───────────────────────────────────── */
+		function setState(name: PetStateName, holdMs = 0): void {
+			const s = PET_STATES[name];
+			if (pet.state === name) {
+				if (s.once) pet.busyUntil = performance.now() + holdMs;
+				return;
+			}
+			pet.state = name;
+			pet.frame = 0;
+			pet.acc = 0;
+			sprite?.style.setProperty("--pet-dy", `${s.dy ?? 0}px`);
+			pet.busyUntil = s.once ? performance.now() + holdMs : 0;
+			el?.setAttribute("data-pet-state", name);
+			pet.px = -1; // 逼 draw() 立刻重画一帧（reduced-motion 下没有 rAF 循环）
+			draw(0);
+		}
+
+		function setFace(f: 1 | -1): void {
+			if (pet.face === f) return;
+			pet.face = f;
+			sprite?.style.setProperty("--pet-face", String(f));
+		}
+
+		/* ── 每帧 ───────────────────────────────────────── */
+		function step(dt: number, now: number): void {
+			if (pet.busyUntil && now >= pet.busyUntil) {
+				pet.busyUntil = 0;
+				pet.walking = false;
+				setState("idle");
+				pet.nextAt = now + 1200 + Math.random() * 3000;
+			}
+
+			if (pet.dragging || chatOpen) return;
+
+			if (pet.airborne) {
+				pet.vy += gravity * dt;
+				pet.y += pet.vy * dt;
+				if (pet.y >= floorY && pet.vy >= 0) {
+					const impact = pet.vy;
+					pet.y = floorY;
+					if (impact > 1100) {
+						pet.vy = -impact * 0.26;
+					} else {
+						pet.vy = 0;
+						pet.airborne = false;
+						setState("jumping", 420);
+					}
+				}
+				return;
+			}
+
+			if (pet.walking) {
+				const dir = pet.targetX > pet.x ? 1 : -1;
+				const nx = pet.x + dir * walkSpeed * dt;
+				if ((dir > 0 && nx >= pet.targetX) || (dir < 0 && nx <= pet.targetX)) {
+					pet.x = pet.targetX;
+					stopWalking(now);
+				} else {
+					pet.x = nx;
+				}
+				return;
+			}
+
+			if (!pet.asleep && !pet.busyUntil && now >= pet.nextAt) decide(now);
+		}
+
+		function decide(now: number): void {
+			// 阅读页安静一点：站着就好，别在正文下面来回走
+			if (root.dataset.petRoute === "post") {
+				pet.nextAt = now + 9000;
+				return;
+			}
+			const r = Math.random();
+			if (r < 0.5) {
+				walkTo(edge + Math.random() * Math.max(1, vw - w - edge * 2), now);
+			} else if (r < 0.62) {
+				setState("waving", 1900);
+				pet.nextAt = now + 2200;
+			} else if (r < 0.72) {
+				setState("jumping", 900);
+				pet.nextAt = now + 1300;
+			} else if (r < 0.8) {
+				setState("failed", 1500);
+				pet.nextAt = now + 1800;
+			} else {
+				pet.nextAt = now + 4000 + Math.random() * 9000;
+			}
+		}
+
+		function walkTo(x: number, now: number): void {
+			pet.targetX = clampX(x);
+			if (Math.abs(pet.targetX - pet.x) < 6) {
+				pet.nextAt = now + 2000;
+				return;
+			}
+			const right = pet.targetX > pet.x;
+			wake();
+			pet.walking = true;
+			pet.busyUntil = 0;
+			setFace(right ? 1 : -1);
+			setState(right ? "running-right" : "running-left");
+		}
+
+		function stopWalking(now: number): void {
+			pet.walking = false;
+			setState("idle");
+			pet.nextAt = now + 2500 + Math.random() * 6000;
+		}
+
+		function draw(dt: number): void {
+			const s = PET_STATES[pet.state];
+			const dur = 1 / s.fps;
+			pet.acc += dt;
+			while (pet.acc >= dur) {
+				pet.acc -= dur;
+				pet.frame++;
+				if (pet.frame >= s.frames) pet.frame = s.once ? s.frames - 1 : 0;
+			}
+
+			el?.style.setProperty("transform", `translate3d(${pet.x.toFixed(2)}px,${pet.y.toFixed(2)}px,0)`);
+
+			const col = pet.frame % COLS;
+			const px = (col / (COLS - 1)) * 100;
+			const py = (s.row / (ROWS - 1)) * 100;
+			if (px !== pet.px || py !== pet.py) {
+				pet.px = px;
+				pet.py = py;
+				if (sprite) sprite.style.backgroundPosition = `${px}% ${py}%`;
+			}
+
+			const air = Math.max(0, floorY - pet.y);
+			const k = Math.max(0.35, 1 - air / 320);
+			el?.style.setProperty("--pet-shadow", k.toFixed(3));
+		}
+
+		function tick(now: number): void {
+			raf = requestAnimationFrame(tick);
+			const dt = Math.min(0.05, (now - last) / 1000);
+			last = now;
+			step(dt, now);
+			draw(dt);
+		}
+
+		function start(): void {
+			if (raf || reduce || document.hidden) return;
+			last = performance.now();
+			raf = requestAnimationFrame(tick);
+		}
+
+		function stop(): void {
+			if (raf) {
+				cancelAnimationFrame(raf);
+				raf = 0;
+			}
+		}
+
+		/* ── 说话 / 气泡 ─────────────────────────────────── */
+		function randomLine(): string {
+			const lines = petConfig.lines;
+			let i = lastLine;
+			while (lines.length > 1 && i === lastLine) i = Math.floor(Math.random() * lines.length);
+			lastLine = i;
+			return lines[i];
+		}
+
+		function say(text?: string): void {
+			const msg = text || randomLine();
+			bubble.textContent = msg;
+			const cx = pet.x + w / 2;
+			bubble.classList.toggle("is-left", cx < 150);
+			bubble.classList.toggle("is-right", cx > vw - 150);
+			bubble.classList.remove("is-pop");
+			void bubble.offsetWidth;
+			bubble.classList.add("is-pop");
+			clearTimeout(sayTimer);
+			sayTimer = window.setTimeout(() => bubble.classList.remove("is-pop"), 4200);
+		}
+
+		/* ── 星屑（纯 CSS 动效，不引第三方）───────────────── */
+		function spark(cx: number, cy: number, count: number): void {
+			if (reduce) return;
+			for (let i = 0; i < count; i++) {
+				const s = document.createElement("span");
+				const a = (Math.PI * 2 * i) / count + Math.random() * 0.6;
+				const d = 22 + Math.random() * 38;
+				s.className = "pet-spark";
+				s.style.left = `${cx}px`;
+				s.style.top = `${cy}px`;
+				s.style.setProperty("--dx", `${(Math.cos(a) * d).toFixed(1)}px`);
+				s.style.setProperty("--dy", `${(Math.sin(a) * d).toFixed(1)}px`);
+				s.style.animationDelay = `${i * 9}ms`;
+				document.body.appendChild(s);
+				s.addEventListener("animationend", () => s.remove());
+				window.setTimeout(() => {
+					if (s.isConnected) s.remove();
+				}, 1600);
+			}
+		}
+
+		/* ── 交互 ───────────────────────────────────────── */
+		function wake(): void {
+			pet.lastActive = performance.now();
+			if (pet.asleep) {
+				pet.asleep = false;
+				setState("idle");
+				pet.nextAt = performance.now() + 800;
+			}
+		}
+
+		function jump(): void {
+			wake();
+			setState("jumping", 700);
+			pet.nextAt = performance.now() + 900;
+		}
+
+		function onPointerDown(e: PointerEvent): void {
+			if (e.button !== 0 && e.pointerType === "mouse") return;
+			const r = hit?.getBoundingClientRect();
+			if (!r) return;
+			drag = {
+				id: e.pointerId,
+				dx: e.clientX - r.left,
+				dy: e.clientY - r.top,
+				moved: 0,
+				x0: e.clientX,
+				y0: e.clientY,
+			};
+			moveAcc = 0;
+			wake();
+			try {
+				hit?.setPointerCapture(e.pointerId);
+			} catch {
+				/* 某些浏览器/指针类型不支持捕获，忽略 */
+			}
+		}
+
+		function onPointerMove(e: PointerEvent): void {
+			if (!drag || e.pointerId !== drag.id) return;
+			drag.moved = Math.max(drag.moved, Math.abs(e.clientX - drag.x0) + Math.abs(e.clientY - drag.y0));
+			if (drag.moved < 4 && !pet.dragging) return;
+
+			if (!pet.dragging) {
+				pet.dragging = true;
+				pet.airborne = false;
+				pet.vy = 0;
+				pet.walking = false;
+				pet.busyUntil = 0;
+				hit?.classList.add("is-drag");
+				setState("failed"); // 被拎起来：困惑脸
+			}
+			moveAcc += e.movementX || 0;
+			if (Math.abs(moveAcc) > 14) {
+				setFace(moveAcc > 0 ? 1 : -1);
+				moveAcc = 0;
+			}
+
+			pet.x = Math.max(-w * 0.3, Math.min(vw - w * 0.7, e.clientX - drag.dx));
+			pet.y = Math.max(0, Math.min(vh - h * 0.4, e.clientY - drag.dy));
+			pet.userMoved = true;
+			el?.style.setProperty("transform", `translate3d(${pet.x.toFixed(2)}px,${pet.y.toFixed(2)}px,0)`);
+		}
+
+		function onPointerUp(e: PointerEvent): void {
+			if (!drag || e.pointerId !== drag.id) return;
+			const wasDrag = pet.dragging;
+			const moved = drag.moved;
+			drag = null;
+			try {
+				hit?.releasePointerCapture(e.pointerId);
+			} catch {
+				/* 忽略 */
+			}
+
+			if (wasDrag) {
+				pet.dragging = false;
+				hit?.classList.remove("is-drag");
+				pet.airborne = pet.y < floorY - 2;
+				pet.vy = pet.airborne ? 60 : 0;
+				if (!pet.airborne) {
+					setState("idle");
+					pet.nextAt = performance.now() + 900;
+				}
+				savePos();
+				return;
+			}
+
+			if (moved < 8) {
+				const now = performance.now();
+				if (now - pet.lastClick < 320) {
+					pet.lastClick = 0;
+					setState("review", 900);
+					pet.nextAt = now + 1200;
+					const r = hit?.getBoundingClientRect();
+					if (r) spark(r.left + r.width / 2, r.top + r.height * 0.42, 10);
+					say("两下！那我也高兴一下。");
+				} else {
+					pet.lastClick = now;
+					jump();
+					say();
+				}
+			}
+		}
+
+		function onDocMove(e: PointerEvent): void {
+			pet.cursorX = e.clientX;
+			wake();
+			if (pet.dragging || pet.walking || pet.busyUntil || pet.asleep) return;
+			const cx = pet.x + w / 2;
+			if (Math.abs(e.clientX - cx) > w * 0.45) setFace(e.clientX > cx ? 1 : -1);
+		}
+
+		/* ── 右键菜单 ───────────────────────────────────── */
+		function openMenu(x: number, y: number): void {
+			if (!menu) return;
+			menu.hidden = false;
+			const mw = menu.offsetWidth || 132;
+			menu.style.left = `${Math.min(x, vw - mw - 10)}px`;
+			menu.style.top = `${Math.max(10, y - 8)}px`;
+		}
+
+		function closeMenu(): void {
+			if (menu) menu.hidden = true;
+		}
+
+		/* ── 对话（P3 走本地 mock；P5 接真 Agent）─────────── */
+		function openChat(): void {
+			chatOpen = true;
+			pet.walking = false;
+			pet.busyUntil = 0;
+			if (pet.asleep) wake();
+			setState("running");
+			bubble.classList.add("is-chat");
+			bubble.classList.add("is-pop");
+			clearTimeout(sayTimer);
+			bubble.innerHTML = "";
+			const tip = document.createElement("div");
+			tip.textContent = petConfig.agent.enable ? "聊点什么？" : "聊点什么？（我还没连上大脑，先随便聊聊）";
+			const reply = document.createElement("div");
+			reply.className = "pet-chat-reply";
+			const form = document.createElement("form");
+			form.className = "pet-chat";
+			const input = document.createElement("input");
+			input.type = "text";
+			input.maxLength = petConfig.agent.maxLength;
+			input.placeholder = "和爱弥斯说……";
+			input.setAttribute("aria-label", "对爱弥斯说的话");
+			const send = document.createElement("button");
+			send.type = "submit";
+			send.textContent = "发送";
+			form.append(input, send);
+			bubble.append(tip, form, reply);
+			input.focus();
+			form.addEventListener("submit", (e) => {
+				e.preventDefault();
+				const text = input.value.trim();
+				if (!text) return;
+				input.value = "";
+				// P5：这里换成 utils/pet-agent-client.ts 的流式调用（R-AGT-03/04）
+				const pool = petConfig.mockReplies;
+				reply.textContent = pool[Math.floor(Math.random() * pool.length)];
+				setState("review", 900);
+				pet.nextAt = performance.now() + 1200;
+			});
+		}
+
+		function closeChat(): void {
+			if (!chatOpen) return;
+			chatOpen = false;
+			bubble.classList.remove("is-chat");
+			bubble.classList.remove("is-pop");
+			bubble.textContent = "";
+			setState("idle");
+			pet.nextAt = performance.now() + 1200;
+		}
+
+		/* ── 位置记忆（只存 x：站着时 y 由地面决定）────────── */
+		function savePos(): void {
+			if (!pet.userMoved) return;
+			try {
+				localStorage.setItem(PET_KEY, String(Math.round(pet.x)));
+			} catch {
+				/* 隐私模式下 localStorage 会抛，忽略 */
+			}
+		}
+
+		function loadPos(): number | null {
+			try {
+				const v = Number.parseInt(localStorage.getItem(PET_KEY) ?? "", 10);
+				return Number.isNaN(v) ? null : v;
+			} catch {
+				return null;
+			}
+		}
+
+		/* ── 与站点其它部分的联动（R-PET-03）───────────────── */
+		function markRoute(): void {
+			const isPost = /^\/(posts|archive)\//.test(location.pathname);
+			root.dataset.petRoute = isPost ? "post" : "page";
+		}
+
+		function hookInputs(): void {
+			// 搜索框打字 → 进入「执行任务」的墨镜幽灵状态
+			document.addEventListener(
+				"input",
+				(e) => {
+					const t = e.target;
+					if (!(t instanceof HTMLElement)) return;
+					if (!t.closest("#search-bar, #search-bar-inside, #search-panel")) return;
+					wake();
+					if (pet.dragging || pet.airborne || chatOpen) return;
+					pet.walking = false;
+					pet.busyUntil = 0;
+					setState("running");
+					clearTimeout(workTimer);
+					workTimer = window.setTimeout(() => {
+						if (pet.state === "running") {
+							setState("idle");
+							pet.nextAt = performance.now() + 600;
+						}
+					}, workLinger);
+				},
+				true,
+			);
+
+			// 换主题 → 原地庆祝（模板 setTheme 会派发 theme-change）
+			window.addEventListener("theme-change", () => {
+				if (pet.dragging) return;
+				const r = el?.getBoundingClientRect();
+				if (r) spark(r.left + r.width / 2, r.top + r.height * 0.42, 8);
+				setState("review", 900);
+				pet.nextAt = performance.now() + 1300;
+			});
+
+			// 无操作超时 → 屏幕待机
+			window.setInterval(() => {
+				if (pet.asleep || pet.dragging || pet.airborne || chatOpen) return;
+				if (performance.now() - pet.lastActive < sleepAfter) return;
+				pet.walking = false;
+				pet.busyUntil = 0;
+				pet.asleep = true;
+				setState("waiting");
+			}, 3000);
+		}
+
+		/* ── 启动 ───────────────────────────────────────── */
+		function boot(): void {
+			measure();
+			markRoute();
+
+			const savedX = loadPos();
+			if (savedX === null) {
+				pet.x = defaultX();
+			} else {
+				pet.x = clampX(savedX);
+				pet.userMoved = true;
+			}
+			pet.y = floorY;
+			pet.lastActive = performance.now();
+			pet.nextAt = performance.now() + 1800;
+
+			sprite?.style.setProperty("--pet-face", "1");
+			sprite?.style.setProperty("--pet-dy", "0px");
+			setState("idle");
+			// 把初始状态也写进 DOM：setState 在"状态没变"时会提前返回，
+			// reduced-motion 下更是压根不调它，属性就一直是空的（验收脚本读不到）
+			el?.setAttribute("data-pet-state", pet.state);
+
+			hit?.addEventListener("pointerdown", onPointerDown);
+			hit?.addEventListener("pointermove", onPointerMove);
+			hit?.addEventListener("pointerup", onPointerUp);
+			hit?.addEventListener("pointercancel", onPointerUp);
+			hit?.addEventListener("contextmenu", (e: Event) => {
+				e.preventDefault();
+				wake();
+				const me = e as MouseEvent;
+				openMenu(me.clientX, me.clientY);
+			});
+			hit?.addEventListener("keydown", (e: KeyboardEvent) => {
+				if (e.key === "Enter" || e.key === " ") {
+					e.preventDefault();
+					jump();
+					say();
+				} else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+					e.preventDefault();
+					walkTo(pet.x + (e.key === "ArrowLeft" ? -110 : 110), performance.now());
+				} else if (e.key === "Escape") {
+					closeChat();
+					closeMenu();
+				}
+			});
+
+			menu?.addEventListener("click", (e) => {
+				const t = e.target;
+				if (!(t instanceof HTMLElement)) return;
+				const btn = t.closest<HTMLElement>("[data-pet-act]");
+				if (!btn) return;
+				closeMenu();
+				wake();
+				switch (btn.dataset.petAct) {
+					case "say":
+						say();
+						break;
+					case "jump":
+						jump();
+						break;
+					case "follow":
+						walkTo(pet.cursorX || vw / 2, performance.now());
+						break;
+					case "sleep":
+						pet.walking = false;
+						pet.asleep = true;
+						pet.busyUntil = 0;
+						setState("waiting");
+						say("那我眯一会儿，有事晃我。");
+						break;
+					case "chat":
+						openChat();
+						break;
+				}
+			});
+
+			document.addEventListener("pointermove", onDocMove, { passive: true });
+			document.addEventListener(
+				"click",
+				(e) => {
+					if (menu && !menu.hidden && !menu.contains(e.target as Node)) closeMenu();
+				},
+				true,
+			);
+			document.addEventListener(
+				"keydown",
+				(e) => {
+					if (e.key === "Escape") {
+						closeMenu();
+						closeChat();
+					}
+				},
+				true,
+			);
+
+			for (const ev of ["pointerdown", "keydown", "wheel", "touchstart"] as const) {
+				window.addEventListener(ev, wake, { passive: true });
+			}
+
+			window.addEventListener(
+				"resize",
+				() => {
+					measure();
+					el?.style.setProperty("transform", `translate3d(${pet.x.toFixed(2)}px,${pet.y.toFixed(2)}px,0)`);
+				},
+				{ passive: true },
+			);
+
+			document.addEventListener("visibilitychange", () => {
+				if (document.hidden) {
+					stop();
+					savePos();
+				} else {
+					start();
+				}
+			});
+			window.addEventListener("pagehide", savePos);
+
+			hookInputs();
+
+			// 切页（Swup）：节点不重建，只打招呼 + 重新量尺寸 + 更新安静模式
+			document.addEventListener("astro:page-load", () => {
+				markRoute();
+				measure();
+				if (pet.dragging) return;
+				closeChat();
+				setState("waving", 1600);
+				pet.busyUntil = performance.now() + 1600;
+				pet.nextAt = performance.now() + 2000;
+			});
+
+			if (reduce) {
+				// 减少动态：不跑循环，停在待机首帧；点击、菜单、对话仍然可用
+				pet.frame = 0;
+				if (sprite) sprite.style.backgroundPosition = "0% 0%";
+				el?.style.setProperty("transform", `translate3d(${pet.x.toFixed(2)}px,${pet.y.toFixed(2)}px,0)`);
+			} else {
+				start();
+				// 出场：先打个招呼，再交给 decide()
+				window.setTimeout(() => {
+					if (chatOpen) return;
+					setState("waving", 1900);
+					pet.busyUntil = performance.now() + 1900;
+					say(petConfig.greeting);
+				}, 900);
+			}
+		}
+
+		if (document.readyState === "loading") {
+			document.addEventListener("DOMContentLoaded", boot, { once: true });
+		} else {
+			boot();
+		}
+	})();
+</script>

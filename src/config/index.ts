@@ -77,6 +77,7 @@ export { mermaidConfig } from "./mermaidConfig"; // Mermaid 图表配置
 export { musicPlayerConfig } from "./musicConfig"; // 音乐播放器配置
 export { navBarConfig, navBarSearchConfig } from "./navBarConfig"; // 导航栏配置与搜索配置
 export { live2dWidgetConfig, spineModelConfig } from "./pioConfig"; // 看板娘配置
+export { petConfig } from "./petConfig"; // 桌宠配置（R-PET，本站新增）
 export { plantumlConfig } from "./plantumlConfig"; // PlantUML 图表配置
 export { profileConfig } from "./profileConfig"; // 用户资料配置
 export { rankConfig } from "./rankConfig"; // 排行榜数据（R-RANK，本站新增）

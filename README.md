@@ -73,7 +73,7 @@ pnpm preview      # 另开一个终端窗口跑这个并保持运行
 pnpm verify:ui    # 再另开一个终端窗口跑这个
 ```
 
-期望输出：`功能断言 107 项：通过 107，失败 0`。
+期望输出：`功能断言 133 项：通过 133，失败 0`。
 若输出 `检测到 astro dev 服务器` 的提示，说明你对 `pnpm dev` 跑了它——
 那会把"关闭页面"等断言误判，请改成对 `pnpm preview` 跑。
 
@@ -108,8 +108,9 @@ pnpm verify:docs    # 期望输出：`文档检查 … ：通过 N，失败 0`�
 | `pnpm type-check` | `tsc --noEmit`，覆盖 `src/` 与 `scripts/` |
 | `pnpm build` | 生产构建：LQIP → VNDB 封面（未配置则跳过）→ Astro → 清理未用看板娘资源 → 字体子集 → 内联脚本压缩 → Pagefind 索引 |
 | `pnpm preview` | 预览 `dist/` |
-| `pnpm verify:ui` | 界面验收：107 项断言 + 泄漏扫描 + 对比度 A/B + 15 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
+| `pnpm verify:ui` | 界面验收：133 项断言 + 泄漏扫描 + 对比度 A/B + 19 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
 | `pnpm verify:docs` | 文档自检：核对三份文档与仓库事实是否一致（版本号、断言/截图数、排行页清单、导航子项、需求编号、阻塞项、阶段状态）。**改完东西收工前跑一次** |
+| `node scripts/convert-wallpaper.mjs` | 把 `dosc/photo` 的 4 张壁纸转成 webp（桌面 + 移动两套），改壁纸素材时用 |
 | `pnpm make:logo` | 从 `imiss-logo.svg` 重新栅格化 Logo 与 favicon |
 | `pnpm format` / `pnpm lint` | Biome 格式化 / 检查并安全修复（只针对 `src/`） |
 | `pnpm new-post` | 新建文章脚手架 |
@@ -189,6 +190,22 @@ tags: [Linux, 进程]
 > （想重新生成：`node scripts/make-rank-cover-guide.mjs`）。构图怕被裁的图，单独说明要保留哪一块。
 >
 > 没写 `cover` 的条目会走主题色渐变占位，不会裂图；**写了路径但文件不存在**也会自动按缺图处理（构建日志里有 warning）。
+
+### 桌宠怎么调
+
+右下角那只爱弥斯是常驻组件（`src/components/features/AemeathPet.astro` + `src/styles/pet.css`），配置在 **`src/config/petConfig.ts`**：
+
+| 想改什么 | 改哪里 |
+| --- | --- |
+| 开 / 关桌宠 | `petConfig.enable` |
+| 手机上要不要 | `petConfig.hideOnMobile`（现在 `true` = 手机不显示） |
+| 大小 | `petConfig.scale`（1 = 单格 144×156 原始像素） |
+| 出场靠哪边 / 台词 / 待机多久睡 | `petConfig.startSide` / `lines` / `greeting` / `idleSecondsToSleep` |
+| 行为（走、跳、拖、说话、对话） | `AemeathPet.astro` 里的脚本；状态表在 `src/utils/pet-utils.ts` |
+| 和它聊天 | 右键 →「和爱弥斯聊天」。**现在没有后端**，回复来自 `petConfig.mockReplies`（P5 接真 Agent） |
+
+> 素材是 Codex 自定义宠物图集（8 列 × 9 行、单格 144×156，MIT）。第 2 行与第 1 行逐像素相同，
+> 所以左走用第 1 行 + `scaleX(-1)`。**不要同时开模板自带的 Live2D / Spine 看板娘**（R-PET-04）。
 
 ## 桌宠与 Agent
 

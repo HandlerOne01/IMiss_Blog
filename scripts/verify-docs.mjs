@@ -102,16 +102,20 @@ const allDocs = { "prd.md": prd, "ARCH.md": arch, "PROJECT_STATUS.md": status, [
 		const m = allDocs[doc].match(re);
 		if (m) claimed.push({ doc, label, n: Number(m[1]) });
 	};
+	// 四个来源一个都不能少：少了就说明某处措辞变了、正则悄悄失配 —— 那种"看起来在查、其实没查"
+	// 的弱断言正是 P2 审查点名过的问题（第一版这里只要 ≥3 个来源就算过，
+	// PROJECT_STATUS 失配时检查静默降级成 3 个来源，照样绿）
+	const EXPECTED_SOURCES = 4;
 	push(README, "期望输出", /期望输出：`功能断言\s*(\d+)\s*项/);
 	push(README, "常用命令表", /`pnpm verify:ui`\s*\|\s*界面验收：(\d+) 项断言/);
 	push("ARCH.md", "§11 脚本表", /\*\*(\d+) 项功能断言\*\*/);
-	push("PROJECT_STATUS.md", "§1 最近变更", /最近变更\*\*：[\s\S]{0,600}?verify:ui`?\s*扩到\s*\*\*(\d+)\s*项断言全绿/);
+	push("PROJECT_STATUS.md", "§1 最近变更", /最近变更\*\*：[\s\S]{0,900}?\*\*(\d+)\s*项断言全绿\*\*/);
 
 	const uniq = [...new Set(claimed.map((c) => c.n))];
 	record(
 		"断言条数",
-		"文档各处的当前口径一致",
-		uniq.length === 1 && claimed.length >= 3,
+		`文档各处的当前口径一致（应有 ${EXPECTED_SOURCES} 处）`,
+		uniq.length === 1 && claimed.length === EXPECTED_SOURCES,
 		claimed.map((c) => `${c.doc}·${c.label}=${c.n}`).join("  ") || "一处都没匹配到",
 	);
 	if (baseline !== null) {
@@ -141,12 +145,12 @@ const allDocs = { "prd.md": prd, "ARCH.md": arch, "PROJECT_STATUS.md": status, [
 	};
 	claimShot(README, "常用命令表", /界面验收：\d+ 项断言[^|]*?(\d+) 张截图/);
 	claimShot("ARCH.md", "§11 说明", /脚本每轮输出\s*(\d+)\s*张截图/);
-	claimShot("PROJECT_STATUS.md", "§1 最近变更", /截图\s*\*\*(\d+)\s*张\*\*/);
+	claimShot("PROJECT_STATUS.md", "§1 最近变更", /最近变更\*\*：[\s\S]{0,900}?截图[^*\n]{0,24}?\*\*(\d+)\s*张\*\*/);
 	const shotUniq = [...new Set(shotClaims.map((c) => c.n))];
 	record(
 		"截图张数",
-		`与 reports/screenshots 实际张数一致（实际 ${shots}）`,
-		shotUniq.length === 1 && shotUniq[0] === shots,
+		`与 reports/screenshots 实际张数一致（应有 3 处口径 / 实际 ${shots} 张）`,
+		shotUniq.length === 1 && shotClaims.length === 3 && shotUniq[0] === shots,
 		shotClaims.map((c) => `${c.doc}·${c.label}=${c.n}`).join("  ") || "一处都没匹配到",
 	);
 }

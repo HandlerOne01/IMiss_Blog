@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.13 |
+| 文档版本 | v1.14 |
 | 最后更新 | 2026-09-24 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -90,6 +90,7 @@ imiss_-blog/                      ← 工作区根（= 站点仓库）
 │  ├─ verify-ui.mjs               ← 【P1 已落地】界面验收（CDP 断言 + 截图，零依赖）
 │  ├─ verify-docs.mjs             ← 【v1.12 已落地】文档一致性自检（文档 ↔ 仓库事实）
 │  ├─ make-rank-cover-guide.mjs   ← 【v1.13 已落地】榜单配图比例对照图
+│  ├─ convert-wallpaper.mjs       ← 【P3 已落地】壁纸图 → webp（dosc/photo → imiss-d*/m*）
 │  ├─ import-posts.mjs            ← 【新增】内容迁移
 │  ├─ verify-posts.mjs            ← 【新增】内容校验
 │  ├─ convert-wallpaper.mjs       ← 【新增】壁纸图 → webp
@@ -424,7 +425,7 @@ if (!board) return Astro.redirect("/404/");     // 数据被删时别炸在页�
 
 ### 6.1 图片期（R-BG-01）
 
-1. 转换脚本 `scripts/convert-wallpaper.mjs`（用 `sharp`，不引入新依赖）：
+1. 转换脚本 `scripts/convert-wallpaper.mjs`（用 `sharp`，不引入新依赖）—— **P3 已落地**：
    - 输入：`dosc/photo/*.jpg`（4 张，1916×821 等）
    - 输出：`src/assets/images/DesktopWallpaper/imiss-d1..4.webp`（长边 2560 上限、`withoutEnlargement`、质量 82）
    - **不做预裁**：源图是 21:9，横幅（banner）本身很宽，让渲染时的 `object-position` 决定构图；预裁只会损失像素
@@ -905,7 +906,7 @@ dosc/blog/**/*.md
 | `pnpm preview` | 预览构建产物 | — |
 | `pnpm format` / `pnpm lint` | Biome 格式化与检查 | — |
 | `pnpm verify:posts` | 内容与排行数据校验（阻断式） | ✅（P4 新增） |
-| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **107 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底），并输出 **15 张**截图到 `reports/screenshots/`。P1 落地、P2 扩容 | ✅（P1 新增，P2 扩容） |
+| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **133 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底），并输出 **19 张**截图到 `reports/screenshots/`。P3 起含桌宠与壁纸全项（九状态触发 / 键盘 / 拖拽 / 菜单 / 联动 / reduced-motion / 与浮动按钮不重叠 / 移动端隐藏 / 取景与暗罩）| ✅（P1 新增，P2/P3 两次扩容） |
 | `pnpm verify:docs` | **文档一致性自检**（`scripts/verify-docs.mjs`）：核对三份文档互相之间、以及文档与仓库事实是否一致——版本号与"最后更新"日期、断言/截图数与最近一次实测、排行页清单与路由文件、导航子项与 `navBarConfig.ts`、需求编号引用闭环、阻塞项条数与编号连续、§2 与 §3 阶段状态，以及**配置事实**（`displaySettingsConfig.enable`、`rankConfig.dataStatus`、"4 组数据"类说法是否漏了第 5 份）。**每次收工前跑一次**（P2 加二游排行时文档漂移了 12 处，就是没有这道关卡） | ✅（v1.12 新增） |
 | `pnpm make:logo` | 把 `src/assets/images/logo/imiss-logo.svg`（手写矢量设计源）栅格化成导航栏 Logo（webp）与 favicon 四档 PNG | ✅（P1 新增） |
 | `node scripts/make-rank-cover-guide.mjs` | 生成榜单配图比例对照图 `docs/imiss/rank-cover-guide.png`（16:9 原图裁成 5.7:1 后哪一条留下；发起人准备素材时看这张） | ✅（v1.13 新增） |
@@ -913,7 +914,7 @@ dosc/blog/**/*.md
 > **关于 `verify:ui` 的对比度检查**：主体走"token 级"校验（`--deep-text`/`--content-meta`/`--btn-content`/`--primary` 对卡片底/页面底），不是"扫全站文字元素"。
 > 原因：这个主题里大量文字压在封面图、壁纸、半透明面板上，逐元素自动判定无法可靠取得背景色（试了三版：canvas 转色 → 逐层合成 → Node 侧解析，期间还产出过"66/71 元素低于 3:1"的假警报）。
 > P2 补了两处**具体**的对比度断言（不依赖背景取色）：① 名次数字对名次底色（`getComputedStyle` 直接读两个颜色，白字压粉底 ≥ 3:1、深字压橙底 ≥ 4.5:1）；② 缺图占位把渐变各档合成到不透明底色上取最亮值，与白字算对比度（暗/亮主题各一条）。
-> 观感部分仍然是"**可复现的数字交给脚本，观感交给截图**"：脚本每轮输出 15 张截图并人工核对；另外把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
+> 观感部分仍然是"**可复现的数字交给脚本，观感交给截图**"：脚本每轮输出 19 张截图并人工核对；另外把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
 | `pnpm import:posts -- --write` | 内容迁移（默认 dry-run） | ✅ |
 | `pnpm export:agent` | 导出 `agent/data/*.json` | ✅ |
 | `node scripts/convert-wallpaper.mjs` | 壁纸图 → webp | ✅ |
@@ -1093,6 +1094,10 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | T24 | **Tailwind 4 的 preflight 用分层 `!important` 锁死了 `[hidden]`**：编译产物里是 `@layer base{… [hidden]:where(:not([hidden=until-found])){display:none!important} …}`。按 CSS 层叠规范，**`!important` 声明"分层优先于不分层"**——所以自己在未分层的样式表里写 `.rank-panel[hidden]{display:block!important}`，特异性再高也**盖不住**它（P2 独立审查实测：打印时第二块面板始终印不出来） | "打印/无 JS 时也要看到内容"这类兜底会**静默失效**，而且看不出原因（规则明明生效了） | 不要跟 `[hidden]` 抢 `display`：改用**自己的 class**（`.rank-panel--off`）+ `html[data-rank-js="1"]` 这类"JS 可用"标记来隐藏，打印/无 JS 时用普通规则覆盖即可。另外注意**未分层的普通声明也会输给分层里的普通声明**（正常声明是"不分层优先"），所以别指望靠层外的规则去覆盖 Tailwind 组件层 |
 | T25 | **`import.meta.glob` 的相对路径是相对"当前文件所在目录"**：`ImageWrapper.astro` 在 `components/common/` 下写 `"../../**/*.webp"` 正好指到 `src/`；我在 `components/pages/rank/RankBoard.astro` 里照抄同一串，`../../` 只到 `components/` → **一个配图都解析不到**，全站榜单静默退化成渐变占位（构建日志里 4 条 warning 才发现） | 复制粘贴式复用 glob 会静默失效；页面"看起来还能看"，很难发现配图全丢了 | glob 一律用**项目根绝对路径**（`"/src/**/*.{png,jpg,jpeg,webp,avif}"`），key 也随之变成 `/src/...`，与文件位置无关；复制任何 `import.meta.glob` 前先数清 `../` 的层数 |
 | T26 | **auto 轨道里的 grid item 用百分比 `max-width` 会把它压扁**：短评胶囊改成网格第 2 列后写了 `max-width: 45%`，Chrome 下胶囊被压成一个小圆点（截图里一眼看到）——auto 轨道的尺寸本来要靠内容算，百分比上限参与进来就形成"先算宽度、再按百分比限制"的循环 | 元素"还在"，但小到看不出内容，**只断言"不重叠"会通过（假绿）** | 这类上限用**长度**表达（`40cqw`、`min(40%, 220px)` 之类）；断言里除了"不重叠"还要断言"自身没被压扁"（宽度下限 + `scrollWidth <= clientWidth + 2`） |
+
+| T27 | **模板的 `--deep-text` 在暗色下不生效**：`src/styles/variables.styl` 里 `--deep-text: oklch(0.25 …)` **只在浅色 `:root` 定义了一次，`:root.dark` 没有覆盖它**（上游遗留）。拿它当"通用正文色"用，暗色下就是深字压深卡片——桌宠气泡第一版就这样，几乎看不见（截图才发现） | 自己写的浮动组件（气泡/菜单/面板）在暗色下文字"消失"，而且不报错 | 浮动组件的文字色**分主题写**（模板自己的做法是配 `dark:text-white`）：`:root.dark .pet-bubble { color: rgb(255 255 255 / .92) }`。判断一个变量能不能跨主题用，先去 `variables.styl` 里确认 `:root.dark` 有没有覆盖它 |
+| T28 | **`<script is:inline>` 里的 `{表达式}` 不会被求值**：把 `if (${hideOnMobile} && …)` 直接写在 `is:inline` 的 script 标签体里，Astro **不当作表达式处理**——变量不会被插值（还会被 TS 报"声明未使用"）。P3 的"移动端要不要桌宠"判断第一版就这么写，产物里是字面量 `${hideOnMobile}` | 内联脚本里的构建期开关全部失效，且看起来"写了" | 把整段脚本在 frontmatter 里拼成字符串，再 `<script is:inline set:html={petHideScript} />`；产物里能看到值真的被替换（实测 `767px`） |
+| T29 | **验收脚本里的"等待"要跟着物理走**：拖拽测试把宠物丢在半空，紧接着做双击测试——它**落地那一帧会 `setState("jumping")`**，把刚触发的 `review` 盖掉，于是断言读到 `jumping` 并误判成"双击没生效"。同理"键盘 →"在宠物已经贴右边时会被 clamp、根本走不动 | 交互断言时红时绿（取决于时序），很容易被当成偶发 | 交互测试要显式等待物理过程（这里加 `sleep(1400)` 等落地）；"走到边界"的用例换方向（用 ← 而不是 →）；断言详情里把实际状态打出来，别只说 true/false |
 
 ### 14.4 被移除的上游功能怎么找回来
 

@@ -4,6 +4,7 @@ import La51Analytics from "@components/analytics/La51Analytics.astro";
 import MicrosoftClarity from "@components/analytics/MicrosoftClarity.astro";
 import UmamiAnalytics from "@components/analytics/UmamiAnalytics.astro";
 import CodeGroupManager from "@components/features/CodeGroupManager.astro";
+import AemeathPet from "@components/features/AemeathPet.astro";
 import FancyboxManager from "@components/features/FancyboxManager.astro";
 import FontSetup from "@components/features/FontSetup.astro";
 import GithubCardManager from "@components/features/GithubCardManager.astro";
@@ -560,6 +561,10 @@ const ogImageAlt = propsOgImageAlt ?? pageTitle;
 
     <!-- Water Waves Effect -->
     <WavesEffect />
+
+    <!-- 桌宠「爱弥斯」（R-PET-01 / R-PET-02）：
+         必须挂在 Swup 的 6 个替换容器**之外**，才能跨页常驻不重建（ARCH.md §7.2 / §14.3 T10） -->
+    <AemeathPet />
 
     <!-- Fancybox Manager -->
     <FancyboxManager />

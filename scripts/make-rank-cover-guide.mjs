@@ -9,14 +9,17 @@
  * 人物头在上半部分的构图会被切到，这种情况需要单独指定取景锚点。
  *
  * 用法：`node scripts/make-rank-cover-guide.mjs`
- * 图源：`src/assets/images/DesktopWallpaper/d3.avif`（仓库里现成的 16:9 壁纸）
+ * 图源：`my_-blog/blog_test/blog_test/assets/img/hero-loop-poster.webp`（1280×720 的 16:9，
+ *       发起人自己那套素材里的首屏封面帧）——用 16:9 当例子是因为**发起人以后给的多半就是
+ *       16:9 截图**，这样对照图里的裁切比例和真实情况一致。想换图：改下面的 SRC 即可。
  * 注：文案只用 ASCII —— librsvg 渲染中文要看系统字体，换台机器就可能变方框。
  */
 import fs from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 
-const SRC = "src/assets/images/DesktopWallpaper/d3.avif";
+const SRC =
+	"D:/HuaweiMoveData/Users/HUAWEI/Desktop/my_-blog/blog_test/blog_test/assets/img/hero-loop-poster.webp";
 const OUT = "docs/imiss/rank-cover-guide.png";
 
 /** 榜单行在 1440 屏下的实测比例（ARCH §5.5：行高 = 内容宽的 17.4% → 1/0.174 = 5.75） */

@@ -22,42 +22,42 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 	 *
 	 * 如果只使用一张图片或者使用随机图API，推荐直接使用字符串格式：
 	 * desktop: "https://t.alcy.cc/pc",   // 随机图API
-	 * desktop: "assets/images/DesktopWallpaper/d1.avif", // 单张图片
+	 * desktop: "assets/images/DesktopWallpaper/imiss-d1.webp", // 单张图片
 	 *
 	 * mobile: "https://t.alcy.cc/mp", // 随机图API
-	 * mobile: "assets/images/MobileWallpaper/m1.avif", // 单张图片
+	 * mobile: "assets/images/MobileWallpaper/imiss-m1.webp", // 单张图片
 	 *
 	 * 支持配置多张图片（数组），每次刷新页面随机显示一张：
 	 * desktop: [
-	 * "assets/images/DesktopWallpaper/d1.avif",
-	 * "assets/images/DesktopWallpaper/d2.avif",
+	 * "assets/images/DesktopWallpaper/imiss-d1.webp",
+	 * "assets/images/DesktopWallpaper/imiss-d2.webp",
 	 * ],
 	 *
 	 * mobile:[
-	 *   "assets/images/MobileWallpaper/m1.avif",
-	 *   "assets/images/MobileWallpaper/m2.avif",
+	 *   "assets/images/MobileWallpaper/imiss-m1.webp",
+	 *   "assets/images/MobileWallpaper/imiss-m2.webp",
 	 * ],
 	 */
 	src: {
 		// 桌面背景图片（支持单张或多张随机）
-		// desktop: "assets/images/DesktopWallpaper/d1.avif",
+		// ⚠️ IMiss Blog（R-BG-01，P3 落地）：换成发起人给的 4 张爱弥斯图（`dosc/photo` → webp）。
+		//    上游示例图 d1~d6 / m1~m6 已从仓库删除（不再随构建分发），转换脚本见
+		//    `scripts/convert-wallpaper.mjs`（`node scripts/convert-wallpaper.mjs`）。
+		//    素材只有 1915×821（2.33:1），在 2560 宽屏上会被放大约 1.34 倍 → **属临时占位**，
+		//    正式方案是视频（R-BG-02，源宽度建议 ≥ 2560）。
 		desktop: [
-			"assets/images/DesktopWallpaper/d1.avif",
-			"assets/images/DesktopWallpaper/d2.avif",
-			"assets/images/DesktopWallpaper/d3.avif",
-			"assets/images/DesktopWallpaper/d4.avif",
-			"assets/images/DesktopWallpaper/d5.avif",
-			"assets/images/DesktopWallpaper/d6.avif",
+			"assets/images/DesktopWallpaper/imiss-d1.webp",
+			"assets/images/DesktopWallpaper/imiss-d2.webp",
+			"assets/images/DesktopWallpaper/imiss-d3.webp",
+			"assets/images/DesktopWallpaper/imiss-d4.webp",
 		],
 		// 移动背景图片（支持单张或多张随机）
-		// mobile: "assets/images/MobileWallpaper/m1.avif",
+		// 同一批素材先顶上（竖屏只需要覆盖高度），后续可换成正式竖构图
 		mobile: [
-			"assets/images/MobileWallpaper/m1.avif",
-			"assets/images/MobileWallpaper/m2.avif",
-			"assets/images/MobileWallpaper/m3.avif",
-			"assets/images/MobileWallpaper/m4.avif",
-			"assets/images/MobileWallpaper/m5.avif",
-			"assets/images/MobileWallpaper/m6.avif",
+			"assets/images/MobileWallpaper/imiss-m1.webp",
+			"assets/images/MobileWallpaper/imiss-m2.webp",
+			"assets/images/MobileWallpaper/imiss-m3.webp",
+			"assets/images/MobileWallpaper/imiss-m4.webp",
 		],
 		// 背景视频播放地址
 		// 支持单个视频路径（字符串）或多个视频循环（数组，参考上面壁纸配置）

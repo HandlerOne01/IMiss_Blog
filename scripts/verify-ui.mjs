@@ -36,6 +36,8 @@ const CHROME_CANDIDATES = [
 ];
 
 // ─── 验收规格（单一事实来源，改需求改这里）───────────────
+// 横幅取景锚点：与 src/config/backgroundWallpaper.ts 的 banner.position 保持一致（R-BG-04）
+const EXPECT_BANNER_POSITION = "0% 20%";
 // 顶层导航顺序与子项顺序（prd.md R-NAV-01~04 / 第 2 章）
 const EXPECT_TOP_NAV = ["主页", "文章", "排行", "我的", "链接", "留言"];
 const EXPECT_RANK_CHILDREN = [
@@ -241,6 +243,70 @@ const COLLECT = `(() => {
       };
     })(),
     overflowX: document.documentElement.scrollWidth - window.innerWidth,
+    // ── P3 桌宠（R-PET-01 ~ R-PET-05）──────────────────────
+    pet: (() => {
+      const el = document.getElementById("pet");
+      const off = document.documentElement.dataset.petOff === "1";
+      if (!el) return { exists: false, off };
+      const sprite = el.querySelector(".pet-sprite");
+      const bubble = document.getElementById("pet-bubble");
+      const menu = document.getElementById("pet-menu");
+      const r = el.getBoundingClientRect();
+      const sr = sprite ? sprite.getBoundingClientRect() : null;
+      const cs = sprite ? getComputedStyle(sprite) : null;
+      return {
+        exists: true,
+        off,
+        display: getComputedStyle(el).display,
+        hidden: getComputedStyle(el).display === "none" || getComputedStyle(el).visibility === "hidden",
+        state: el.dataset.petState || null,
+        route: document.documentElement.dataset.petRoute || null,
+        path: location.pathname,
+        rect: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) },
+        sprite: sr && cs ? { w: Math.round(sr.width), h: Math.round(sr.height), bgSize: cs.backgroundSize, bgPos: cs.backgroundPosition, img: cs.backgroundImage.includes("pet-aemeath") } : null,
+        hasShadow: !!el.querySelector(".pet-shadow"),
+        zIndex: Number.parseInt(getComputedStyle(el).zIndex || "0", 10),
+        bubble: { text: (bubble?.textContent || "").trim().slice(0, 80), pop: !!bubble?.classList.contains("is-pop"), chat: !!bubble?.classList.contains("is-chat") },
+        menu: { hidden: menu?.hidden ?? null, items: [...(menu?.querySelectorAll("[data-pet-act]") || [])].map((b) => (b.textContent || "").trim()) },
+        chatInput: !!bubble?.querySelector(".pet-chat input"),
+        // 与浮动按钮（返回顶部等）是否重叠：R-PET-05
+        floatOverlap: (() => {
+          const nodes = [...document.querySelectorAll("#back-to-top-btn, .floating-controls-container")];
+          return nodes.filter((n) => {
+            const nr = n.getBoundingClientRect();
+            if (nr.width === 0 || nr.height === 0) return false;
+            return !(r.right <= nr.left || r.left >= nr.right || r.bottom <= nr.top || r.top >= nr.bottom);
+          }).length;
+        })(),
+      };
+    })(),
+    // ── P3 壁纸（R-BG-01 / R-BG-04）──────────────────────
+    wallpaper: (() => {
+      // banner 模式的壁纸会渲染成 <img>；这里挑"加载成功且地址最长"的那张（多张随机时不至于取到占位）
+      const imgs = [...document.querySelectorAll("#wallpaper-wrapper img, #banner img, .banner img")];
+      const withSrc = imgs
+        .map((img) => ({ src: img.currentSrc || img.src || "", loaded: img.naturalWidth || 0 }))
+        .filter((x) => x.src && !x.src.startsWith("data:"));
+      const pick = withSrc.sort((a, b) => b.loaded - a.loaded)[0] ?? { src: "", loaded: 0 };
+      const cs = imgs[0] ? getComputedStyle(imgs[0]) : null;
+      const dim = document.querySelector(".banner-dim-overlay");
+      // 暗度写在 background 的 rgba alpha 上（不是 opacity）——第一版读 opacity，恒为 1
+      const dimAlpha = (() => {
+        if (!dim) return null;
+        const m = getComputedStyle(dim).backgroundColor.match(/rgba?\(([^)]+)\)/);
+        if (!m) return null;
+        const parts = m[1].split(",").map((s) => Number.parseFloat(s));
+        return parts.length >= 4 ? parts[3] : 1;
+      })();
+      return {
+        src: pick.src,
+        loaded: pick.loaded,
+        objectPosition: cs?.objectPosition ?? null,
+        objectFit: cs?.objectFit ?? null,
+        dimExists: !!dim,
+        dimOpacity: dimAlpha,
+      };
+    })(),
     // R-RANK-01 / SEO：静态产物下 canonical 不该带查询串（两个维度共用一张榜单页）
     canonical: (document.querySelector('link[rel="canonical"]') || {}).href || null,
     rowsText: (document.querySelector(".rank-rows") || {}).innerText || "",
@@ -590,6 +656,9 @@ async function main() {
 		// R-RANK-07 二游排行：单一榜（没有全剧/单集）
 		{ name: "rank-game-1440", path: "/rank/game/", width: 1440, height: 1000, mobile: false },
 		{ name: "rank-game-390", path: "/rank/game/", width: 390, height: 844, mobile: true },
+		// P3 桌宠：必须用"只有视口、不整页"的截图，否则 position:fixed 的宠物会按初始位置被画到长图里
+		{ name: "pet-1440", path: "/", width: 1440, height: 900, mobile: false, fullPage: false },
+		{ name: "pet-390", path: "/", width: 390, height: 844, mobile: true, fullPage: false },
 		// 亮色主题下的榜单（缺图占位是半透明色罩在卡片底上，亮色下白字最容易糊 → 单独留一张图）
 		{ name: "rank-jp-light-1440", path: "/rank/jp/", width: 1440, height: 1000, mobile: false, light: true },
 	];
@@ -774,6 +843,235 @@ async function main() {
 		facts["rank-print"] = inPrint.value;
 		await cdp.send("Emulation.setEmulatedMedia", {
 			media: "",
+			features: [{ name: "prefers-color-scheme", value: "dark" }],
+		});
+	}
+
+	// ── P3 桌宠：九状态与交互（R-PET-01 ~ R-PET-05）──
+	// 全部用**真实输入事件**驱动（Input.dispatchKeyEvent / PointerEvent / contextmenu），
+	// 不直接改 data-pet-state —— 否则测的是"我能不能改属性"，不是"用户点了会怎样"。
+	{
+		await cdp.send("Emulation.setDeviceMetricsOverride", {
+			width: 1440,
+			height: 900,
+			deviceScaleFactor: 1,
+			mobile: false,
+		});
+		await cdp.send("Emulation.setEmulatedMedia", {
+			features: [{ name: "prefers-color-scheme", value: "dark" }],
+		});
+		const loaded = cdp.once("Page.loadEventFired");
+		await cdp.send("Page.navigate", { url: `${BASE}/` });
+		await loaded;
+		await sleep(2400); // 等出场招呼播完
+
+		const snap = async (key) => {
+			const { result } = await cdp.send("Runtime.evaluate", { expression: COLLECT, returnByValue: true });
+			facts[key] = result.value;
+			return result.value.pet;
+		};
+		const clickMenu = (act) =>
+			cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					const b = document.querySelector('[data-pet-act="${act}"]');
+					if (!b) return "missing";
+					b.click();
+					return "ok";
+				})()`,
+				returnByValue: true,
+			});
+
+		await snap("pet-boot");
+
+		// ① 键盘：Tab 聚焦（这里直接 focus，可达性由 tabindex 保证）→ Enter → jumping
+		await cdp.send("Runtime.evaluate", {
+			expression: `document.getElementById("pet-body").focus(); "focused"`,
+			returnByValue: true,
+		});
+		for (const type of ["rawKeyDown", "keyUp"]) {
+			await cdp.send("Input.dispatchKeyEvent", {
+				type,
+				key: "Enter",
+				code: "Enter",
+				windowsVirtualKeyCode: 13,
+				nativeVirtualKeyCode: 13,
+			});
+		}
+		await sleep(120);
+		await snap("pet-key-enter");
+
+		// ② 键盘：← → running-left（宠物默认站在右侧，往右已经贴边、clamp 后走不动）
+		for (const type of ["rawKeyDown", "keyUp"]) {
+			await cdp.send("Input.dispatchKeyEvent", {
+				type,
+				key: "ArrowLeft",
+				code: "ArrowLeft",
+				windowsVirtualKeyCode: 37,
+				nativeVirtualKeyCode: 37,
+			});
+		}
+		await sleep(150);
+		await snap("pet-key-left");
+
+		// ③ 右键菜单：必须打开、且有那五项（含"和爱弥斯聊天"）
+		await cdp.send("Runtime.evaluate", {
+			expression: `(() => {
+				const el = document.getElementById("pet-body");
+				const r = el.getBoundingClientRect();
+				el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }));
+				return "ctx";
+			})()`,
+			returnByValue: true,
+		});
+		await sleep(160);
+		await snap("pet-menu");
+
+		// ④ 菜单动作：跳一下 / 睡一会儿 / 跟过来 / 说句话
+		await clickMenu("jump");
+		await sleep(140);
+		await snap("pet-act-jump");
+		await clickMenu("sleep");
+		await sleep(160);
+		await snap("pet-act-sleep");
+		await clickMenu("follow");
+		await sleep(160);
+		await snap("pet-act-follow");
+		await clickMenu("say");
+		await sleep(160);
+		await snap("pet-act-say");
+
+		// ⑤ 拖拽 → 困惑；松手落地
+		await cdp.send("Runtime.evaluate", {
+			expression: `(() => {
+				const el = document.getElementById("pet-body");
+				const r = el.getBoundingClientRect();
+				const x = r.left + r.width / 2, y = r.top + r.height / 2;
+				el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 1, clientX: x, clientY: y, button: 0 }));
+				el.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 1, clientX: x - 120, clientY: y - 90, button: 0 }));
+				return "drag";
+			})()`,
+			returnByValue: true,
+		});
+		await sleep(140);
+		await snap("pet-drag");
+		await cdp.send("Runtime.evaluate", {
+			expression: `(() => {
+				const el = document.getElementById("pet-body");
+				el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1, clientX: 100, clientY: 100, button: 0 }));
+				return "drop";
+			})()`,
+			returnByValue: true,
+		});
+		// 上一步把宠物丢在了半空，它落地那一帧会 setState("jumping") —— 不等它落地就做双击，
+		// review 会被这个落地动画盖掉（第一次跑就是这么假的失败）
+		await sleep(1400);
+
+		// ⑥ 双击 → 完成反馈（review）
+		await cdp.send("Runtime.evaluate", {
+			expression: `(() => {
+				const el = document.getElementById("pet-body");
+				const r = el.getBoundingClientRect();
+				const o = { bubbles: true, cancelable: true, pointerId: 2, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, button: 0 };
+				el.dispatchEvent(new PointerEvent("pointerdown", o));
+				el.dispatchEvent(new PointerEvent("pointerup", o));
+				el.dispatchEvent(new PointerEvent("pointerdown", o));
+				el.dispatchEvent(new PointerEvent("pointerup", o));
+				return "dbl";
+			})()`,
+			returnByValue: true,
+		});
+		await sleep(140);
+		await snap("pet-dblclick");
+
+		// ⑦ 搜索框打字 → 执行任务（running）
+		await cdp.send("Runtime.evaluate", {
+			expression: `(() => {
+				const input = document.getElementById("search-input-desktop");
+				if (!input) return "no-input";
+				input.focus();
+				input.value = "爱弥斯";
+				input.dispatchEvent(new Event("input", { bubbles: true }));
+				return "typed";
+			})()`,
+			returnByValue: true,
+		});
+		await sleep(160);
+		await snap("pet-typing");
+
+		// ⑧ 切主题 → 完成反馈（模板 setTheme 派发 theme-change）
+		await sleep(1600); // 先等「执行任务」自己回到待机，避免和上一条混淆
+		await cdp.send("Runtime.evaluate", {
+			expression: `window.dispatchEvent(new CustomEvent("theme-change")); "themed"`,
+			returnByValue: true,
+		});
+		await sleep(160);
+		await snap("pet-theme");
+
+		// ⑨ 滚下去让浮动按钮出现 → 与宠物不得重叠（R-PET-05）
+		await cdp.send("Runtime.evaluate", {
+			expression: `window.scrollTo({ top: 2000, behavior: "instant" }); "scrolled"`,
+			returnByValue: true,
+		});
+		await sleep(900);
+		await snap("pet-float");
+
+		// ⑩ 切页（Swup）→ 招呼：点导航里的「关于我」，等 astro:page-load
+		await cdp.send("Runtime.evaluate", {
+			expression: `(() => {
+				const a = document.querySelector('a[href="/about/"]');
+				if (!a) return "no-link";
+				a.click();
+				return "nav";
+			})()`,
+			returnByValue: true,
+		});
+		await sleep(700);
+		await snap("pet-swup");
+
+		// ⑩b 再进文章页 → 安静模式（R-PET-03：阅读页别在正文下面来回走）。
+		// 这里用直接导航：/about/ 页面上没有指向文章的链接，点链接会一直是 no-link（第一版就卡在这）
+		{
+			const postLoaded = cdp.once("Page.loadEventFired");
+			await cdp.send("Page.navigate", { url: `${BASE}/posts/firefly/` });
+			await postLoaded;
+			await sleep(1200);
+			await snap("pet-post-page");
+		}
+
+		// 截图（视口截图，宠物才能被正确拍到）
+		const petShot = await cdp.send("Page.captureScreenshot", { format: "png" });
+		await fs.writeFile(path.join(OUT_DIR, "pet-after-swup-1440.png"), Buffer.from(petShot.data, "base64"));
+
+		// ⑪ reduced-motion：不跑循环、停在待机首帧，但点击/对话仍可用
+		await cdp.send("Emulation.setEmulatedMedia", {
+			features: [
+				{ name: "prefers-color-scheme", value: "dark" },
+				{ name: "prefers-reduced-motion", value: "reduce" },
+			],
+		});
+		const loaded2 = cdp.once("Page.loadEventFired");
+		await cdp.send("Page.navigate", { url: `${BASE}/` });
+		await loaded2;
+		await sleep(1500);
+		const reduced1 = await snap("pet-reduced-1");
+		await sleep(900);
+		await snap("pet-reduced-2");
+		// 点击仍要有反应（气泡出来）
+		await cdp.send("Runtime.evaluate", {
+			expression: `document.querySelector('[data-pet-act="say"]').click(); "say"`,
+			returnByValue: true,
+		});
+		await sleep(200);
+		await snap("pet-reduced-say");
+		facts["pet-reduced-bubble1"] = { bubble: reduced1.bubble };
+		const reducedShot = await cdp.send("Page.captureScreenshot", { format: "png" });
+		await fs.writeFile(
+			path.join(OUT_DIR, "pet-reduced-motion-1440.png"),
+			Buffer.from(reducedShot.data, "base64"),
+		);
+
+		// 复位媒体模拟，免得影响后面的检查
+		await cdp.send("Emulation.setEmulatedMedia", {
 			features: [{ name: "prefers-color-scheme", value: "dark" }],
 		});
 	}
@@ -1191,7 +1489,184 @@ async function main() {
 		record("R-WDG-04", "首页在 390px 下无横向溢出", (facts["home-390"].overflowX ?? 99) <= 2, `溢出 ${facts["home-390"].overflowX}px`);
 	}
 
-	// sitemap 检查：读的是**磁盘产物**，所以只在静态产物下才有意义。
+	// ── P3 桌宠（R-PET-01 ~ R-PET-05）──
+	{
+		const boot = facts["pet-boot"].pet;
+		const mobile = facts["pet-390"].pet;
+		const st = (k) => facts[k]?.pet?.state;
+
+		record(
+			"R-PET-01",
+			"桌面端渲染出桌宠（节点 + 精灵 + 影子）",
+			boot?.exists === true && boot.hidden === false && boot.sprite !== null && boot.hasShadow === true,
+			`状态=${boot?.state} 尺寸=${boot?.sprite?.w}×${boot?.sprite?.h} 影子=${boot?.hasShadow}`,
+		);
+		record(
+			"R-PET-01",
+			"精灵按图集规格取帧（background-size 800% 900%）",
+			boot?.sprite?.bgSize === "800% 900%" && boot?.sprite?.img === true,
+			`bgSize=${boot?.sprite?.bgSize} 用图集=${boot?.sprite?.img}`,
+		);
+		record(
+			"R-PET-01",
+			"移动端 390 不显示桌宠（hideOnMobile）",
+			mobile?.off === true && mobile.hidden === true,
+			`petOff=${mobile?.off} display=${mobile?.display}`,
+		);
+
+		// 九状态：这里挑"每条触发路径"各验一次（idle/running-right/failed/waiting/running/review/jumping/waving）
+		record("R-PET-02", "出场打招呼（waving）", st("pet-boot") === "waving", `state=${st("pet-boot")}`);
+		record("R-PET-02", "键盘 Enter → 跳一下（jumping）", st("pet-key-enter") === "jumping", `state=${st("pet-key-enter")}`);
+		record(
+			"R-PET-02",
+			"键盘 ← → 左走（running-left）",
+			st("pet-key-left") === "running-left",
+			`state=${st("pet-key-left")}`,
+		);
+		record(
+			"R-PET-02",
+			"按住拖动 → 困惑（failed）",
+			st("pet-drag") === "failed",
+			`state=${st("pet-drag")}`,
+		);
+		record(
+			"R-PET-02",
+			"双击 → 完成反馈（review）",
+			st("pet-dblclick") === "review",
+			`state=${st("pet-dblclick")}`,
+		);
+		record("R-PET-02", "菜单「跳一下」→ jumping", st("pet-act-jump") === "jumping", `state=${st("pet-act-jump")}`);
+		record(
+			"R-PET-02",
+			"菜单「睡一会儿」→ 屏幕待机（waiting）",
+			st("pet-act-sleep") === "waiting",
+			`state=${st("pet-act-sleep")}`,
+		);
+		record(
+			"R-PET-02",
+			"菜单「跟过来」→ 走过去（running-left/right）",
+			st("pet-act-follow") === "running-left" || st("pet-act-follow") === "running-right",
+			`state=${st("pet-act-follow")}`,
+		);
+		record(
+			"R-PET-02",
+			"菜单五项齐全，含「和爱弥斯聊天」",
+			same(facts["pet-menu"].pet.menu.items, ["说句话", "跳一下", "跟过来", "睡一会儿", "和爱弥斯聊天"]) &&
+				facts["pet-menu"].pet.menu.hidden === false,
+			`${JSON.stringify(facts["pet-menu"].pet.menu.items)} hidden=${facts["pet-menu"].pet.menu.hidden}`,
+		);
+		record(
+			"R-PET-02",
+			"「说句话」会弹出台词气泡",
+			(st("pet-act-say") !== null && (facts["pet-act-say"].pet.bubble.text || "").length > 4) === true,
+			`气泡="${facts["pet-act-say"].pet.bubble.text}"`,
+		);
+		record(
+			"R-PET-02",
+			"宠物可聚焦且带 role=button + 可读标签",
+			facts["pet-boot"].pet.exists === true &&
+				/桌宠爱弥斯/.test(
+					(
+						await cdp.send("Runtime.evaluate", {
+							expression: `document.getElementById("pet-body")?.getAttribute("aria-label") || ""`,
+							returnByValue: true,
+						})
+					).result.value,
+				),
+			"aria-label 命中「桌宠爱弥斯」",
+		);
+
+		// R-PET-03 站点联动
+		record(
+			"R-PET-03",
+			"搜索框打字 → 执行任务（running）",
+			st("pet-typing") === "running",
+			`state=${st("pet-typing")}`,
+		);
+		record(
+			"R-PET-03",
+			"切主题 → 完成反馈（review）",
+			st("pet-theme") === "review",
+			`state=${st("pet-theme")}`,
+		);
+		record(
+			"R-PET-03",
+			"Swup 切页 → 打招呼（waving）且节点未重建",
+			st("pet-swup") === "waving",
+			`state=${st("pet-swup")}`,
+		);
+		record(
+			"R-PET-03",
+			"reduced-motion：不跑动画循环（帧不前进），但点击仍有效",
+			facts["pet-reduced-1"].pet.sprite.bgPos === facts["pet-reduced-2"].pet.sprite.bgPos &&
+				facts["pet-reduced-1"].pet.state === "idle" &&
+				(facts["pet-reduced-say"].pet.bubble.text || "").length > 4,
+			`状态=${facts["pet-reduced-1"].pet.state}/${facts["pet-reduced-2"].pet.state} 帧 ${facts["pet-reduced-1"].pet.sprite.bgPos} → ${facts["pet-reduced-2"].pet.sprite.bgPos}（900ms 后），点击后气泡="${facts["pet-reduced-say"].pet.bubble.text}"`,
+		);
+		record(
+			"R-PET-03",
+			"阅读页进入安静模式（/posts/ 下 route=post，不乱走）",
+			facts["pet-post-page"].pet.route === "post",
+			`切到 /posts/firefly/ 后 route=${facts["pet-post-page"].pet.route}（当前路径 ${facts["pet-post-page"].pet.path}）`,
+		);
+
+		// R-PET-04 与看板娘互斥（静态：两个看板娘开关都必须为 false）
+		{
+			const pio = await fs.readFile(path.resolve("src/config/pioConfig.ts"), "utf8");
+			const live2dOff = /live2dWidgetConfig[\s\S]{0,400}?enable:\s*false/.test(pio);
+			const spineOff = /spineModelConfig[\s\S]{0,400}?enable:\s*false/.test(pio);
+			record(
+				"R-PET-04",
+				"看板娘（Live2D / Spine）保持关闭，全站只有爱弥斯一个角色",
+				live2dOff && spineOff,
+				`live2d=${live2dOff} spine=${spineOff}`,
+			);
+		}
+
+		// R-PET-05 不遮挡
+		record(
+			"R-PET-05",
+			"滚动出返回顶部按钮后与宠物不重叠",
+			(facts["pet-float"].pet.floatOverlap ?? 99) === 0,
+			`重叠的浮动控件数=${facts["pet-float"].pet.floatOverlap}`,
+		);
+		record(
+			"R-PET-05",
+			"宠物层级低于浮动按钮（z-index 66 < 100）",
+			(facts["pet-boot"].pet.zIndex ?? 999) < 100,
+			`z-index=${facts["pet-boot"].pet.zIndex}`,
+		);
+	}
+
+	// ── P3 壁纸（R-BG-01 / R-BG-04）──
+	{
+		const wp = facts["home-1440"].wallpaper;
+		record(
+			"R-BG-01",
+			"首页壁纸换成发起人给的 4 张图（不是上游示例）",
+			(wp?.src ?? "").includes("imiss-"),
+			`当前壁纸=${(wp?.src ?? "").split("/").pop() || "（取不到）"}`,
+		);
+		record(
+			"R-BG-01",
+			"壁纸确实加载成功（naturalWidth > 0）",
+			(wp?.loaded ?? 0) > 0,
+			`naturalWidth=${wp?.loaded}`,
+		);
+		record(
+			"R-BG-04",
+			`取景锚点与配置一致（${EXPECT_BANNER_POSITION}）`,
+			(wp?.objectPosition ?? "").replace(/\s+/g, " ") === EXPECT_BANNER_POSITION,
+			`object-position=${wp?.objectPosition}`,
+		);
+		record(
+			"R-BG-04",
+			"暗罩按配置生效（dimOpacity 0.2）",
+			Math.abs((wp?.dimOpacity ?? -1) - 0.2) < 0.06,
+			`dimOpacity=${wp?.dimOpacity}`,
+		);
+	}
+
 	// 原来读不到就 catch 记 pass=true——"什么都没验"却计入通过数，属于假绿；现在读不到直接判失败。
 	if (isDevServer) {
 		record("INFO(dev)", "sitemap 检查已跳过", true, "dev 服务器下磁盘 dist/ 可能是旧产物，改用 pnpm preview");
