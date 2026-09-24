@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.6 |
+| 文档版本 | v1.7 |
 | 最后更新 | 2026-09-24 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -165,6 +165,7 @@ src/
 | R-ID-02 | `src/config/siteConfig.ts` | 改值 | `themeColor.hue: 165 → 345`；改完必须亮/暗两套都看一遍对比度 |
 | R-ID-04 | `src/assets/images/logo/imiss-logo.svg`（手写矢量，设计源）+ `scripts/make-logo.mjs`（栅格化）+ `siteConfig.navbar.logo` / `siteConfig.favicon` | 新增设计源 + 改脚本 + 改值 | **P1 修订**：原方案是从桌宠像素图集裁头像，发起人要求换掉 → 改为**手写 SVG 标识**（粉色晶体心 + 青色四角星芒 + 机械翼片 + 深蓝紫方圆底，深浅两套导航栏都成立），由 `make-logo.mjs` 用 sharp 栅格化成 `imiss-{light,dark}.webp`（256×256）与 `imiss-{32,128,180,192}.png`。为什么必须栅格化：favicon 与 OG 流程要 PNG，导航栏 Logo 走 Astro 图片管线只吃位图。改设计只需改那一个 SVG 再跑 `pnpm make:logo` |
 | R-ID-06 | 删 5 个文件 + 改 4 处接线 | 删文件 + 改配置 | 删：`src/pages/{rss,atom}.astro`、`src/pages/{rss,atom}.xml.ts`、`src/utils/feed-utils.ts`。改：`Layout.astro` 去掉 head 里两条 `<link rel="alternate">`；`Footer.astro` 去掉 RSS/Atom（保留 Sitemap）；`backgroundWallpaper.ts` 的 `homeText.linksEnable: false` + `links: []`；`profileConfig.links: []`（`Profile.astro` 对 0 个链接不渲染整行，布局不会塌）。`siteConfig.feed` 配置块已注释掉并标注"无消费方"（保留上游类型定义）。**恢复清单见 §14.4**。注意：这 4 条路由删掉后是**真 404**，与 R-NAV-05/06 的 noindex 存根行为不同（因为文件不存在，没有任何页面去 redirect） |
+| R-ID-07 | `src/config/displaySettingsConfig.ts`（上游文件，**未改**）+ `src/components/controls/DisplaySettingsIntegrated.svelte`（面板本体，38.4KB，**未改**） | 现状登记 + 待改进 | **上游自带、默认关闭**（`enable: false`）。从 P0 基线（`3dbc38d`）到当前的 `git diff` 证明这批文件**一个字节都没改过**——不是被删，是默认关着。开启方式：① 环境变量 `PUBLIC_DISPLAY_SETTINGS=true`（不改文件、优先级更高；**已实测**：dev 下按钮元素与面板触发都在，未设变量的 `dist` 为 0）；② 或把 `enable` 改 `true`。**代价**：`wallpaperModeSwitchable: true` 时构建体积 +约 33KB/页（见 §13）。**注意**：面板里的"主题色选择器"改的就是 `--hue`——P1 定的 345 只是**默认值**，访客改后会写进自己的 localStorage。改进点待发起人确认 |
 | R-NAV-01 ~ R-NAV-06 | `src/config/navBarConfig.ts` | 重写 `getDynamicNavBarConfig()` 与 `LinkPresets` | 见 §4.1 的最终导航树。**P1 已落地**，另附带两处改名收尾：`i18n/languages/zh_CN.ts` 里 `vndb`→「轻小说」、`mal`→「番剧」，以及两个页面"未配置数据源"的文案（否则导航叫「轻小说」而页面标题还叫 VNDB，自相矛盾） |
 | R-NAV-07 | `src/config/siteConfig.ts` 的 `pages` | 改值 | 见 §4.2 的开关矩阵；`nav-menu-utils.ts`、sitemap 过滤、`llms.txt.ts` 都已按 `pageKey` 处理，**无需改代码**。⚠️ 关闭的页面在**静态输出**下不是 HTTP 404，而是 Astro 的 noindex 跳转存根，真 404 由生产 Nginx 给（§12.2、§14.3 T17） |
 | R-WDG-01 | `src/components/widget/SiteStats.astro` | 删代码 | `stats` 数组删掉 `running-days`/`last-update` 两项；随之删除 `getActivityDate`/`lastActivityDate`/`lastPostDate`/`siteStartDate`/`todayText` 与整个 `<script is:inline>` 块（不再有动态项）；`formatNumber` 保留给总字数用 |
@@ -270,6 +271,7 @@ src/
 | 部署后回填清单 | R-DEP-03 | §12.4 |
 | 构建期无外网约束 | R-DEP-04 | §2、§4.3、§14.3 T16 |
 | 删除订阅功能（残留接线清干净） | R-ID-06 | §4、§14.4 |
+| 显示设置面板（调色盘 / 界面结构管理） | R-ID-07 | §4 |
 
 ---
 
@@ -989,7 +991,7 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | 桌宠图集 | ≤ 350KB | 单文件 + CSS 取帧，无逐帧请求 |
 | 文章内图片 | 全量 ≤ 60MB | 已在源头压缩；`public` 直出，不进优化管线 |
 | 榜单配图 | 单页 ≤ 1.5MB | 按显示尺寸 2 倍导出；配 `loading="lazy"` + `decoding="async"` |
-| JS 体积 | 不引入新运行时 | 桌宠与榜单切换用原生 JS/Svelte 岛，不引第三方动画库 |
+| JS 体积 | 不引入新运行时 | 桌宠与榜单切换用原生 JS/Svelte 岛，不引第三方动画库。⚠️ **例外**：开 `displaySettingsConfig.wallpaperModeSwitchable`（R-ID-07）会把各壁纸模式的整套内容打进构建产物，约 **+33KB/页**（上游注释里的实测值），开启前先确认是否真需要访客改壁纸模式 |
 | 构建时间 | 全量内容 ≤ 10 分钟 | 文章图走 `public`；`src` 图片只保留封面/壁纸/榜单/桌宠 |
 | 动画性能 | 只改 `transform`/`opacity` | 桌宠与樱花统一由 `requestAnimationFrame` 驱动；后台暂停 |
 
