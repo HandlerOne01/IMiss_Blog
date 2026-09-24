@@ -55,6 +55,9 @@ const EXPECT_MY_CHILDREN = [
 	{ name: "关于我", href: "/about/" },
 ];
 const EXPECT_ABSENT_LABELS = ["社交", "友链", "哔哩哔哩", "番组计划", "打赏", "关于"];
+// P4-8：上游示例文章（`posts/firefly.md`、`guide/*` 等 29 个文件）已按发起人要求删除，
+// 所有"文章页"断言改用迁移进来的真实文章（否则断言会指向一个已经不存在的路由）
+const SAMPLE_POST = "/posts/linux-net/http-xieyi/";
 const EXPECT_HUE = "345";
 const EXPECT_STAT_ROWS = 4;
 const EXPECT_ABSENT_STAT_TEXT = ["运行时长", "最后活动", "天前"];
@@ -676,7 +679,7 @@ async function main() {
 		['href="/rss/"', "订阅页入口"],
 		['href="/atom/"', "订阅页入口"],
 	];
-	for (const route of ["/", "/about/", "/guestbook/", "/posts/firefly/"]) {
+	for (const route of ["/", "/about/", "/guestbook/", SAMPLE_POST]) {
 		const html = await (await fetch(`${BASE}${route}`)).text();
 		const hits = UPSTREAM_LEAK_PATTERNS.filter(([needle]) => html.includes(needle));
 		record(
@@ -687,7 +690,7 @@ async function main() {
 		);
 	}
 	// 文章页不该有打赏按钮（R-NAV-06 的第三项）
-	const postHtml = await (await fetch(`${BASE}/posts/firefly/`)).text();
+	const postHtml = await (await fetch(`${BASE}${SAMPLE_POST}`)).text();
 	record(
 		"R-NAV-06",
 		"文章页没有打赏按钮 / 打赏链接",
@@ -1121,7 +1124,7 @@ async function main() {
 		// 这里用直接导航：/about/ 页面上没有指向文章的链接，点链接会一直是 no-link（第一版就卡在这）
 		{
 			const postLoaded = cdp.once("Page.loadEventFired");
-			await cdp.send("Page.navigate", { url: `${BASE}/posts/firefly/` });
+			await cdp.send("Page.navigate", { url: `${BASE}${SAMPLE_POST}` });
 			await postLoaded;
 			await sleep(1200);
 			await snap("pet-post-page");
@@ -1844,7 +1847,7 @@ async function main() {
 			"R-PET-03",
 			"阅读页进入安静模式（/posts/ 下 route=post，不乱走）",
 			facts["pet-post-page"].pet.route === "post",
-			`切到 /posts/firefly/ 后 route=${facts["pet-post-page"].pet.route}（当前路径 ${facts["pet-post-page"].pet.path}）`,
+			`切到 ${SAMPLE_POST} 后 route=${facts["pet-post-page"].pet.route}（当前路径 ${facts["pet-post-page"].pet.path}）`,
 		);
 
 		// R-PET-04 与看板娘互斥（静态：两个看板娘开关都必须为 false）

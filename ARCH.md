@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.19 |
+| 文档版本 | v1.20 |
 | 最后更新 | 2026-09-24 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -84,7 +84,9 @@ imiss_-blog/                      ← 工作区根（= 站点仓库）
 ├─ public/                        ← 原样拷贝的静态资源
 │  ├─ assets/videos/              ← 【新增】壁纸视频（原片 + 兜底）
 │  ├─ favicon/imiss-*.png         ← 【P1 已落地】临时 favicon（32/128/180/192）
-│  └─ images/posts/<slug>/        ← 【新增】文章内图片（不进优化管线）
+│  └─ images/posts/<slug>/        ← 【P4 已落地】文章内图片（不进优化管线）
+├─ src/content/posts/             ← 【P4 已落地】**只剩迁移进来的 10 个分类目录**；
+│                                    上游示例文章 14 篇已按发起人要求删除（恢复：`git show 76a49ec:src/content/posts/firefly.md`）
 ├─ scripts/
 │  ├─ make-logo.mjs               ← 【P1 已落地】把 imiss-logo.svg 栅格化成 Logo 与 favicon
 │  ├─ verify-ui.mjs               ← 【P1 已落地】界面验收（CDP 断言 + 截图，零依赖）
