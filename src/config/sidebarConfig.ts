@@ -139,6 +139,10 @@ export const sidebarLayoutConfig: SidebarLayoutConfig = {
 				siteInfo: {
 					// 未能识别的构建平台回退显示文本，可自定义
 					unknownBuildPlatform: "Unknown CI",
+					// IMiss Blog（R-WDG-03）：站点还没部署，先进入占位模式——
+					// 构建平台/系统架构/构建时间等一律显示 "—"，并提示"部署后自动填充"。
+					// 部署后改成 false 即可显示真实值（见 PROJECT_STATUS P6-6）
+					placeholder: true,
 				},
 			},
 		},
@@ -157,7 +161,8 @@ export const sidebarLayoutConfig: SidebarLayoutConfig = {
 			specificConfig: {
 				calendar: {
 					// 是否显示年度文章热力图
-					showHeatmap: true,
+					// IMiss Blog（R-WDG-02）：日历保留，热力图关闭
+					showHeatmap: false,
 				},
 			},
 		},
@@ -311,6 +316,9 @@ export const sidebarLayoutConfig: SidebarLayoutConfig = {
 				siteInfo: {
 					// 未能识别的构建平台回退显示文本，可自定义
 					unknownBuildPlatform: "Unknown CI",
+					// IMiss Blog（R-WDG-03）：占位模式。这一处属于**移动端底部组件**
+					// （mobileBottomComponents），与右侧栏那份是两处独立配置，都要改才一致。
+					placeholder: true,
 				},
 			},
 		},

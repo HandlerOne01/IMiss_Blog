@@ -21,7 +21,9 @@
     "lint": "biome check --write ./src ./scripts",
     "preinstall": "npx only-allow pnpm",
     "lqips": "npx tsx scripts/generate-lqips.ts",
-    "github-cards": "npx tsx scripts/generate-github-card-data.ts"
+    "github-cards": "npx tsx scripts/generate-github-card-data.ts",
+    "verify:ui": "node scripts/verify-ui.mjs",
+    "make:logo": "node scripts/make-logo.mjs"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.10",

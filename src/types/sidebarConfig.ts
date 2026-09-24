@@ -49,6 +49,13 @@ export type DynamicWidgetConfig = {
 // 站点信息组件专用配置
 export type SiteInfoConfig = {
 	unknownBuildPlatform?: string; // 未识别的构建平台显示文本，默认 "Unknown CI"
+	/**
+	 * IMiss Blog 新增（R-WDG-03）：占位模式。
+	 * 站点还没部署，构建平台 / 系统架构 / 构建时间这些值都是本机的临时信息，
+	 * 开着它时这些字段统一显示 "—"，并在卡片底部提示"部署后自动填充"；
+	 * 本地配置项（文章许可）照常显示。部署后把 siteConfig 的这两处开关改成 false 即可回填真实值。
+	 */
+	placeholder?: boolean;
 };
 
 // 日历组件专用配置

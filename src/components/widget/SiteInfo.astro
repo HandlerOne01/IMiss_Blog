@@ -90,13 +90,24 @@ const siteDomain = siteConfig.site_url
 // 文章许可
 const licenseName = licenseConfig.enable ? licenseConfig.name : "None";
 
+// IMiss Blog（R-WDG-03）：占位模式 —— 站点还没部署（阻塞项 B-01），
+// 构建平台 / 站点域名 / 系统架构 / 构建时间 / 各版本号都是"这台构建机"或占位域名的临时信息，
+// 直接显示会让人误以为站点已经上线，所以统一显示 "—"，并在卡片底部提示部署后自动填充。
+// 保留不替换的：主题版本（读 package.json 的静态事实）与文章许可（本地配置）。
+// 部署完成后把 src/config/sidebarConfig.ts 里两处 siteInfo.placeholder 改成 false 即可回填真实值。
+// （这段必须放在 mainItems / detailItems 之前，两者都用到 ph()）
+const placeholderMode = widgetConfig?.specificConfig?.siteInfo?.placeholder === true;
+const PH = "—";
+const ph = (v: string): string => (placeholderMode ? PH : v);
+
 // ---- 组装展示数据 ----
 // 始终显示的项目（列表）
 const mainItems = [
 	{
 		icon: "material-symbols:cloud-outline",
 		label: i18n(I18nKey.siteInfoBuildPlatform),
-		value: buildPlatform,
+		// 构建平台是"这台构建机"的信息，占位模式下不显示（R-WDG-03）
+		value: ph(buildPlatform),
 	},
 	{
 		icon: "mdi:clover",
@@ -122,39 +133,40 @@ const detailItems: {
 	{
 		icon: "material-symbols:language",
 		label: i18n(I18nKey.siteInfoDomain),
-		value: siteDomain,
+		value: ph(siteDomain),
 		fullWidth: true,
 	},
 	{
 		icon: "mdi:clover",
 		label: "Firefly",
+		// 主题版本是静态事实（读 package.json），不属于"构建环境信息"，占位模式也照常显示
 		value: `v${blogVersion}`,
 	},
 	{
 		icon: "material-symbols:rocket-launch-outline",
 		label: i18n(I18nKey.siteInfoAstroVersion),
-		value: `v${astroVersion}`,
+		value: ph(`v${astroVersion}`),
 	},
 	{
 		icon: "fa7-brands:node-js",
 		label: i18n(I18nKey.siteInfoNodeVersion),
-		value: nodeVersion,
+		value: ph(nodeVersion),
 	},
 	{
 		icon: "simple-icons:pnpm",
 		label: i18n(I18nKey.siteInfoPnpmVersion),
-		value: pnpmVersion,
+		value: ph(pnpmVersion),
 	},
 	{
 		icon: "material-symbols:build-outline",
 		label: i18n(I18nKey.siteInfoBuildTime),
-		value: buildTime,
+		value: ph(buildTime),
 		fullWidth: true,
 	},
 	{
 		icon: "material-symbols:computer-outline",
 		label: i18n(I18nKey.siteInfoSystem),
-		value: systemInfo,
+		value: ph(systemInfo),
 		fullWidth: true,
 	},
 ];
@@ -249,6 +261,16 @@ const detailItems: {
         <span class="site-info-toggle-text"></span>
       </button>
     </site-info-collapse>
+
+    {/* IMiss Blog（R-WDG-03）：占位模式下的提示。部署后把 sidebarConfig 里两处
+        siteInfo.placeholder 改成 false，这一行会自动消失 */}
+    {
+      placeholderMode && (
+        <p class="text-xs text-(--content-meta) px-3 pt-1 leading-relaxed">
+          站点尚未部署，构建信息待上线后自动填充
+        </p>
+      )
+    }
   </div>
 </WidgetLayout>
 

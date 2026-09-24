@@ -4,7 +4,10 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 	// 壁纸模式："banner" 横幅壁纸，"fullscreen" 全屏壁纸，"overlay" 覆盖透明，"none" 纯色背景无壁纸
 	mode: "banner",
 	// 是否启用背景视频播放，配置后将在导航栏显示视频播放按钮
-	playerEnable: true,
+	// ⚠️ IMiss Blog：视频还没做，先关闭（配合下面被注释的 playerUrl）。
+	//    若只注释 playerUrl 却把这里留 true，导航栏会出现一个点了没反应的按钮——
+	//    Navbar 的渲染条件只看 playerEnable && mode !== "none"，不看 playerUrl（ARCH.md §14.3 T6）。
+	playerEnable: false,
 	/**
 	 * 背景图片配置
 	 * 图片路径支持三种格式：
@@ -59,8 +62,13 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 		// 背景视频播放地址
 		// 支持单个视频路径（字符串）或多个视频循环（数组，参考上面壁纸配置）
 		// 支持远程视频URL，本地视频请放在 public/assets/videos/ 目录下
-		// playerUrl: "/assets/videos/firefly.mp4",
-		playerUrl: "https://bed.twoleaf.cn/file/1785658612716_firefly.mp4",
+		//
+		// ⚠️ IMiss Blog（R-BG-02，P3 落地）：视频还没做，先**注释掉 playerUrl**。
+		//    原来的值是上游作者的远程视频（bed.twoleaf.cn/…_firefly.mp4），本站不该依赖它：
+		//    ① 那是别人的资源；② 访客会白下十几 MB；③ 有 playerUrl 但 playerEnable 关着时，
+		//    导航栏会留下一个点了没反应的播放按钮（见 ARCH.md §6.1 第 5 条）。
+		//    视频产出后填 "/assets/videos/imiss-hero.mp4"，并把 playerEnable 改回 true。
+		// playerUrl: "/assets/videos/imiss-hero.mp4",
 	},
 	// 横幅壁纸和全屏壁纸共享配置
 	common: {
@@ -73,18 +81,14 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 			// 是否启用主页横幅文字
 			enable: true,
 			// 主页横幅主标题
-			title: "Lovely firefly!",
+			// ⚠️ 占位文案（R-BG-03 / 阻塞项 B-10）：先把上游的 "Lovely firefly!" 换成本站名，
+			//    正式文案等发起人确认后再改（改这一行即可）
+			title: "IMiss Blog",
 			// 主页横幅主标题字体大小
 			titleSize: "4.5rem",
-			// 主页横幅副标题
-			subtitle: [
-				"In Reddened Chrysalis, I Once Rest",
-				"From Shattered Sky, I Free Fall",
-				"Amidst Silenced Stars, I Deep Sleep",
-				"Upon Lighted Fyrefly, I Soon Gaze",
-				"From Undreamt Night, I Thence Shine",
-				"In Finalized Morrow, I Full Bloom",
-			],
+			// 主页横幅副标题（打字机逐条循环）
+			// ⚠️ 占位文案，同上（B-10）
+			subtitle: ["爱弥斯的小站", "技术笔记 · 番剧排行", "还有一只会聊天的爱弥斯"],
 			// 主页横幅副标题字体大小
 			subtitleSize: "1.5rem",
 			typewriter: {
@@ -103,27 +107,24 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 			linksEnable: true,
 			// 首页横幅标题下方的链接图标（可选，支持 showName 显示文字）
 			// 图标支持 Iconify 格式：fa7-brands:github、fa7-solid:envelope、mdi:rss 等
+			//
+			// ⚠️ IMiss Blog：这里原来有 4 条，全是上游作者的信息，已按 R-NAV-06 / R-ID-05 清理——
+			//    · "GitHub"→ github.com/CuteLeaf/Firefly（主题作者的仓库）
+			//    · "Email" → mailto:xiaye@msn.com（主题作者的邮箱，会被 rehype-email-protection 写成
+			//      base64 的 data-encoded-email 挂到**每一个页面**上）
+			//    · "Sponsor" → blog.cuteleaf.cn/sponsor/（**打赏入口**，R-NAV-06 要求彻底移除，
+			//      它藏在首页横幅里，是导航之外唯一的残留入口）
+			//    要加自己的链接（B-02 / B-10）往下面数组里加即可。
 			links: [
-				{
-					name: "GitHub",
-					icon: "fa7-brands:github",
-					url: "https://github.com/CuteLeaf/Firefly",
-					showName: true,
-				},
-				{
-					name: "Email",
-					icon: "fa7-solid:envelope",
-					url: "mailto:xiaye@msn.com",
-				},
-				{
-					name: "Sponsor",
-					icon: "material-symbols:favorite",
-					url: "https://blog.cuteleaf.cn/sponsor/",
-				},
 				{
 					name: "RSS",
 					icon: "fa7-solid:rss",
 					url: "/rss/",
+				},
+				{
+					name: "Atom",
+					icon: "fa7-solid:atom",
+					url: "/atom/",
 				},
 			],
 		},

@@ -77,9 +77,12 @@ export const zh_CN: Translation = {
 	[Key.comments]: "评论",
 	[Key.commentSection]: "评论区",
 	[Key.commentSubtitle]: "分享你的想法，与大家交流讨论",
-	[Key.commentNotConfigured]: "评论系统暂未配置",
+	// IMiss Blog（R-CMT-01）：留言页在评论系统选型定下来之前会显示下面两句。
+	// commentNotConfigured 另一处消费方（components/comment/index.astro 的 none 分支）
+	// 实际上是不可达代码——那里整块被 commentService !== "none" 包着，所以改这里只会影响留言页。
+	[Key.commentNotConfigured]: "留言板正在装修中",
 	[Key.guestbookCommentHint]:
-		"您还未在配置文件中启用评论系统，启用后访客才可在此留言",
+		"评论区还没上线（正在选型），这一页暂时没有输入框",
 	[Key.friends]: "友链",
 	[Key.friendsDescription]: "这里是我的朋友们，欢迎互相访问交流",
 	[Key.searchFriends]: "搜索友链...",
@@ -101,7 +104,8 @@ export const zh_CN: Translation = {
 	[Key.projectStatusPublished]: "已发布",
 	[Key.projectStatusArchived]: "已归档",
 	[Key.guestbook]: "留言",
-	[Key.guestbookDescription]: "欢迎在这里留下你的足迹，分享你的想法和建议",
+	// IMiss Blog（R-CMT-02）：留言页副标题也改成本站口吻（原来是与评论系统无关的通用文案）
+	[Key.guestbookDescription]: "评论区接好之前，这里先当个说明页",
 	[Key.untitled]: "无标题",
 	[Key.uncategorized]: "未分类",
 	[Key.noTags]: "无标签",
@@ -193,8 +197,8 @@ export const zh_CN: Translation = {
 	[Key.bangumiDataStatic]: "静态数据",
 
 	// VNDB
-	[Key.vndb]: "VNDB",
-	[Key.vndbSubtitle]: "我的 VNDB 视觉小说列表",
+	[Key.vndb]: "轻小说",
+	[Key.vndbSubtitle]: "我的轻小说列表",
 	[Key.vndbFilterAll]: "全部",
 	[Key.vndbFilterVoted]: "已评分",
 	[Key.vndbFilterUnvoted]: "未评分",
@@ -213,9 +217,9 @@ export const zh_CN: Translation = {
 	[Key.vndbFetchError]: "VNDB 数据拉取失败",
 	[Key.vndbFetchErrorDesc]:
 		"构建时从 VNDB API 获取数据失败，该页面内容暂不可用。",
-	[Key.vndbNotConfigured]: "未配置 VNDB 用户ID",
+	[Key.vndbNotConfigured]: "轻小说数据源还没配置",
 	[Key.vndbNotConfiguredDesc]:
-		"请在 src/config/siteConfig.ts 中配置你的 VNDB 用户ID",
+		"需要在 src/config/siteConfig.ts 里填上 VNDB 用户 ID 才能显示数据（这一页的数据来自 VNDB）",
 	[Key.vndbLastUpdated]: "数据更新日期",
 	[Key.vndbVotes]: "票",
 	[Key.vndbLengthVeryShort]: "极短",
@@ -262,8 +266,8 @@ export const zh_CN: Translation = {
 	[Key.animeTypeConcert]: "演唱会",
 
 	// MyAnimeList
-	[Key.mal]: "MyAnimeList",
-	[Key.malSubtitle]: "我的 MyAnimeList 动画与漫画列表",
+	[Key.mal]: "番剧",
+	[Key.malSubtitle]: "我的番剧与漫画列表",
 	[Key.malCategoryAnime]: "动画",
 	[Key.malCategoryManga]: "漫画",
 	[Key.malFilterAll]: "全部",
@@ -282,9 +286,9 @@ export const zh_CN: Translation = {
 	[Key.malFetchError]: "MyAnimeList 数据拉取失败",
 	[Key.malFetchErrorDesc]:
 		"构建时从 MyAnimeList API 获取数据失败。请确认用户名和 Client ID 正确，且列表为公开状态。",
-	[Key.malNotConfigured]: "未配置 MyAnimeList 用户信息",
+	[Key.malNotConfigured]: "番剧数据源还没配置",
 	[Key.malNotConfiguredDesc]:
-		"请在 src/config/siteConfig.ts 中配置你的 MyAnimeList 用户名和 Client ID（列表需为公开状态）",
+		"需要在 src/config/siteConfig.ts 里填上 MyAnimeList 用户名与 Client ID 才能显示数据（这一页的数据来自 MyAnimeList，列表需为公开状态）",
 	[Key.malLastUpdated]: "数据更新日期",
 	[Key.malSeasonWinter]: "冬季",
 	[Key.malSeasonSpring]: "春季",

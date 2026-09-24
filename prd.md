@@ -1,9 +1,9 @@
-# IMiss Blog 产品需求文档（PRD）
+﻿# IMiss Blog 产品需求文档（PRD）
 
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | IMiss Blog |
-| 文档版本 | v1.2 |
+| 文档版本 | v1.4 |
 | 最后更新 | 2026-09-24 |
 | 关联文档 | `ARCH.md`（架构与技术设计）、`PROJECT_STATUS.md`（阶段、进度、下一步、阻塞项） |
 | 基线代码 | Firefly v6.16.8（Astro 7 静态站点），来源 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\my_-blog\Blog template` |
@@ -141,8 +141,8 @@
 | R-ID-01 | 站点名改为 IMiss Blog |① 导航栏标题 = `IMiss Blog`；② 浏览器标题、OG 标题同步；③ 页脚版权名（`profileConfig.name`）与站点名分开，用作者名 | 首页标签页显示 `IMiss Blog`；导航栏左侧文字为 `IMiss Blog` | ★ |
 | R-ID-02 | 主题色改为爱弥斯粉 | `themeColor.hue = 345`，亮/暗两套主题都检查对比度（正文与背景、按钮文字） | 亮暗模式下主色、链接、按钮均为粉色系；正文对比度 ≥ 4.5:1 | ★ |
 | R-ID-03 | 站点元信息 | 标题、副标题、描述、关键词、`site_url`（域名待提供，先占位并记待办） | `site_url` 未填真值时 sitemap/RSS 不报错；填真值后 OG 图为绝对地址 | ★ |
-| R-ID-04 | 临时 Logo 【假设】 | 从桌宠精灵图裁一张爱弥斯像素头像（亮/暗各一张），放导航栏；正式 Logo 到位后替换 | 导航栏亮暗模式下 Logo 都清晰、不拉伸 | ◆ |
-| R-ID-05 | 清理上游示例凭据与假数据 | 模板把上游作者的示例值直接提交在了配置里：`mal.clientId` 是**带前导制表符的 32 位十六进制串**（形如真实凭据，`mal-utils.ts` 还会把它原样塞进请求头）；另有 `mal.username`、`vndb.userId`、`bangumi.userId`、`bilibili.uid`、`siteConfig.siteStartDate` 等示例值。全部清空或替换为本站占位，避免把别人的凭据随仓库分发 | `grep` 配置里不再出现上游示例 ID；`mal.clientId` 为空字符串且无前后空白 | ★ |
+| R-ID-04 | 临时 Logo 与 favicon 【假设】 | 从桌宠精灵图裁一张爱弥斯像素头像，做导航栏 Logo（亮/暗各一张）与 favicon 整套（32/128/180/192）；正式 Logo 到位后覆盖同名文件即可 | 导航栏亮暗模式下 Logo 都清晰、不拉伸；浏览器标签页显示爱弥斯图标 | ◆ |
+| R-ID-05 | 清理上游示例凭据与假数据 | 模板把上游作者的示例值直接提交在了配置里：`mal.clientId` 是**带前导制表符的 32 位十六进制串**（形如真实凭据，`mal-utils.ts` 还会把它原样塞进请求头）；另有 `mal.username`、`vndb.userId`、`bangumi.userId`、`bilibili.uid`。**首页横幅里的上游作者邮箱（`mailto:xiaye@msn.com`，会被编码成 base64 挂到每个页面）与 GitHub 链接也属于这一批**（见 R-NAV-06）。全部清空或替换为本站占位，避免把别人的凭据与身份随仓库分发 | 配置里不再出现上游示例 ID；`mal.clientId` 为空字符串且无前后空白；`verify:ui` 对 `/`、`/about/`、`/guestbook/`、`/posts/*` 的上游信息扫描零命中 | ★ |
 
 ### 3.2 导航与信息架构（R-NAV）
 
@@ -152,8 +152,8 @@
 | R-NAV-02 | 新增「排行」（放在「文章」与「我的」之间） | 顶层下拉，两个子项顺序为：日漫排行、国漫排行；分别指向 `/rank/jp/`、`/rank/cn/` | 导航顺序为 主页/文章/排行/我的/链接/留言；两个子项可点击进入对应榜单 | ★ |
 | R-NAV-03 | 「我的」下拉重构 | ① 删除「哔哩哔哩」「番组计划」；② `VNDB` 改名为 `轻小说`（URL 与功能不变）；③ `AnimeList` 改名为 `番剧`（URL 与功能不变）；④ 「关于我」移到该下拉**最后一项** | 下拉顺序：动态、项目、相册、书签导航、轻小说、番剧、关于我；不存在哔哩哔哩/番组计划 | ★ |
 | R-NAV-04 | 删除顶层「关于」下拉 | 只删导航项；`/about/` 页面保留（头像、动态页、公告、SEO 的结构化数据都指向它） | 顶层无「关于」；`/about/` 可直接访问且内容正常 | ★ |
-| R-NAV-05 | 删除友链 | 删除导航入口；页面访问返回 404；不进 sitemap 与 llms.txt | 直接访问 `/friends/` 返回 404 | ★ |
-| R-NAV-06 | 打赏彻底移除 | ① 导航入口删除；② `/sponsor/` 返回 404；③ **文章页的打赏按钮同步消失**；④ 不进 sitemap 与 llms.txt | 文章详情页底部/侧边看不到任何打赏按钮；`/sponsor/` 返回 404 | ★ |
+| R-NAV-05 | 删除友链 | 删除导航入口；页面不再对外可达；不进 sitemap 与 llms.txt | ① 导航、sitemap、llms.txt 里都没有友链；② 直接访问 `/friends/` 拿到的是 Astro 的 **noindex 跳转存根**（HTTP 200 + `meta refresh` → `/404/`）——这是 Astro **静态输出**的固有行为，不是真 404（见 `ARCH.md` §14.3 T17）；③ **生产 Nginx 对这 4 条路径直接 `return 404`**（`ARCH.md` §12.2），线上是真 404 | ★ |
+| R-NAV-06 | 打赏彻底移除 | ① 导航入口删除；② 打赏页不再对外可达；③ **文章页的打赏按钮同步消失**；④ **首页横幅里的打赏入口也要删**（这是审查时抓到的盲区：`backgroundWallpaper.common.homeText.links` 里曾挂着 `blog.cuteleaf.cn/sponsor/`）；⑤ 不进 sitemap 与 llms.txt | 文章页与首页都看不到任何打赏入口；`/sponsor/` 的处理同 R-NAV-05（本地是 noindex 存根，线上 Nginx 给真 404）；`verify:ui` 的泄漏扫描对首页/文章页断言为零命中 | ★ |
 | R-NAV-07 | 页面开关矩阵生效 | 关闭的页面不进导航、不进 sitemap、不进 llms.txt；打开的页面（轻小说、番剧）能正常访问 | 逐页访问 + `dist/sitemap-*.xml` 检查 | ★ |
 
 ### 3.3 侧边栏与组件（R-WDG）

@@ -1,8 +1,8 @@
-# IMiss Blog 架构与技术设计（ARCH）
+﻿# IMiss Blog 架构与技术设计（ARCH）
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.2 |
+| 文档版本 | v1.4 |
 | 最后更新 | 2026-09-24 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -79,19 +79,23 @@ imiss_-blog/                      ← 工作区根（= 站点仓库）
 ├─ PROJECT_STATUS.md
 ├─ README.md / README.en.md       ← 从模板继承，改写为本站说明
 ├─ astro.config.mjs               ← 基本不动（除 sitemap 过滤条件）
-├─ package.json                   ← 增加 verify:posts / export:agent 脚本
+├─ package.json                   ← 增加 verify:ui / make:logo / verify:posts / export:agent 脚本
 ├─ src/                           ← 模板源码（见下）
 ├─ public/                        ← 原样拷贝的静态资源
 │  ├─ assets/videos/              ← 【新增】壁纸视频（原片 + 兜底）
+│  ├─ favicon/imiss-*.png         ← 【P1 已落地】临时 favicon（32/128/180/192）
 │  └─ images/posts/<slug>/        ← 【新增】文章内图片（不进优化管线）
 ├─ scripts/
+│  ├─ make-logo.mjs               ← 【P1 已落地】从桌宠图集裁 Logo 与 favicon
+│  ├─ verify-ui.mjs               ← 【P1 已落地】界面验收（CDP 断言 + 截图，零依赖）
 │  ├─ import-posts.mjs            ← 【新增】内容迁移
 │  ├─ verify-posts.mjs            ← 【新增】内容校验
 │  ├─ convert-wallpaper.mjs       ← 【新增】壁纸图 → webp
 │  └─ export-agent-data.mjs       ← 【新增】给 Agent 导出索引
 ├─ deploy/nginx.conf              ← 【新增】生产站点配置
-├─ reports/                       ← 【新增，.gitignore 已忽略】迁移/校验脚本的报告
+├─ reports/                       ← 【新增，.gitignore 已忽略】脚本产出：reports/screenshots/*.png、reports/import-warnings.json
 ├─ src/assets/fonts/*.woff2       ← 【P0 已落地】本地字体（11 个，约 205KB）
+├─ src/assets/images/pet/         ← 【P1 已落地】桌宠图集（P3 会用它做桌宠，Logo 也从这里裁）
 └─ agent/                         ← 【新增】Python Agent 服务（见 §8）
 ```
 
@@ -157,16 +161,16 @@ src/
 | R-ID-01 R-ID-03 | `src/config/siteConfig.ts` | 改值 | `title`/`subtitle`/`description`/`keywords` 重写；`navbar.title = "IMiss Blog"`；`site_url` 先填占位域名并在 `PROJECT_STATUS.md` 登记 |
 | R-ID-05 | `src/config/siteConfig.ts` | 改值（清空示例凭据） | 清空 `mal.username` / `mal.clientId`（**去掉那个前导制表符**）/ `vndb.userId` / `bangumi.userId` / `bilibili.uid`；这些是上游示例值，其中 `mal.clientId` 形如真实凭据（见 §14.3 T3） |
 | R-ID-02 | `src/config/siteConfig.ts` | 改值 | `themeColor.hue: 165 → 345`；改完必须亮/暗两套都看一遍对比度 |
-| R-ID-04 | `src/assets/images/logo/*.webp` + `siteConfig.navbar.logo` | 新增资源 + 改值 | 从图集第 1 格裁切放大；亮/暗各一张，`value` + `valueDark` |
-| R-NAV-01 ~ R-NAV-06 | `src/config/navBarConfig.ts` | 重写 `getDynamicNavBarConfig()` 与 `LinkPresets` | 见 §4.1 的最终导航树 |
-| R-NAV-07 | `src/config/siteConfig.ts` 的 `pages` | 改值 | 见 §4.2 的开关矩阵；`nav-menu-utils.ts`、sitemap 过滤、`llms.txt.ts` 都已按 `pageKey` 处理，**无需改代码** |
+| R-ID-04 | `scripts/make-logo.mjs`（新增）+ `src/assets/images/logo/imiss-{light,dark}.webp` + `public/favicon/imiss-*.png` + `siteConfig.navbar.logo` / `siteConfig.favicon` | 新增脚本 + 新增资源 + 改值 | **P1 已落地**：从图集第 1 格裁头像（裁切框 `HEAD = {left:26, top:24, size:104}`，量自 144×156 的格子），用 `nearest` 放大到 128，出亮/暗两颗 Logo 与 32/128/180/192 四档 favicon（OG 流程要求数组里有 png，所以 favicon 用 PNG）。正式图标到位后覆盖同名文件即可，脚本可留可删 |
+| R-NAV-01 ~ R-NAV-06 | `src/config/navBarConfig.ts` | 重写 `getDynamicNavBarConfig()` 与 `LinkPresets` | 见 §4.1 的最终导航树。**P1 已落地**，另附带两处改名收尾：`i18n/languages/zh_CN.ts` 里 `vndb`→「轻小说」、`mal`→「番剧」，以及两个页面"未配置数据源"的文案（否则导航叫「轻小说」而页面标题还叫 VNDB，自相矛盾） |
+| R-NAV-07 | `src/config/siteConfig.ts` 的 `pages` | 改值 | 见 §4.2 的开关矩阵；`nav-menu-utils.ts`、sitemap 过滤、`llms.txt.ts` 都已按 `pageKey` 处理，**无需改代码**。⚠️ 关闭的页面在**静态输出**下不是 HTTP 404，而是 Astro 的 noindex 跳转存根，真 404 由生产 Nginx 给（§12.2、§14.3 T17） |
 | R-WDG-01 | `src/components/widget/SiteStats.astro` | 删代码 | `stats` 数组删掉 `running-days`/`last-update` 两项；随之删除 `getActivityDate`/`lastActivityDate`/`lastPostDate`/`siteStartDate`/`todayText` 与整个 `<script is:inline>` 块（不再有动态项）；`formatNumber` 保留给总字数用 |
 | R-WDG-02 | `src/config/sidebarConfig.ts` | 改值 | 日历组件 `specificConfig.calendar.showHeatmap: true → false` |
 | R-WDG-03 | `src/types/sidebarConfig.ts` + `src/components/widget/SiteInfo.astro` | 改类型 + 改组件 | ⚠️ **实测纠正**：`WidgetSpecificConfig` 与 `SiteInfoConfig` 的真身在 `src/types/sidebarConfig.ts:37-52`，`src/types/config.ts` 只是 barrel（re-export，**不用改**）。在 `SiteInfoConfig`（现只有 `unknownBuildPlatform` 一个字段）上加 `placeholder?: boolean`；`SiteInfo.astro` 在占位模式把"构建平台/系统架构/构建时间/CI"等值替换为 `—`，卡片底部加一行「部署后自动填充」；本地配置项（文章许可）照常显示 |
 | R-WDG-04 | `src/config/sidebarConfig.ts` | 不改（确认清单） | 保持左侧 `profile`/`announcement`/`music`/`categories`/`tags`，右侧 `dynamic`/`stats`/`siteInfo`/`calendar`/`sidebarToc`，两个 `advertisement` 保持 `enable: false`；移动端底部组件保持现状 |
 | R-BG-01 | `scripts/convert-wallpaper.mjs`（新增）+ `src/assets/images/DesktopWallpaper/imiss-d*.webp` + `backgroundWallpaper.ts` | 新增 + 改值 | 见 §6.1 |
 | R-BG-02 | `backgroundWallpaper.ts`（`src.playerUrl`）+ `public/assets/videos/*` | 改值 + 新增资源 | 见 §6.2 |
-| R-BG-03 | `backgroundWallpaper.ts` 的 `common.homeText` | 改值 | 标题/副标题/链接图标；文案与 `links` 待发起人确认（`prd.md` 第 7 节第 10 项） |
+| R-BG-03 | `backgroundWallpaper.ts` 的 `common.homeText` | 改值 | ⚠️ **P1 已提前处理一部分**（因为它是"站点身份 + 打赏移除"的盲区，见 §14.3 T18）：横幅 `links` 里上游作者的 GitHub / 邮箱 / **Sponsor 打赏入口**已全部删除，换成 RSS + Atom；主标题从 `Lovely firefly!` 换成本站名占位。**正式横幅文案仍等发起人定稿（B-10）** |
 | R-BG-04 | `backgroundWallpaper.ts` 的 `banner.position` + `common.dimOpacity` | 改值 | `position` 控制 cover 取景锚点（默认 `"0% 20%"` 保头脸），`dimOpacity` 控制暗罩（默认 0.2）；换素材后按 §6.4 复量 |
 | R-RANK-01 ~ R-RANK-06 | 见 §5.2 文件清单 | 新增为主 | 复用 `ImageWrapper.astro` 解析配图，不新造图片机制 |
 | R-PET-01 ~ R-PET-05 | `src/components/features/AemeathPet.astro`（新增）+ `petConfig.ts`（新增）+ `Layout.astro` 插一行 | 新增 + 插一行 | 见 §7；`Layout.astro` 只在 `<WavesEffect />` 之后插 `<AemeathPet />` |
@@ -238,7 +242,8 @@ src/
 | 落点（文件 / 位置） | 覆盖需求 | 详见 |
 | --- | --- | --- |
 | `src/config/siteConfig.ts` | R-ID-01 / R-ID-02 / R-ID-03 / R-ID-05 / R-NAV-05 / R-NAV-06 / R-NAV-07 | §4.2 |
-| `src/assets/images/logo/*` + `siteConfig.navbar.logo` | R-ID-04 | §4 |
+| `src/assets/images/logo/imiss-*.webp` + `public/favicon/imiss-*.png` + `scripts/make-logo.mjs` | R-ID-04 | §4 |
+| `src/i18n/languages/zh_CN.ts`（页面名与未配置文案） | R-NAV-03 | §4 |
 | `src/config/navBarConfig.ts` | R-NAV-01 / R-NAV-02 / R-NAV-03 / R-NAV-04 | §4.1 |
 | `src/components/widget/SiteStats.astro` | R-WDG-01 | §4 |
 | `src/config/sidebarConfig.ts` | R-WDG-02 / R-WDG-04 | §4 |
@@ -866,7 +871,13 @@ dosc/blog/**/*.md
 | `pnpm build` | 完整构建（图标 → LQIP → VNDB 封面 → Astro → 字体子集 → 内联脚本压缩 → Pagefind） | — |
 | `pnpm preview` | 预览构建产物 | — |
 | `pnpm format` / `pnpm lint` | Biome 格式化与检查 | — |
-| `pnpm verify:posts` | 内容与排行数据校验（阻断式） | ✅ |
+| `pnpm verify:posts` | 内容与排行数据校验（阻断式） | ✅（P4 新增） |
+| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 52 项功能断言（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap、配色对比度），并输出 7 张截图到 `reports/screenshots/`。P1 已落地 | ✅（P1 新增） |
+| `pnpm make:logo` | 从桌宠图集裁临时 Logo 与 favicon（P1 已落地，见 R-ID-04） | ✅（P1 新增） |
+
+> **关于 `verify:ui` 的对比度检查**：走的是"token 级"校验（`--deep-text`/`--content-meta`/`--btn-content`/`--primary` 对卡片底/页面底），不是"扫全站文字元素"。
+> 原因：这个主题里大量文字压在封面图、壁纸、半透明面板上，逐元素自动判定无法可靠取得背景色（试了三版：canvas 转色 → 逐层合成 → Node 侧解析，期间还产出过"66/71 元素低于 3:1"的假警报）。
+> 现在的做法是：**可复现的数字交给脚本，观感交给截图**。脚本每轮输出 7 张截图，人工核对。另外它还会把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
 | `pnpm import:posts -- --write` | 内容迁移（默认 dry-run） | ✅ |
 | `pnpm export:agent` | 导出 `agent/data/*.json` | ✅ |
 | `node scripts/convert-wallpaper.mjs` | 壁纸图 → webp | ✅ |
@@ -910,6 +921,20 @@ server {
 
   # trailingSlash: always → 每个路由都是目录 + index.html，不需要 SPA 回退
   location / { try_files $uri $uri/index.html =404; }
+
+  # 自定义 404 页：Astro 把 src/pages/404.astro 输出成 dist/404.html
+  error_page 404 /404.html;
+  location = /404.html { internal; }
+
+  # 已关闭的页面给「真 404」
+  # 静态输出下 Astro 只会生成一个 HTTP 200 + meta refresh + noindex 的跳转存根（见 §14.3 T17），
+  # 这里直接掐掉，让线上返回真正的 404 状态码（并落到上面的 404 页）
+  location = /friends/  { return 404; }
+  location = /bilibili/ { return 404; }
+  location = /bangumi/  { return 404; }
+  location = /sponsor/  { return 404; }
+  # 存根里的 meta refresh 目标是 /404/（带斜杠），这个路径本身没有产物，一并给 404
+  location = /404/      { return 404; }
 
   location /api/ {
     proxy_pass http://127.0.0.1:8000;
@@ -1017,4 +1042,7 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | T13 | `quarantine-bad-posts.mjs` 不在任何 npm script 里；文件头注释写的目录（`src/content/posts/_quarantine/`）与真实常量（`src/content/_quarantine`，脚本自建）不一致；用 `fs.renameSync` 移动原文（跨盘符会抛错），frontmatter 解析失败也会被当作坏文章移走 | 直接照抄会踩坑 | 我们的 `verify-posts.mjs` **只借鉴其 `stripCode()` / `isExternalUrl()` 思路**；隔离目录与移动方式自己定（同盘符或改复制） |
 | T14 | `SiteInfo.astro` 是纯构建期快照，用硬编码相对路径读 `../../../package.json`，失败被空 catch 吞掉 | 组件移位会静默显示 `unknown` | 只在其内部加占位分支，不移动该组件 |
 | T15 | 站点统计原逻辑用 `Math.abs()` 算天数差、用 `i18n(...).replace("{days}","")` 拼后缀、用 `nextElementSibling` 隐藏后缀 | 逻辑脆弱（日期晚于今天也得正数等） | 这两项在 R-WDG-01 里直接删除，不受影响 |
-| T16 | **字体 provider 会在构建期联网**：`fontConfig.ts` 原用 `provider: "fontsource"`，`pnpm build` 会去 `https://cdn.jsdelivr.net/fontsource/fonts/...` 下载 woff2，网络不可达即 `CannotFetchFontFile` 直接构建失败（P0 实测踩到；jsdelivr 在国内不可靠）。另外 `Zen Maru Gothic` 在 Fontsource **根本没有 600 字重**，原配置请求 600 属无效值 | 阻断 R-DEP-04（构建不依赖外网），在自建服务器上必崩 | 已改为 `provider: "npm"` + 安装 `@fontsource/zen-maru-gothic`、`@fontsource/inter`、`@fontsource/jetbrains-mono`（三个包都含所需的 latin/cyrillic subsets）；`zen-maru-gothic` 的 weights 收窄为实际存在的 300/400/500/700。**不要改回远端 provider** |
+| T16 | **字体 provider 会在构建期联网**：`fontConfig.ts` 原用 `provider: "fontsource"`，`pnpm build` 会去 `https://cdn.jsdelivr.net/fontsource/fonts/...` 下载 woff2，网络不可达即 `CannotFetchFontFile` 直接构建失败（P0 实测踩到；jsdelivr 在国内不可靠）。另外 `Zen Maru Gothic` 在 Fontsource **根本没有 600 字重**，原配置请求 600 属无效值 | 阻断 R-DEP-04（构建不依赖外网），在自建服务器上必崩 | 已改为 `provider: "local"` + woff2 存进 `src/assets/fonts/`（`@fontsource/*` 三个包转为 devDependencies 作为文件来源）。注意 **`npm` provider 也会联网**（走 `cdn.jsdelivr.net/npm/@fontsource/…`），不要改回任何远端 provider |
+| T17 | **「关闭的页面」在静态输出下不是 404**：页面里的 `return Astro.redirect("/404/")` 被编译成存根 HTML——`<title>Redirecting to: /404/</title>` + `<meta http-equiv="refresh" content="2;url=/404/">` + `<meta name="robots" content="noindex">`，Web 服务器以 **HTTP 200** 返回（P1 实测：`/friends/`、`/bilibili/`、`/bangumi/`、`/sponsor/` 全是 200）。而且存根指向的 `/404/` 本身没有产物（真正产出的是 `dist/404.html`） | ① 我最初在 `prd.md` 里写的"访问返回 404"是**错的**（按 dev 服务器行为想当然）；② 线上会先给一个 200 空页再跳，SEO 靠 Astro 的 `noindex` 兜住 | ① `prd.md` R-NAV-05/R-NAV-06 的验收条件已改成真实行为；② `scripts/verify-ui.mjs` 断言"它确实是那个 noindex 存根"而不是断言 404；③ **真 404 在 Nginx 层做**（§12.2 的 `return 404` + `error_page 404 /404.html`）；④ 注意 `dist/404.html` 是单文件，不是 `404/index.html` |
+| T18 | **首页横幅的 `links` 是"站点身份 / 打赏移除"的盲区**：R-NAV-06 只盯着导航与页面，但 `backgroundWallpaper.common.homeText.links` 里另有 4 条上游作者链接——GitHub（作者仓库）、Email（`mailto:xiaye@msn.com`，被 `rehype-email-protection` 编码成 base64 的 `data-encoded-email` 挂在**每一个页面**上）、**Sponsor（`blog.cuteleaf.cn/sponsor/`，即打赏入口）**、RSS | 按 R-NAV-06 验收不合格；且每个页面都夹带上游作者邮箱 | P1 审查时抓到并已清理（换成 RSS + Atom）；`scripts/verify-ui.mjs` 新增**渲染结果泄漏扫描**（对 `/`、`/about/`、`/guestbook/`、`/posts/*` 扫上游邮箱/ID/打赏链接/横幅标题，命中即失败），防止同类问题再溜过去 |
+| T19 | **侧栏容器有两套 id，名字只差一个后缀**：`#left-sidebar-dynamic` / `#right-sidebar-dynamic` 是 **Swup 的替换容器**，静态产物里带 `class="hidden"`，内容由客户端切页时填；SSR 出来的真实侧栏内容在 `#left-sidebar` / `#right-sidebar` 里（`SidebarColumn.astro:47/65`） | 任何针对侧栏的 DOM 断言/脚本若用错 id 会**静默什么都查不到**（我的验证脚本第一版就踩了：采样恒为 0，断言恒真通过 = 假绿） | 用 `#left-sidebar` / `#right-sidebar`；任何"集合类"断言都要先校验**样本量**（`verify:ui` 里已有 `count >= 20` 之类的门槛，样本不足判失败） |

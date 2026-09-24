@@ -10,9 +10,9 @@ const SITE_LANG = resolveSiteLang("zh_CN");
 const pages = resolvePageToggles({
 	// ── 社交 (Social) ──────────────────────────────────
 
-	// 友链页面开关
-	friends: true,
-	// 留言板页面开关，需要配置评论系统
+	// 友链页面开关（IMiss Blog：已删除该功能，见 prd.md R-NAV-05）
+	friends: false,
+	// 留言板页面开关，需要配置评论系统。IMiss Blog：页面保留，评论区暂时关闭（R-CMT-01）
 	guestbook: true,
 
 	// ── 我的 (My) ──────────────────────────────────
@@ -25,50 +25,56 @@ const pages = resolvePageToggles({
 	gallery: true,
 	// 书签导航页面开关
 	booknav: true,
-	// 哔哩哔哩追番页面开关
+	// 哔哩哔哩追番页面开关（IMiss Blog：已删除该入口，见 R-NAV-03）
 	bilibili: false,
-	// 番组计划页面开关
+	// 番组计划页面开关（IMiss Blog：已删除该入口，见 R-NAV-03）
 	bangumi: false,
-	// VNDB页面开关
-	vndb: false,
-	// MyAnimeList页面开关
-	mal: false,
+	// 轻小说页面开关（原 VNDB，仅改名不改功能）。需要 userId 才能显示数据（阻塞项 B-05），
+	// 未配置时页面显示"未配置"卡片，不会报错
+	vndb: true,
+	// 番剧页面开关（原 AnimeList，仅改名不改功能）。需要 username + clientId（阻塞项 B-05）
+	mal: true,
 
 	// ── 关于 (About) ──────────────────────────────────
 
-	// 打赏页面开关
-	sponsor: true,
+	// 打赏页面开关（IMiss Blog：彻底移除，见 R-NAV-06。关掉它会连带关掉文章页的打赏按钮）
+	sponsor: false,
 });
 
 export const siteConfig: SiteConfig = {
-	// 站点标题
-	title: "Firefly",
+	// 站点标题（IMiss Blog：取自《鸣潮》角色「爱弥斯」AiMiSi 的谐音，见 prd.md R-ID-01）
+	title: "IMiss Blog",
 
-	// 站点副标题
-	subtitle: "Demo site",
+	// 站点副标题 【假设，可改】—— 正式文案待发起人确认
+	subtitle: "爱弥斯的小站",
 
 	// 站点 URL
-	site_url: "https://firefly.cuteleaf.cn",
+	// ⚠️ 占位域名：真实域名待提供（阻塞项 B-01）。填真值前，sitemap / RSS / OG 里的绝对地址都是这个占位值
+	site_url: "https://imiss.example.com",
 
 	// 站点描述
 	description:
-		"Firefly 是一款基于 Astro 框架和 Fuwari 模板开发的清新美观且现代化个人博客主题模板，专为技术爱好者和内容创作者设计。该主题融合了现代 Web 技术栈，提供了丰富的功能模块和高度可定制的界面，让您能够轻松打造出专业且美观的个人博客网站。",
+		"IMiss Blog —— 以《鸣潮》爱弥斯为主题的个人技术博客：C/C++、Linux、网络、数据库与算法的学习笔记，外加定期更新的番剧排行榜，和一只会聊天的爱弥斯桌宠。",
 
 	// 站点关键词
 	keywords: [
-		"Firefly",
-		"Fuwari",
-		"Astro",
-		"ACGN",
-		"博客",
+		"IMiss Blog",
+		"爱弥斯",
+		"Aemeath",
+		"鸣潮",
 		"技术博客",
-		"静态博客",
+		"C++",
+		"Linux",
+		"学习笔记",
+		"番剧排行",
+		"ACGN",
 	],
 
 	// 主题色
 	themeColor: {
 		// 主题色的默认色相，范围从 0 到 360。例如：红色：0，青色：200，蓝绿色：250，粉色：345
-		hue: 165,
+		// IMiss Blog：345 = 爱弥斯粉（原值 165 是 Firefly 的青绿），见 prd.md R-ID-02
+		hue: 345,
 		// 默认模式："light" 亮色，"dark" 暗色，"system" 跟随系统
 		defaultMode: "system",
 	},
@@ -88,10 +94,12 @@ export const siteConfig: SiteConfig = {
 
 	// Favicon 配置
 	// 如果启用了OpenGraph图片功能，数组中需要包含png格式的favicon图标
+	// IMiss Blog：临时 favicon 由 scripts/make-logo.mjs 从桌宠图集裁出（见 prd.md R-ID-04），
+	// 正式图标到位后覆盖 public/favicon/imiss-*.png 即可
 	favicon: [
 		{
 			// 图标文件路径
-			src: "/favicon/firefly-32.png",
+			src: "/favicon/imiss-32.png",
 			// 可选，指定主题 'light' | 'dark'
 			// theme: "light",
 			// 可选，图标大小
@@ -112,12 +120,13 @@ export const siteConfig: SiteConfig = {
 		// 使用 Astro 图标库时不需要设置 valueDark，图标会自动跟随主题亮暗色切换
 		logo: {
 			type: "image",
-			value: "assets/images/logo/firefly-light.png",
-			valueDark: "assets/images/logo/firefly-dark.png",
-			alt: "🍀",
+			// IMiss Blog：临时 Logo（由 scripts/make-logo.mjs 从桌宠图集裁出，见 R-ID-04）
+			value: "assets/images/logo/imiss-light.webp",
+			valueDark: "assets/images/logo/imiss-dark.webp",
+			alt: "IMiss Blog",
 		},
 		// 导航栏标题
-		title: "Firefly Blog",
+		title: "IMiss Blog",
 		// 全宽导航栏，导航栏是否占满屏幕宽度
 		widthFull: false,
 		// 导航菜单对齐方式，left：左对齐，center：居中
@@ -132,7 +141,9 @@ export const siteConfig: SiteConfig = {
 	},
 
 	// 站点开始日期，用于统计运行天数
-	siteStartDate: "2025-01-01",
+	// ⚠️ IMiss Blog：站点统计里的「运行时长」已按需求删除（R-WDG-01），本字段目前**不再被任何代码消费**。
+	// 上游示例值 "2025-01-01" 已按 R-ID-05 清空；等站点正式上线后可以填真实起始日期留档。
+	siteStartDate: "",
 
 	// 站点时区（IANA 时区字符串），用于格式化bangumi、rss里的构建日期时间等等..
 	// 示例："Asia/Shanghai", "UTC", 如果为空，则按照构建服务器的时区进行时区转换
@@ -262,13 +273,15 @@ export const siteConfig: SiteConfig = {
 	// ── Bilibili配置 ──────────────────────────────────
 	bilibili: {
 		// 你的 Bilibili 用户 UID
-		uid: "38932988",
+		// IMiss Blog：页面入口已删除；原值 "38932988" 是上游作者的示例值，已清空（R-ID-05）
+		uid: "",
 	},
 
 	// ── 番组计划bangumi配置 ──────────────────────────────────
 	bangumi: {
 		// Bangumi用户ID
-		userId: "1143164",
+		// IMiss Blog：页面入口已删除；原值 "1143164" 是上游作者的示例值，已清空（R-ID-05）
+		userId: "",
 		// 数据模式：static=构建时获取，dynamic=客户端实时获取
 		// static 模式在构建时获取数据并静态渲染，部署后数据不更新
 		// dynamic 模式在浏览器中实时请求 API，始终显示最新数据
@@ -289,14 +302,19 @@ export const siteConfig: SiteConfig = {
 		nsfw: "hide",
 	},
 
-	// ── VNDB配置 ──────────────────────────────────
+	// ── VNDB配置（IMiss Blog：页面改名为「轻小说」，功能不变）──────────────────────────────────
 	vndb: {
-		// VNDB 用户 ID
-		userId: "u358128",
+		// VNDB 用户 ID，例如 "u2"
+		// IMiss Blog：原值 "u358128" 是上游作者的示例值，已清空（R-ID-05）。
+		// 带上你自己的 userId 后「轻小说」页才会有数据（阻塞项 B-05）
+		userId: "",
 		// 数据模式：static=构建时获取，dynamic=客户端实时获取
 		// static 模式在构建时获取数据并静态渲染，部署后数据不更新
 		// dynamic 模式在浏览器中实时请求 API，始终显示最新数据
-		mode: "static",
+		// IMiss Blog：必须用 **dynamic**。static 会在 `pnpm build` 期间请求 api.vndb.org，
+		// 一旦填上 userId（阻塞项 B-05）就会破坏"构建不依赖外网"的硬约束（ARCH.md §2 / R-DEP-04）；
+		// 代价是封面下载脚本会跳过（它要求 mode === "static"），而本站 downloadCovers 本来就是 false。
+		mode: "dynamic",
 		// 构建时下载并压缩封面到 public/vndb-covers，图片由本站服务器提供
 		downloadCovers: false,
 		// VNDB API 地址
@@ -309,12 +327,16 @@ export const siteConfig: SiteConfig = {
 		nsfw: "hide",
 	},
 
-	// ── MyAnimeList配置 ──────────────────────────────────
+	// ── MyAnimeList配置（IMiss Blog：页面改名为「番剧」，功能不变）──────────────────────────────────
 	mal: {
 		// MyAnimeList 用户名（列表需为公开状态，私密列表无法读取）
-		username: "cuteleaf",
+		// IMiss Blog：原值 "cuteleaf" 是上游作者的示例值，已清空（R-ID-05）。
+		// username 与 clientId 任一为空，构建期就不会发起任何请求（页面显示"未配置"卡片）
+		username: "",
 		// MyAnimeList Client ID，在 https://myanimelist.net/apiconfig 注册免费应用后获取
-		clientId: "	0ef34371450f9c6c809deaadec6aa8f3",
+		// IMiss Blog：原值是一串 32 位十六进制、且**带一个前导制表符**的凭据（上游示例），已清空。
+		// 注意 utils/mal-utils.ts 会把该值原样写进请求头（不做 trim），填入时不要带空白
+		clientId: "",
 		// MAL API 地址
 		apiUrl: "https://api.myanimelist.net/v2",
 		// 动画条目详情页地址，末尾需要带 /

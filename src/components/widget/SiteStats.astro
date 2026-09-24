@@ -1,7 +1,6 @@
 ---
 import { Icon } from "astro-icon/components";
 import WidgetLayout from "@/components/common/WidgetLayout.astro";
-import { siteConfig } from "@/config";
 import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
 import type { WidgetComponentConfig } from "@/types/config";
@@ -20,9 +19,6 @@ interface Props {
 const { class: className, style, widgetConfig } = Astro.props;
 
 const showTitle = widgetConfig?.showTitle !== false;
-
-// 从配置中获取站点开始日期
-const siteStartDate = siteConfig.siteStartDate || "2025-01-01";
 
 // 获取所有文章
 const posts = await getSortedPosts();
@@ -53,23 +49,13 @@ function formatNumber(num: number): string {
 	return num.toLocaleString();
 }
 
-// 获取「最后活动」时间：取每篇文章 published 与 updated 中较新的那个，再从全站所有文章里取最大值。这样新发文章和修改老文章都会刷新该字段。
-const getActivityDate = (post: (typeof posts)[number]): Date => {
-	const { published, updated } = post.data;
-	if (updated && updated > published) return updated;
-	return published;
-};
-
-const lastActivityDate = posts.reduce<Date | null>((latest, post) => {
-	const current = getActivityDate(post);
-	if (!latest || current > latest) return current;
-	return latest;
-}, null);
-
-const lastPostDate = lastActivityDate ? lastActivityDate.toISOString() : null;
-
-const todayText = i18n(I18nKey.today);
-
+// IMiss Blog（R-WDG-01）：原来这里还有「运行时长」与「最后活动」两项，
+// 已按需求删除。顺带删掉了只服务这两项的 getActivityDate / lastActivityDate /
+// lastPostDate / todayText，以及文件末尾那段 <script is:inline>——
+// 那段脚本靠 data-stat-id="running-days" / "last-update" 两个字符串字面量定位 DOM，
+// 只删数组不删脚本会留下死代码，只删脚本不删数组则页面会一直显示初始值 0，两边必须一起删。
+// 相关的 i18n key（siteStatsRunningDays / siteStatsLastUpdate / siteStatsDaysAgo）
+// 保留在语言包里未删，避免动到上游的翻译文件。
 const stats = [
 	{
 		icon: "material-symbols:article-outline",
@@ -92,22 +78,6 @@ const stats = [
 		value: totalWords,
 		formatted: true,
 	},
-	{
-		icon: "material-symbols:calendar-clock-outline",
-		label: i18n(I18nKey.siteStatsRunningDays),
-		value: 0, // 将由客户端更新
-		suffix: i18n(I18nKey.siteStatsDays).replace("{days}", ""),
-		dynamic: true,
-		id: "running-days",
-	},
-	{
-		icon: "mingcute:heartbeat-line",
-		label: i18n(I18nKey.siteStatsLastUpdate),
-		value: 0, // 将由客户端更新
-		suffix: i18n(I18nKey.siteStatsDaysAgo).replace("{days}", ""),
-		dynamic: true,
-		id: "last-update",
-	},
 ];
 ---
 
@@ -124,69 +94,14 @@ const stats = [
           </span>
         </div>
         <div class="flex items-center">
-          <span
-            class="text-base font-bold text-neutral-900 dark:text-neutral-100"
-            data-stat-id={stat.id}
-          >
+          {/* R-WDG-01：原来这里还有 data-stat-id（供客户端脚本定位「运行时长/最后活动」两项）
+              与 suffix（「天/天前」后缀），两项统计删除后一起清理掉了 */}
+          <span class="text-base font-bold text-neutral-900 dark:text-neutral-100">
             {stat.formatted ? formatNumber(stat.value) : stat.value}
           </span>
-          {stat.suffix && (
-            <span class="ml-1 text-sm text-neutral-500 dark:text-neutral-400">
-              {stat.suffix}
-            </span>
-          )}
         </div>
       </div>
     ))}
   </div>
 </WidgetLayout>
 
-<script is:inline define:vars={{ siteStartDate, lastPostDate, todayText }}>
-  function updateDynamicStats() {
-    const today = new Date();
-
-    // 更新运行天数
-    const startDate = new Date(siteStartDate);
-    const diffTime = Math.abs(today.getTime() - startDate.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    const runningDaysElements = document.querySelectorAll('[data-stat-id="running-days"]');
-    runningDaysElements.forEach((element) => {
-      element.textContent = diffDays.toString();
-    });
-
-    // 更新最后活动时间
-    if (lastPostDate) {
-      const lastPost = new Date(lastPostDate);
-      const timeSinceLastPost = Math.abs(today.getTime() - lastPost.getTime());
-      const daysSinceLastUpdate = Math.floor(timeSinceLastPost / (1000 * 60 * 60 * 24));
-
-      const lastUpdateElements = document.querySelectorAll('[data-stat-id="last-update"]');
-      lastUpdateElements.forEach((element) => {
-        if (daysSinceLastUpdate === 0) {
-          element.textContent = todayText;
-          if (element.nextElementSibling) {
-            element.nextElementSibling.style.display = 'none';
-          }
-        } else {
-          element.textContent = daysSinceLastUpdate.toString();
-          if (element.nextElementSibling) {
-            element.nextElementSibling.style.display = '';
-          }
-        }
-      });
-    }
-  }
-
-  // 页面加载时更新
-  updateDynamicStats();
-
-  // 防止 Swup 切页重跑脚本时重复注册监听器
-  if (!window.__siteStatsInit) {
-    window.__siteStatsInit = true;
-    // 页面切换时重新更新
-    document.addEventListener("swup:contentReplaced", () => {
-      setTimeout(updateDynamicStats, 100);
-    });
-  }
-</script>
