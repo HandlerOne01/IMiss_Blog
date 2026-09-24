@@ -167,6 +167,29 @@ tags: [Linux, 进程]
 
 > 现在是**占位数据**（示例作品 01~10），所以页面底部有一条提示。填完真实数据后，把同一个文件里的 `dataStatus` 从 `"placeholder"` 改成 `"final"`，提示就会消失；两张演示剧照 `_demo-0*.webp` 也可以一并删掉。
 
+### 以后怎么给榜单配背景图
+
+每个名次可以配**一张背景版**，它会整行铺满、标题白字压在上面。加图就三步：
+
+1. 把图片放进 `src/assets/images/rank/`（**格式随便**：jpg / png / webp / avif 都行）
+2. 在 `src/config/rankConfig.ts` 对应条目上加一行：`cover: "assets/images/rank/jp-all-01.jpg"`
+3. `pnpm dev` 看效果；改完图跑一次 `pnpm build`（构建期会自动生成 webp/avif 多档与 LQIP 占位色）
+
+**图片规格（给素材时按这个准备最省事）**
+
+| 项 | 值 |
+| --- | --- |
+| 比例 | **5.7 : 1**（宽:高），例如 **1600 × 280** |
+| 体积 | 单张 ≤ 150 KB（每页 10 张 ≤ 1.5 MB） |
+| 命名 | `榜单-维度-名次`：`jp-all-01.jpg`、`jp-ep-03.jpg`、`cn-all-01.jpg`、`game-01.jpg`（二游没有维度） |
+| 文字 | **不要在图里做字**（标题由页面渲染，换标题不用重做图） |
+
+> ⚠️ 直接给 16:9 的截图也能用，但会被**居中裁掉约 70% 的高度、只留中间一条**。
+> 哪条留下、哪条被切，看这张对照图：`docs/imiss/rank-cover-guide.png`
+> （想重新生成：`node scripts/make-rank-cover-guide.mjs`）。构图怕被裁的图，单独说明要保留哪一块。
+>
+> 没写 `cover` 的条目会走主题色渐变占位，不会裂图；**写了路径但文件不存在**也会自动按缺图处理（构建日志里有 warning）。
+
 ## 桌宠与 Agent
 
 桌宠是页面右下角的爱弥斯像素角色，配置在 `src/config/petConfig.ts`（开关、缩放、台词、Agent 地址）。

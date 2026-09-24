@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.12 |
+| 文档版本 | v1.13 |
 | 最后更新 | 2026-09-24 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -89,6 +89,7 @@ imiss_-blog/                      ← 工作区根（= 站点仓库）
 │  ├─ make-logo.mjs               ← 【P1 已落地】把 imiss-logo.svg 栅格化成 Logo 与 favicon
 │  ├─ verify-ui.mjs               ← 【P1 已落地】界面验收（CDP 断言 + 截图，零依赖）
 │  ├─ verify-docs.mjs             ← 【v1.12 已落地】文档一致性自检（文档 ↔ 仓库事实）
+│  ├─ make-rank-cover-guide.mjs   ← 【v1.13 已落地】榜单配图比例对照图
 │  ├─ import-posts.mjs            ← 【新增】内容迁移
 │  ├─ verify-posts.mjs            ← 【新增】内容校验
 │  ├─ convert-wallpaper.mjs       ← 【新增】壁纸图 → webp
@@ -392,6 +393,7 @@ if (!board) return Astro.redirect("/404/");     // 数据被删时别炸在页�
 | 标题 | 白字 + `text-shadow: 0 1px 2px rgb(0 0 0 / .6)`；字号 = 行高的 0.27（实测约 26px / 96px，上限 32px）；粗体 700；起始位置紧跟名次列留一个小间距；最多折 2 行（`-webkit-line-clamp: 2`，参考图第 5 名就是两行） |
 | 原名 | 标题下方一行小字，字号 = 行高的 0.13（上限 17px）、`rgba(255,255,255,.78)`；数据里没有就不占位 |
 | 短评胶囊 | **参考图里没有这一列**，所以默认不渲染；只有数据里写了 `note` 才在右端显示一枚小胶囊（窄屏隐藏）。它是网格的第 2 列（不是绝对定位），**永远不会压住标题**；宽度上限用 `40cqw` 这类长度（`%` 会把 auto 轨道里的它压扁，见 T26） |
+| **条目配图（背景版）—— 交付规格** | 每个名次**一张**图，作为整行背景（`object-fit: cover` + 居中，标题白字压在上面）。**推荐比例 5.7:1**（= 行宽÷行高；1440 屏实测 629×109px = 5.77:1），**推荐尺寸 1600×280**，**单张 ≤150KB**（每页 10 张 ≤1.5MB，`prd.md` §6.1）。格式不限：**jpg / png / webp / avif 都行**（Astro 构建期自动出 webp/avif 多档 + 生成 LQIP 占位色，实测 1600×914 的 JPG 会产出 6 档 webp）。命名建议 `榜单-维度-名次`：`jp-all-01.jpg`、`jp-ep-03.jpg`、`cn-all-01.jpg`、`game-01.jpg`（二游无维度），放进 `src/assets/images/rank/`。**给 16:9 截图也能用**，但会被居中裁掉约 70% 的高度（只留中间一条）——对照图见 `docs/imiss/rank-cover-guide.png`（由 `node scripts/make-rank-cover-guide.mjs` 生成）；某张图必须换取景点时告诉执行方，**暂时不加 `position` 字段**（发起人 2026-09-24 明确不要，等真有需要再加） |
 | 缺图占位 | **先铺不透明深色底** `hsl(var(--hue) 28% 20%)`，再叠 `linear-gradient(120deg, hsl(var(--hue) 62% 58% / .5), hsl(calc(var(--hue) + 40) 52% 44% / .42), hsl(calc(var(--hue) - 25) 58% 34% / .5))` + 一层极淡的点阵纹理（`radial-gradient` 平铺）。**深底是关键**：半透明渐变直接罩在卡片底上时，亮色主题下是浅粉、白字会糊（P2 亮色截图实测踩到，已改为不透明深底并加断言） |
 | 浅色主题 | 剧照上的白字方案两套主题通用；scrim 不变，只把 1~3 名的粉调深一档（`#e2696b`）以提高白字对比度。**缺图占位靠上面的不透明深底保证两套主题一致**（`verify:ui` 对暗/亮两套主题都断言"渐变最亮处对白字 ≥ 4.5:1"） |
 | 移动端（<768px） | 按 17.4cqw 算行高只剩约 68px（390px 宽），放不下 2 行标题 → 行高放宽到 `max(64px, 20cqw)`，**名次列仍保持 13.7%**，标题最多 2 行、字号不低于 15px；短评胶囊隐藏 |
@@ -906,6 +908,7 @@ dosc/blog/**/*.md
 | `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **107 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底），并输出 **15 张**截图到 `reports/screenshots/`。P1 落地、P2 扩容 | ✅（P1 新增，P2 扩容） |
 | `pnpm verify:docs` | **文档一致性自检**（`scripts/verify-docs.mjs`）：核对三份文档互相之间、以及文档与仓库事实是否一致——版本号与"最后更新"日期、断言/截图数与最近一次实测、排行页清单与路由文件、导航子项与 `navBarConfig.ts`、需求编号引用闭环、阻塞项条数与编号连续、§2 与 §3 阶段状态，以及**配置事实**（`displaySettingsConfig.enable`、`rankConfig.dataStatus`、"4 组数据"类说法是否漏了第 5 份）。**每次收工前跑一次**（P2 加二游排行时文档漂移了 12 处，就是没有这道关卡） | ✅（v1.12 新增） |
 | `pnpm make:logo` | 把 `src/assets/images/logo/imiss-logo.svg`（手写矢量设计源）栅格化成导航栏 Logo（webp）与 favicon 四档 PNG | ✅（P1 新增） |
+| `node scripts/make-rank-cover-guide.mjs` | 生成榜单配图比例对照图 `docs/imiss/rank-cover-guide.png`（16:9 原图裁成 5.7:1 后哪一条留下；发起人准备素材时看这张） | ✅（v1.13 新增） |
 
 > **关于 `verify:ui` 的对比度检查**：主体走"token 级"校验（`--deep-text`/`--content-meta`/`--btn-content`/`--primary` 对卡片底/页面底），不是"扫全站文字元素"。
 > 原因：这个主题里大量文字压在封面图、壁纸、半透明面板上，逐元素自动判定无法可靠取得背景色（试了三版：canvas 转色 → 逐层合成 → Node 侧解析，期间还产出过"66/71 元素低于 3:1"的假警报）。
@@ -1021,7 +1024,7 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | 首屏图片 | 单张 ≤ 400KB | webp q82、长边 ≤ 2560 |
 | 桌宠图集 | ≤ 350KB | 单文件 + CSS 取帧，无逐帧请求 |
 | 文章内图片 | 全量 ≤ 60MB | 已在源头压缩；`public` 直出，不进优化管线 |
-| 榜单配图 | 单页 ≤ 1.5MB | 按显示尺寸 2 倍导出；配 `loading="lazy"` + `decoding="async"` |
+| 榜单配图 | 单页 ≤ 1.5MB（**单张 ≤150KB**，每页 10 张） | 5.7:1、推荐 1600×280（§5.5）；格式不限，构建期自动转 webp/avif 多档；配 `loading="lazy"` + `decoding="async"` |
 | JS 体积 | 不引入新运行时 | 桌宠与榜单切换用原生 JS/Svelte 岛，不引第三方动画库。⚠️ **例外（已实测）**：`displaySettingsConfig.wallpaperModeSwitchable` 开启（R-ID-07，访客可切壁纸模式）会让**每页 HTML +11.6 KB**（38 页合计 +439.7 KB；`_astro/*.js` 总量无变化）——低于上游注释估的 +33 KB/页，但仍是每页都要付的代价 |
 | 构建时间 | 全量内容 ≤ 10 分钟 | 文章图走 `public`；`src` 图片只保留封面/壁纸/榜单/桌宠 |
 | 动画性能 | 只改 `transform`/`opacity` | 桌宠与樱花统一由 `requestAnimationFrame` 驱动；后台暂停 |

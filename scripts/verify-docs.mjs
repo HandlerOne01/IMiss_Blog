@@ -11,10 +11,13 @@
  *   2. 断言条数：文档里"当前口径"的数字 == 最近一次 `reports/verify-*.log` 里的实测值
  *   3. 截图张数：文档里"当前口径"的数字 == `reports/screenshots/*.png` 实际张数
  *   4. 排行页清单：`src/pages/rank/*.astro` == 文档里列出的 `/rank/xxx/`（prd 站点地图 + ARCH §5.2）
- *   5. 导航子项：prd R-NAV-02 里列的 `/rank/xxx/` == `navBarConfig.ts` 里「排行」的 children
+ *   5. 导航子项：prd R-NAV-02 里列的 `/rank/xxx/` == `navBarConfig.ts` 里「排行」的 children，且都有路由文件
  *   6. 需求编号闭环：ARCH / PROJECT_STATUS / README 引用的 R-xxx-nn 都能在 prd.md 找到定义
  *   7. 阻塞项：`阻塞项 N 条` == B-xx 行数，且编号连续
  *   8. 阶段状态：§2 标了 ✅ 的阶段，§3 的小节标题也必须带 ✅（反之亦然）
+ *   9. "最后更新"日期三份一致
+ *  10. 配置事实：`displaySettingsConfig.enable` / `rankConfig.dataStatus` ↔ 文档说法；"4 组数据"是否漏了二游那第 5 份
+ *  11. 文件编码：受版本控制的文本文件不带 UTF-8 BOM（PowerShell 会偷偷加）
  *
  * 用法：`pnpm verify:docs`（先跑过 `pnpm verify:ui` 才有最新的 reports 日志做基准；
  * 没有日志时只跳过第 2/3 项的"与实测比对"，仍会检查文档之间是否自相矛盾）。
@@ -22,6 +25,7 @@
  */
 import fs from "node:fs/promises";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 const DOCS = ["prd.md", "ARCH.md", "PROJECT_STATUS.md"];
 const README = "README.md";
@@ -347,6 +351,33 @@ const allDocs = { "prd.md": prd, "ARCH.md": arch, "PROJECT_STATUS.md": status, [
 		badLines.length === 0,
 		badLines.length ? badLines.join(" ｜ ") : "没有漏项",
 	);
+}
+
+// ── 11. 受版本控制的文本文件不带 UTF-8 BOM ────────────────
+// 为什么要查：PowerShell 的 `Set-Content -Encoding UTF8` 在某些版本下会加 BOM，
+// 混进源码/文档后 `git diff` 里只表现为首行一个不可见字符，很难发现（本轮真发生过）。
+{
+	let hits = [];
+	try {
+		const tracked = execFileSync("git", ["ls-files"], { encoding: "utf8" }).split("\n").filter(Boolean);
+		const isText = /\.(ts|tsx|js|mjs|astro|svelte|css|json|md|yml|yaml|txt|styl)$/i;
+		for (const f of tracked) {
+			if (!isText.test(f)) continue;
+			let buf;
+			try {
+				buf = await fs.readFile(path.resolve(root, f));
+			} catch {
+				continue;
+			}
+			if (buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) hits.push(f);
+		}
+	} catch (err) {
+		hits = [];
+		record("INFO", "读不到 git 文件列表，跳过 BOM 检查", true, err.message);
+	}
+	if (hits.length || hits.length === 0) {
+		record("文件编码", "受版本控制的文本文件不带 UTF-8 BOM", hits.length === 0, hits.join(",") || "干净");
+	}
 }
 
 // ── 输出 ────────────────────────────────────────────────
