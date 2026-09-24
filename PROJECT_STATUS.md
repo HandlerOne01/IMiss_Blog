@@ -1,10 +1,10 @@
-# IMiss Blog 项目状态（PROJECT_STATUS）
+﻿# IMiss Blog 项目状态（PROJECT_STATUS）
 
 > **这份文档是项目的唯一进度入口。** 阶段、进度、下一步、阻塞项都只在这里维护，其它文档不重复记录状态。
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.5 |
+| 文档版本 | v1.6 |
 | 最后更新 | **2026-09-24** |
 | 当前阶段 | **P1 已完成（含审查后修订），待发起人审查**（通过后进入 P2） |
 | 整体进度 | **35%**（口径：文档与共识 10% + P0 5% + P1 20%；各阶段权重见第 2 章） |
@@ -192,7 +192,8 @@
 | 2026-09-24 | **P1 实测纠正了自己写错的一条验收条件** | `prd.md` 原写"直接访问 `/friends/` 返回 404"——实测静态输出下是 **HTTP 200 + `meta refresh` + `noindex` 的存根**（Astro 只在 SSR 下才有真 302），且存根指向的 `/404/` 没有产物（真正的是 `dist/404.html`）。已按真实行为改写 R-NAV-05/R-NAV-06 验收条件、在 `scripts/verify-ui.mjs` 里改为断言"确实是那个 noindex 存根"、并把真 404 落到 Nginx 层（`ARCH.md` §12.2 的五条 `return 404` + `error_page 404 /404.html`），同时登记为陷阱 T17 |
 | 2026-09-24 | **P1 中途被 TS 抓到的耦合** | `SiteStats.astro` 删掉统计数组项后，渲染标记里仍在用 `stat.id` / `stat.suffix` → `pnpm check` 报 3 处 ts(2339)。正好印证 `ARCH.md` §14.3 T2「数组与脚本/标记靠字符串字面量解耦，必须一起删」 |
 | 2026-09-24 | **P1 独立审查（子 agent，只读）** | 逐条核对 16 条需求 + 排查副作用 + 评估验证脚本，结论：**工程上可提交，但按需求验收有 1 条阻断 + 2 条应修**。① **阻断 R-NAV-06**：首页横幅 `backgroundWallpaper.common.homeText.links` 里仍挂着上游 Sponsor 打赏链接，以及作者 GitHub / 邮箱（邮箱被编码成 base64 挂在**每一页**）；② 应修：`vndb.mode` 应为 `dynamic`（写成了 `static`，一旦填 userId 就构建期联网）；③ 应修：`siteStartDate` 未按 R-ID-05 清空。另指出 `verify-ui` 有 3 项"不验证也记 ✅"（P2 待建路由、sitemap 读不到产物时 catch 记 pass）与 5 条需求零断言，并给出 3 处注释与事实不符 |
-| 2026-09-24 | **P1 审查后修订 + 复验** | 修完上述 3 项，并清理同批上游身份（首页横幅标题/副标题/链接）；`verify-ui.mjs` 修掉 3 处假绿、新增**渲染结果泄漏扫描**（上游邮箱/ID/打赏链接/横幅标题）、新增文章页打赏按钮断言、标题描述与 keywords 断言、导航 Logo 断言、留言页副标题断言，且把"关于我页"的弱断言（`length > 100`）换成内容标志断言；对比度检查改为 token 级并加 `--hue` 345↔165 的 A/B。**复验：52 项功能断言全绿、exit=0** |
+| 2026-09-24 | **P1 审查后修订 + 复验** | 修完审查提出的 1 阻断 + 2 应修（首页横幅的上游 Sponsor/邮箱/GitHub、`vndb.mode`、`siteStartDate`），横幅标题与副标题一并换成占位；`verify-ui.mjs` 修掉 3 处假绿、新增**渲染结果泄漏扫描**（上游邮箱/ID/打赏链接/横幅标题）与 5 条缺失断言（文章页打赏按钮、description/keywords、导航 Logo、留言页副标题、把"关于我"的弱断言 `length > 100` 换成内容标志断言）、对比度改为 token 级 + `--hue` 345↔165 的 A/B。**复验：52 项功能断言全绿、exit=0** |
+| 2026-09-24 | **P1 修订（发起人反馈）** | ① **换 Logo**：原来的像素头像不好看／不合适 → 改为**手写 SVG 标识**（`src/assets/images/logo/imiss-logo.svg`：粉色晶体心 + 青色星芒 + 机械翼片 + 深蓝紫方圆底），`make-logo.mjs` 改为从该 SVG 栅格化；32px favicon 下实测可辨。② **新增需求 R-ID-06：删除订阅（RSS/Atom）功能**——删掉 5 个文件（`pages/{rss,atom}.astro`、`pages/{rss,atom}.xml.ts`、`utils/feed-utils.ts`）并摘掉 4 处接线（head 的 alternate 链接、页脚 RSS/Atom、首页横幅图标行、资料卡图标）；`siteConfig.feed` 标注为无消费方。恢复清单写进 `ARCH.md` §14.4 |
 
 **需求共识要点（防止以后记错）**
 
@@ -234,6 +235,7 @@
 | 2026-09-24 | v1.3 | **P1 完成**：站点改名 IMiss Blog、hue=345、导航树重写、统计删两项、热力图关闭、站点信息占位、临时 Logo/favicon、留言页文案、清空示例凭据、轻小说/番剧页改名收尾。新增 `scripts/verify-ui.mjs`（35 项断言）与 `scripts/make-logo.mjs`。**纠正 PRD 一条错误验收条件**（关闭页面在静态输出下是 200 + noindex 存根，不是 404）+ `ARCH.md` §14.3 新增 T17、§12.2 增加 5 条 Nginx `return 404` 与 `error_page 404 /404.html` | `prd.md` R-ID-04 / R-NAV-05 / R-NAV-06、`ARCH.md` §3/§4/§11/§12.2/§14.3、`PROJECT_STATUS.md` §1~§8 |
 | 2026-09-24 | v1.4 | **P1 审查后修订**：独立审查发现 1 条阻断（首页横幅的上游 Sponsor 打赏链接 + 作者邮箱/GitHub）与 2 条应修（`vndb.mode` 改回 `dynamic`、`siteStartDate` 清空），已全部修完；首页横幅标题/副标题/链接一并换成占位。`verify-ui.mjs` 修掉 3 处假绿、新增泄漏扫描与 5 条缺失断言、对比度改为 token 级 + hue A/B；复验 **52/52 全绿**。新增陷阱 **T18**（横幅 links 是身份/打赏清理盲区）与 **T19**（侧栏 `-dynamic`/`-static` 容器 id 坑，会让 DOM 断言静默空过）；P4 新增 P4-8（替换上游示例内容页）、P6 新增 P6-8（apple-touch-icon 用 180/192） | `prd.md` R-ID-05 / R-NAV-06、`ARCH.md` §4/§11/§14.3、`PROJECT_STATUS.md` §1~§8 |
 | 2026-09-24 | v1.5 | `README.md` 增补「我自己怎么把它跑起来」手把手一节（开终端 → 装依赖 → `pnpm dev` → `pnpm preview` → `pnpm verify:ui` → 停止方式 → 常见问题），并实测 `pnpm dev --host --port 4322`：监听 `::`、`localhost:4322` 与局域网 `192.168.3.5:4322` 均 200 | `README.md`（需求与架构未变，`prd.md`/`ARCH.md` 无改动） |
+| 2026-09-24 | v1.6 | **P1 修订（发起人两条反馈）**：① Logo 换成手写 SVG 标识（新增设计源 `imiss-logo.svg`，`make-logo.mjs` 改为从 SVG 栅格化）；② 新增需求 **R-ID-06** 删除订阅功能（删 5 文件 + 摘 4 处接线，恢复清单进 `ARCH.md` §14.4）。`verify:ui` 新增 6 条断言覆盖订阅移除与横幅图标行 | `prd.md` R-ID-04 / R-ID-06、`ARCH.md` §3/§4/§11/§14.4、`PROJECT_STATUS.md` §1~§8 |
 
 ---
 

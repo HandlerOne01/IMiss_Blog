@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | IMiss Blog |
-| 文档版本 | v1.5 |
+| 文档版本 | v1.6 |
 | 最后更新 | 2026-09-24 |
 | 关联文档 | `ARCH.md`（架构与技术设计）、`PROJECT_STATUS.md`（阶段、进度、下一步、阻塞项） |
 | 基线代码 | Firefly v6.16.8（Astro 7 静态站点），来源 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\my_-blog\Blog template` |
@@ -140,9 +140,10 @@
 | --- | --- | --- | --- | --- |
 | R-ID-01 | 站点名改为 IMiss Blog |① 导航栏标题 = `IMiss Blog`；② 浏览器标题、OG 标题同步；③ 页脚版权名（`profileConfig.name`）与站点名分开，用作者名 | 首页标签页显示 `IMiss Blog`；导航栏左侧文字为 `IMiss Blog` | ★ |
 | R-ID-02 | 主题色改为爱弥斯粉 | `themeColor.hue = 345`，亮/暗两套主题都检查对比度（正文与背景、按钮文字） | 亮暗模式下主色、链接、按钮均为粉色系；正文对比度 ≥ 4.5:1 | ★ |
-| R-ID-03 | 站点元信息 | 标题、副标题、描述、关键词、`site_url`（域名待提供，先占位并记待办） | `site_url` 未填真值时 sitemap/RSS 不报错；填真值后 OG 图为绝对地址 | ★ |
-| R-ID-04 | 临时 Logo 与 favicon 【假设】 | 从桌宠精灵图裁一张爱弥斯像素头像，做导航栏 Logo（亮/暗各一张）与 favicon 整套（32/128/180/192）；正式 Logo 到位后覆盖同名文件即可 | 导航栏亮暗模式下 Logo 都清晰、不拉伸；浏览器标签页显示爱弥斯图标 | ◆ |
+| R-ID-03 | 站点元信息 | 标题、副标题、描述、关键词、`site_url`（域名待提供，先占位并记待办） | `site_url` 用占位域名时 sitemap 正常生成、不报错（RSS/Atom 已随 R-ID-06 删除）；填真值后 OG 图为绝对地址；`verify:ui` 断言 description/keywords 非空、URL 是本站占位域名 | ★ |
+| R-ID-04 | 站点标识（Logo 与 favicon）【假设】 | 设计一个矢量标识（**手写 SVG**：`src/assets/images/logo/imiss-logo.svg`），三要素取自爱弥斯：粉色晶体心 + 青色四角星芒 + 机械翼片，深蓝紫方圆底（深浅两种导航栏都清晰，也适合做 favicon）；由 `pnpm make:logo` 栅格化成导航栏 Logo（webp，亮/暗各一）与 favicon 四档（32/128/180/192）。正式 Logo 到位后替换 SVG 或直接覆盖产物 | 导航栏亮暗模式下标识都清晰、不拉伸；32px favicon 下仍可辨认；改设计只需改那一个 SVG 并重跑脚本 | ◆ |
 | R-ID-05 | 清理上游示例凭据与假数据 | 模板把上游作者的示例值直接提交在了配置里：`mal.clientId` 是**带前导制表符的 32 位十六进制串**（形如真实凭据，`mal-utils.ts` 还会把它原样塞进请求头）；另有 `mal.username`、`vndb.userId`、`bangumi.userId`、`bilibili.uid`。**首页横幅里的上游作者邮箱（`mailto:xiaye@msn.com`，会被编码成 base64 挂到每个页面）与 GitHub 链接也属于这一批**（见 R-NAV-06）。全部清空或替换为本站占位，避免把别人的凭据与身份随仓库分发 | 配置里不再出现上游示例 ID；`mal.clientId` 为空字符串且无前后空白；`verify:ui` 对 `/`、`/about/`、`/guestbook/`、`/posts/*` 的上游信息扫描零命中 | ★ |
+| R-ID-06 | 删除订阅（RSS / Atom）功能 | 发起人不需要订阅功能。要删的对象：① `/rss/`、`/atom/` 两个介绍页与 `/rss.xml`、`/atom.xml` 两个 feed 路由；② `src/utils/feed-utils.ts`；③ `<head>` 里两条 `<link rel="alternate">`；④ 页脚的 RSS/Atom 链接（保留 Sitemap）；⑤ **首页横幅那行订阅图标**（`homeText.linksEnable: false` + 清空 links）；⑥ 侧栏资料卡的订阅图标（`profileConfig.links` 清空）。恢复清单见 `ARCH.md` §14.4 | 四条订阅路由**真 404**（文件已删，不是 noindex 存根）；首页/页脚/资料卡/head 里都不再出现 rss/atom 字样；`verify:ui` 有对应断言 | ★ |
 
 ### 3.2 导航与信息架构（R-NAV）
 

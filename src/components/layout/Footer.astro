@@ -42,18 +42,8 @@ try {
 			<div class="mx-0.5 my-2.5 flex gap-x-2 gap-y-2.5 justify-center flex-wrap">
 				&copy; <span id="copyright-year">{currentYear}</span>
 				{profileConfig.name}. All Rights Reserved.
-				<span aria-hidden="true">/</span>
-				<a
-					class="transition link text-(--primary) font-medium"
-					target="_blank"
-					href={url("rss.xml")}>RSS</a
-				>
-				<span aria-hidden="true">/</span>
-				<a
-					class="transition link text-(--primary) font-medium"
-					target="_blank"
-					href={url("atom.xml")}>Atom</a
-				>
+				{/* IMiss Blog（R-ID-06）：订阅（RSS / Atom）功能已整体移除，这里的两个链接一并删掉；
+				    只保留 Sitemap。要恢复订阅见 ARCH.md §14.4 的说明（需要找回 4 个上游文件）。 */}
 				<span aria-hidden="true">/</span>
 				<a
 					class="transition link text-(--primary) font-medium"

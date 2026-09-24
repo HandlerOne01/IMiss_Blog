@@ -56,6 +56,8 @@ const EXPECT_HUE = "345";
 const EXPECT_STAT_ROWS = 4;
 const EXPECT_ABSENT_STAT_TEXT = ["运行时长", "最后活动", "天前"];
 const FORBIDDEN_ROUTES = ["/friends/", "/bilibili/", "/bangumi/", "/sponsor/"];
+// R-ID-06：订阅功能整体移除后，这 4 条路由**连存根都没有**（文件已删），应该是真 404
+const REMOVED_FEED_ROUTES = ["/rss/", "/atom/", "/rss.xml", "/atom.xml"];
 const ALLOWED_ROUTES = ["/", "/about/", "/guestbook/", "/vndb/", "/myanimelist/", "/booknav/", "/dynamic/", "/projects/", "/gallery/", "/archive/"];
 // P1 阶段这两个页面还不存在（P2 才建），记录为 INFO 而不是失败
 const KNOWN_PENDING_ROUTES = ["/rank/jp/", "/rank/cn/"];
@@ -390,6 +392,22 @@ async function main() {
 		const res = await fetch(`${BASE}${route}`);
 		record("R-NAV-07", `保留页面应 200：${route}`, res.status === 200, `HTTP ${res.status}`);
 	}
+	// R-ID-06：订阅相关的 4 条路由文件已删除，应当是**真 404**（不是 noindex 存根）
+	for (const route of REMOVED_FEED_ROUTES) {
+		const res = await fetch(`${BASE}${route}`, { redirect: "manual" });
+		record("R-ID-06", `订阅路由已彻底移除（应 404）：${route}`, res.status === 404, `HTTP ${res.status}`);
+	}
+	// RP-ID-06：首页横幅那行链接图标应不再渲染
+	{
+		const html = await (await fetch(`${BASE}/`)).text();
+		const hasBannerLinks = /class="[^"]*banner-link/.test(html);
+		record(
+			"R-ID-06",
+			"首页横幅的订阅图标行已移除",
+			!hasBannerLinks,
+			hasBannerLinks ? "仍能找到 .banner-link 元素" : "无 .banner-link 元素",
+		);
+	}
 	// 排行页在 P2 才建：只记录状态，不参与"通过/失败"计数（否则"功能没做"会被算成 ✅）
 	for (const route of KNOWN_PENDING_ROUTES) {
 		const res = await fetch(`${BASE}${route}`);
@@ -409,6 +427,13 @@ async function main() {
 		["u358128", "上游 VNDB userId"],
 		["Lovely firefly", "上游首页主标题"],
 		["In Reddened Chrysalis", "上游首页副标题诗"],
+		// R-ID-06：订阅功能移除后，这些不该再出现在任何页面里
+		["application/rss+xml", "head 里的 RSS alternate 链接"],
+		["application/atom+xml", "head 里的 Atom alternate 链接"],
+		["rss.xml", "订阅入口（rss.xml）"],
+		["atom.xml", "订阅入口（atom.xml）"],
+		['href="/rss/"', "订阅页入口"],
+		['href="/atom/"', "订阅页入口"],
 	];
 	for (const route of ["/", "/about/", "/guestbook/", "/posts/firefly/"]) {
 		const html = await (await fetch(`${BASE}${route}`)).text();

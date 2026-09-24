@@ -490,19 +490,10 @@ const ogImageAlt = propsOgImageAlt ?? pageTitle;
 
     <slot name="head" />
 
-    <link
-      rel="alternate"
-      type="application/rss+xml"
-      title={profileConfig.name}
-      href={`${Astro.site}rss.xml`}
-    />
-
-    <link
-      rel="alternate"
-      type="application/atom+xml"
-      title={profileConfig.name}
-      href={`${Astro.site}atom.xml`}
-    />
+    {/* IMiss Blog（R-ID-06）：订阅功能已整体移除——这里原本有两条
+        <link rel="alternate" type="application/rss+xml|atom+xml">，
+        它会让浏览器/阅读器把本站当成有 feed 的站点；现在连 /rss.xml 与 /atom.xml 路由都不再生成。
+        要恢复订阅见 ARCH.md §14.4。 */}
 
     <!-- Font Setup (Astro Font API) -->
     <FontSetup />

@@ -104,7 +104,8 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 				pauseTime: 2000,
 			},
 			// 是否显示标题下方的链接图标
-			linksEnable: true,
+			// IMiss Blog（R-ID-06）：整行关掉——发起人不需要订阅功能，也不想要这行图标
+			linksEnable: false,
 			// 首页横幅标题下方的链接图标（可选，支持 showName 显示文字）
 			// 图标支持 Iconify 格式：fa7-brands:github、fa7-solid:envelope、mdi:rss 等
 			//
@@ -112,21 +113,10 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 			//    · "GitHub"→ github.com/CuteLeaf/Firefly（主题作者的仓库）
 			//    · "Email" → mailto:xiaye@msn.com（主题作者的邮箱，会被 rehype-email-protection 写成
 			//      base64 的 data-encoded-email 挂到**每一个页面**上）
-			//    · "Sponsor" → blog.cuteleaf.cn/sponsor/（**打赏入口**，R-NAV-06 要求彻底移除，
-			//      它藏在首页横幅里，是导航之外唯一的残留入口）
-			//    要加自己的链接（B-02 / B-10）往下面数组里加即可。
-			links: [
-				{
-					name: "RSS",
-					icon: "fa7-solid:rss",
-					url: "/rss/",
-				},
-				{
-					name: "Atom",
-					icon: "fa7-solid:atom",
-					url: "/atom/",
-				},
-			],
+			//    · "Sponsor" → blog.cuteleaf.cn/sponsor/（**打赏入口**，R-NAV-06 要求彻底移除）
+			//    清理后只留了 RSS / Atom，但 R-ID-06 又要求把订阅也去掉，所以现在是空数组 + linksEnable: false。
+			//    将来要加自己的链接（B-02 / B-10）：往数组里加，并把 linksEnable 改回 true。
+			links: [],
 		},
 		// 壁纸轮播配置，横幅壁纸和全屏壁纸共享，仅在配置多张图片时生效
 		carousel: {

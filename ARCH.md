@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.5 |
+| 文档版本 | v1.6 |
 | 最后更新 | 2026-09-24 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -141,13 +141,15 @@ src/
 ├─ assets/
 │  ├─ fonts/*.woff2               ✅ 本地字体（P0 已落地：3 个字体 11 个 woff2，约 205KB；**放 src 而非 public**，见 §14.3 T16）
 │  ├─ images/
+│  │  ├─ logo/imiss-logo.svg      ✅ 站点标识**设计源**（手写矢量，P1 修订；改它 + `pnpm make:logo` 重新出图）
+│  │  ├─ logo/imiss-{light,dark}.webp  ✅ 栅格化产物（导航栏用，256×256）
 │  │  ├─ DesktopWallpaper/imiss-*.webp  ➕ 壁纸图（临时）
 │  │  ├─ rank/<slug>.webp         ➕ 排行榜条配图
-│  │  ├─ pet/pet-aemeath.webp     ➕ 桌宠图集
-│  │  └─ logo/imiss-*.webp        ➕ 临时 Logo
+│  │  └─ pet/pet-aemeath.webp     ✅ 桌宠图集（P1 提前入库，P3 使用；Logo 已不再从它裁）
 ├─ config/fontConfig.ts           ✅ 已改：三个字体改 `local` provider（P0，见 §14.3 T16）
 └─ utils/
    └─ pet-agent-client.ts         ➕ 桌宠 ↔ Agent 适配层（唯一与后端耦合的文件）
+   ⛔ utils/feed-utils.ts         ❌ 已删（R-ID-06 订阅功能移除；恢复清单见 §14.4）
 ```
 
 > 图例：✏️ 改现有文件　➕ 新增文件　⛔ 明确不改
@@ -161,7 +163,8 @@ src/
 | R-ID-01 R-ID-03 | `src/config/siteConfig.ts` | 改值 | `title`/`subtitle`/`description`/`keywords` 重写；`navbar.title = "IMiss Blog"`；`site_url` 先填占位域名并在 `PROJECT_STATUS.md` 登记 |
 | R-ID-05 | `src/config/siteConfig.ts` | 改值（清空示例凭据） | 清空 `mal.username` / `mal.clientId`（**去掉那个前导制表符**）/ `vndb.userId` / `bangumi.userId` / `bilibili.uid`；这些是上游示例值，其中 `mal.clientId` 形如真实凭据（见 §14.3 T3） |
 | R-ID-02 | `src/config/siteConfig.ts` | 改值 | `themeColor.hue: 165 → 345`；改完必须亮/暗两套都看一遍对比度 |
-| R-ID-04 | `scripts/make-logo.mjs`（新增）+ `src/assets/images/logo/imiss-{light,dark}.webp` + `public/favicon/imiss-*.png` + `siteConfig.navbar.logo` / `siteConfig.favicon` | 新增脚本 + 新增资源 + 改值 | **P1 已落地**：从图集第 1 格裁头像（裁切框 `HEAD = {left:26, top:24, size:104}`，量自 144×156 的格子），用 `nearest` 放大到 128，出亮/暗两颗 Logo 与 32/128/180/192 四档 favicon（OG 流程要求数组里有 png，所以 favicon 用 PNG）。正式图标到位后覆盖同名文件即可，脚本可留可删 |
+| R-ID-04 | `src/assets/images/logo/imiss-logo.svg`（手写矢量，设计源）+ `scripts/make-logo.mjs`（栅格化）+ `siteConfig.navbar.logo` / `siteConfig.favicon` | 新增设计源 + 改脚本 + 改值 | **P1 修订**：原方案是从桌宠像素图集裁头像，发起人要求换掉 → 改为**手写 SVG 标识**（粉色晶体心 + 青色四角星芒 + 机械翼片 + 深蓝紫方圆底，深浅两套导航栏都成立），由 `make-logo.mjs` 用 sharp 栅格化成 `imiss-{light,dark}.webp`（256×256）与 `imiss-{32,128,180,192}.png`。为什么必须栅格化：favicon 与 OG 流程要 PNG，导航栏 Logo 走 Astro 图片管线只吃位图。改设计只需改那一个 SVG 再跑 `pnpm make:logo` |
+| R-ID-06 | 删 5 个文件 + 改 4 处接线 | 删文件 + 改配置 | 删：`src/pages/{rss,atom}.astro`、`src/pages/{rss,atom}.xml.ts`、`src/utils/feed-utils.ts`。改：`Layout.astro` 去掉 head 里两条 `<link rel="alternate">`；`Footer.astro` 去掉 RSS/Atom（保留 Sitemap）；`backgroundWallpaper.ts` 的 `homeText.linksEnable: false` + `links: []`；`profileConfig.links: []`（`Profile.astro` 对 0 个链接不渲染整行，布局不会塌）。`siteConfig.feed` 配置块已注释掉并标注"无消费方"（保留上游类型定义）。**恢复清单见 §14.4**。注意：这 4 条路由删掉后是**真 404**，与 R-NAV-05/06 的 noindex 存根行为不同（因为文件不存在，没有任何页面去 redirect） |
 | R-NAV-01 ~ R-NAV-06 | `src/config/navBarConfig.ts` | 重写 `getDynamicNavBarConfig()` 与 `LinkPresets` | 见 §4.1 的最终导航树。**P1 已落地**，另附带两处改名收尾：`i18n/languages/zh_CN.ts` 里 `vndb`→「轻小说」、`mal`→「番剧」，以及两个页面"未配置数据源"的文案（否则导航叫「轻小说」而页面标题还叫 VNDB，自相矛盾） |
 | R-NAV-07 | `src/config/siteConfig.ts` 的 `pages` | 改值 | 见 §4.2 的开关矩阵；`nav-menu-utils.ts`、sitemap 过滤、`llms.txt.ts` 都已按 `pageKey` 处理，**无需改代码**。⚠️ 关闭的页面在**静态输出**下不是 HTTP 404，而是 Astro 的 noindex 跳转存根，真 404 由生产 Nginx 给（§12.2、§14.3 T17） |
 | R-WDG-01 | `src/components/widget/SiteStats.astro` | 删代码 | `stats` 数组删掉 `running-days`/`last-update` 两项；随之删除 `getActivityDate`/`lastActivityDate`/`lastPostDate`/`siteStartDate`/`todayText` 与整个 `<script is:inline>` 块（不再有动态项）；`formatNumber` 保留给总字数用 |
@@ -242,7 +245,7 @@ src/
 | 落点（文件 / 位置） | 覆盖需求 | 详见 |
 | --- | --- | --- |
 | `src/config/siteConfig.ts` | R-ID-01 / R-ID-02 / R-ID-03 / R-ID-05 / R-NAV-05 / R-NAV-06 / R-NAV-07 | §4.2 |
-| `src/assets/images/logo/imiss-*.webp` + `public/favicon/imiss-*.png` + `scripts/make-logo.mjs` | R-ID-04 | §4 |
+| `src/assets/images/logo/imiss-logo.svg`（设计源）+ `imiss-*.webp` + `public/favicon/imiss-*.png` + `scripts/make-logo.mjs` | R-ID-04 | §4 |
 | `src/i18n/languages/zh_CN.ts`（页面名与未配置文案） | R-NAV-03 | §4 |
 | `src/config/navBarConfig.ts` | R-NAV-01 / R-NAV-02 / R-NAV-03 / R-NAV-04 | §4.1 |
 | `src/components/widget/SiteStats.astro` | R-WDG-01 | §4 |
@@ -266,6 +269,7 @@ src/
 | `deploy/nginx.conf` | R-DEP-01 / R-DEP-02 | §12.2、§12.3 |
 | 部署后回填清单 | R-DEP-03 | §12.4 |
 | 构建期无外网约束 | R-DEP-04 | §2、§4.3、§14.3 T16 |
+| 删除订阅功能（残留接线清干净） | R-ID-06 | §4、§14.4 |
 
 ---
 
@@ -873,7 +877,7 @@ dosc/blog/**/*.md
 | `pnpm format` / `pnpm lint` | Biome 格式化与检查 | — |
 | `pnpm verify:posts` | 内容与排行数据校验（阻断式） | ✅（P4 新增） |
 | `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 52 项功能断言（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap、配色对比度），并输出 7 张截图到 `reports/screenshots/`。P1 已落地 | ✅（P1 新增） |
-| `pnpm make:logo` | 从桌宠图集裁临时 Logo 与 favicon（P1 已落地，见 R-ID-04） | ✅（P1 新增） |
+| `pnpm make:logo` | 把 `src/assets/images/logo/imiss-logo.svg`（手写矢量设计源）栅格化成导航栏 Logo（webp）与 favicon 四档 PNG | ✅（P1 新增） |
 
 > **关于 `verify:ui` 的对比度检查**：走的是"token 级"校验（`--deep-text`/`--content-meta`/`--btn-content`/`--primary` 对卡片底/页面底），不是"扫全站文字元素"。
 > 原因：这个主题里大量文字压在封面图、壁纸、半透明面板上，逐元素自动判定无法可靠取得背景色（试了三版：canvas 转色 → 逐层合成 → Node 侧解析，期间还产出过"66/71 元素低于 3:1"的假警报）。
@@ -1046,3 +1050,19 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | T17 | **「关闭的页面」在静态输出下不是 404**：页面里的 `return Astro.redirect("/404/")` 被编译成存根 HTML——`<title>Redirecting to: /404/</title>` + `<meta http-equiv="refresh" content="2;url=/404/">` + `<meta name="robots" content="noindex">`，Web 服务器以 **HTTP 200** 返回（P1 实测：`/friends/`、`/bilibili/`、`/bangumi/`、`/sponsor/` 全是 200）。而且存根指向的 `/404/` 本身没有产物（真正产出的是 `dist/404.html`） | ① 我最初在 `prd.md` 里写的"访问返回 404"是**错的**（按 dev 服务器行为想当然）；② 线上会先给一个 200 空页再跳，SEO 靠 Astro 的 `noindex` 兜住 | ① `prd.md` R-NAV-05/R-NAV-06 的验收条件已改成真实行为；② `scripts/verify-ui.mjs` 断言"它确实是那个 noindex 存根"而不是断言 404；③ **真 404 在 Nginx 层做**（§12.2 的 `return 404` + `error_page 404 /404.html`）；④ 注意 `dist/404.html` 是单文件，不是 `404/index.html` |
 | T18 | **首页横幅的 `links` 是"站点身份 / 打赏移除"的盲区**：R-NAV-06 只盯着导航与页面，但 `backgroundWallpaper.common.homeText.links` 里另有 4 条上游作者链接——GitHub（作者仓库）、Email（`mailto:xiaye@msn.com`，被 `rehype-email-protection` 编码成 base64 的 `data-encoded-email` 挂在**每一个页面**上）、**Sponsor（`blog.cuteleaf.cn/sponsor/`，即打赏入口）**、RSS | 按 R-NAV-06 验收不合格；且每个页面都夹带上游作者邮箱 | P1 审查时抓到并已清理（换成 RSS + Atom）；`scripts/verify-ui.mjs` 新增**渲染结果泄漏扫描**（对 `/`、`/about/`、`/guestbook/`、`/posts/*` 扫上游邮箱/ID/打赏链接/横幅标题，命中即失败），防止同类问题再溜过去 |
 | T19 | **侧栏容器有两套 id，名字只差一个后缀**：`#left-sidebar-dynamic` / `#right-sidebar-dynamic` 是 **Swup 的替换容器**，静态产物里带 `class="hidden"`，内容由客户端切页时填；SSR 出来的真实侧栏内容在 `#left-sidebar` / `#right-sidebar` 里（`SidebarColumn.astro:47/65`） | 任何针对侧栏的 DOM 断言/脚本若用错 id 会**静默什么都查不到**（我的验证脚本第一版就踩了：采样恒为 0，断言恒真通过 = 假绿） | 用 `#left-sidebar` / `#right-sidebar`；任何"集合类"断言都要先校验**样本量**（`verify:ui` 里已有 `count >= 20` 之类的门槛，样本不足判失败） |
+
+### 14.4 被移除的上游功能怎么找回来
+
+P1 按发起人要求删掉了**订阅（RSS/Atom）**。删除是有意为之，但恢复路径要写清楚，免得以后想加回来时满仓库找：
+
+| 要恢复什么 | 需要找回的文件 | 还需要接回的位置 |
+| --- | --- | --- |
+| feed 输出 | `src/pages/rss.xml.ts`、`src/pages/atom.xml.ts`、`src/utils/feed-utils.ts` | `siteConfig.feed`（配置块被注释掉了，取消注释即可） |
+| 订阅介绍页 | `src/pages/rss.astro`、`src/pages/atom.astro` | — |
+| 浏览器/阅读器自动发现 | — | `Layout.astro` 的 head 里两条 `<link rel="alternate" type="application/rss+xml·atom+xml">` |
+| 页脚入口 | — | `Footer.astro` 的 RSS/Atom 链接（现在只剩 Sitemap） |
+| 首页横幅图标行 | — | `backgroundWallpaper.ts` 的 `homeText.linksEnable: true` + `links` 数组 |
+| 侧栏资料卡图标 | — | `profileConfig.links` 数组 |
+
+> 全部文件都能从上游 Firefly v6.16.8 原样取回（它们是主题自带功能，删除时未做任何修改）。
+> 删除本身只涉及"删文件 + 摘掉 4 处引用"，没有改动 `feed-utils` 的实现，所以恢复不需要重新适配。

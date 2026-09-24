@@ -372,12 +372,14 @@ export const siteConfig: SiteConfig = {
 	},
 
 	// ── 订阅 (RSS / Atom) 配置 ──────────────────────────────────
-	feed: {
-		// 订阅条目内容模式：
-		// - "full": 包含文章正文全文（默认）
-		// - "summary": 仅包含文章摘要/描述，不含正文，体积更小
-		contentMode: "full",
-	},
+	// ⚠️ IMiss Blog（R-ID-06）：订阅功能已整体移除——/rss/ /atom/ /rss.xml /atom.xml 四个路由、
+	// 页脚与首页横幅的订阅入口、head 里的 <link rel="alternate">，以及 src/utils/feed-utils.ts 都已删除。
+	// 因此下面的 feed 配置**已没有任何消费方**，留着只是为了不动上游的 type 定义。
+	// 要恢复订阅：按 ARCH.md §14.4 的清单把文件从上游找回来。
+	// feed: {
+	// 	// 订阅条目内容模式："full" 全文 / "summary" 仅摘要
+	// 	contentMode: "full",
+	// },
 
 	// 站点语言，在本配置文件顶部SITE_LANG定义
 	lang: SITE_LANG,
