@@ -9,6 +9,10 @@ draft: false
 comment: true
 ---
 
+> [!WARNING]
+> 本文为**自用学习笔记**，内容转载整理自他人（含外链图片）。
+> 如涉侵权，请联系后**立刻删除**。
+
 <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210805105705.jpeg" alt="preview" style="zoom:80%;float:left" />
 
 # 算法题常用API

@@ -83,6 +83,11 @@ const IMG_TOP_ALIAS = {
 	项目: ["项目"],
 };
 
+/** 每个分类统一的正文顶部声明（发起人 2026-09-24：八股那批是转载整理稿，要标注） */
+const CATEGORY_NOTICES = {
+	八股: "> [!WARNING]\n> 本文为**自用学习笔记**，内容转载整理自他人（含外链图片）。\n> 如涉侵权，请联系后**立刻删除**。\n",
+};
+
 /** 需要合并成一个图片池的一级目录（实测同名文件大小完全一致） */
 const MERGED_IMG_TOPS = [["linux系统", "linux"]];
 
@@ -1132,6 +1137,10 @@ async function importOne(p, { args, index, titleIndex, report }) {
 		tagList.push(v);
 	}
 	if (tagList.length > 8) tagList.length = 8;
+
+	// 分类声明（如八股的转载声明）放到正文最前
+	const notice = CATEGORY_NOTICES[p.cat];
+	if (notice && !body.startsWith(notice.trim())) body = notice + "\n" + body;
 
 	// 全缺图 → draft
 	const localRefs = refs.filter(

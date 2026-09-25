@@ -9,6 +9,10 @@ draft: false
 comment: true
 ---
 
+> [!WARNING]
+> 本文为**自用学习笔记**，内容转载整理自他人（含外链图片）。
+> 如涉侵权，请联系后**立刻删除**。
+
 [![PyPi Version](https://img.shields.io/pypi/v/mmdnn.svg)](https://pypi.org/project/mmdnn/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Linux](https://travis-ci.org/Microsoft/MMdnn.svg?branch=master)](https://travis-ci.org/Microsoft/MMdnn)

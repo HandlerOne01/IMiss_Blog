@@ -9,6 +9,10 @@ draft: false
 comment: true
 ---
 
+> [!WARNING]
+> 本文为**自用学习笔记**，内容转载整理自他人（含外链图片）。
+> 如涉侵权，请联系后**立刻删除**。
+
 # 什么是gcc
 
 **gcc的全称是GNU Compiler Collection，它是一个能够编译多种语言的编译器。**
