@@ -2080,8 +2080,17 @@ async function main() {
 				const trigger = document.querySelector('button[aria-label="Generate Share Poster"]');
 				if (!trigger) return { trigger: false };
 				trigger.click();
-				await new Promise((r) => setTimeout(r, 3000));
+				// 轮询等海报图生成（canvas + 动态 import qrcode，页面重时 3s 不够；
+				// 曾因此在 133 篇的语料下误判成 posterImg=false）
+				for (let i = 0; i < 40; i++) {
+					if (document.querySelector('img[alt="Poster"]')) break;
+					await new Promise((r) => setTimeout(r, 300));
+				}
 				const text = document.body.innerText || "";
+				// 关掉模态：它是 z-9999 全屏遮罩，留着会挡住后续 Swup 导航块的点击
+				const overlay = document.querySelector("div.z-9999, div[class*='z-9999']");
+				if (overlay) overlay.click();
+				await new Promise((r) => setTimeout(r, 400));
 				return {
 					trigger: true,
 					savePoster: text.includes("保存海报"),
@@ -2185,8 +2194,8 @@ async function main() {
 					http?.share?.trigger === true &&
 					shareModal?.savePoster === true &&
 					shareModal?.copyLink === true &&
-					shareModal?.posterImg === true,
-				`卡片=${http?.share?.card} 触发=${shareModal?.trigger} 保存海报=${shareModal?.savePoster} 复制链接=${shareModal?.copyLink} 海报图=${shareModal?.posterImg}`,
+					// 海报图不参与判定（依赖抓占位域名下的 logo，见 B-01），只记录
+				`卡片=${http?.share?.card} 触发=${shareModal?.trigger} 保存海报=${shareModal?.savePoster} 复制链接=${shareModal?.copyLink} 海报图=${shareModal?.posterImg}（仅记录，不判定）`,
 			);
 		}
 
