@@ -1,6 +1,6 @@
 ---
 /**
- * 桌宠「爱弥斯」（R-PET-01 ~ R-PET-09）
+ * 桌宠「爱弥斯」（R-PET-01 ~ R-PET-10）
  * ============================================================================
  * 素材：`src/assets/images/pet/pet-aemeath.webp`（8 列 × 9 行，单格 144×156）
  *   Codex 自定义宠物图集（MIT），九行 = 九个状态。
@@ -13,6 +13,19 @@
  *   位移优先级和 JS 写的 `translate3d` 会互相覆盖，拖拽与位置记忆会打架）。
  * 样式：`src/styles/pet.css`（**不是**组件的 scoped style —— JS 动态创建的星屑节点
  *   拿不到 Astro 的 scope 属性，样式会静默失效，见该文件头注释）。
+ *
+ * ⚠️ R-PET-10（发起人 2026-09-26 第四轮反馈，两张图）踩到的两件事，改动集中在这两处：
+ *   ① 「**点击落下去之后没有真的落下去啊**」——「落下去」= `setMode("ground", smooth)`，
+ *      它只是把 `airborne` **立起来**，真正让宠物掉下去的是 `step()` 里的重力积分，
+ *      而 `step()` 只在 rAF 循环里跑。两条路径会让"立起来的下落"永远不落地：
+ *        · 聊天框开着 → 原来 `step()` 在重力分支**之前** `if (pet.dragging || chatOpen) return;`
+ *          （已改为只挡拖动，闸门挪到重力之后）；
+ *        · `prefers-reduced-motion: reduce` → `start()` 按设计**根本不开 rAF 循环**
+ *          （已在 `startFall()` 里直接落到地面线）。
+ *      两条都在真机上复现过（y 连续 1.5s 一动不动、离地 370px），见 §14.3 T45/T46。
+ *   ② 「**聊天的时候小人抖动太快了**」——聊天播的是 `running`（row7 戴墨镜），
+ *      原来 12fps（83ms/帧）比待机呼吸还快一倍；帧率表与"语气/待机类 ≥ 200ms"这条下限
+ *      见 `src/utils/pet-utils.ts` 的 `PET_STATES` / `PET_MOOD_STATES`（R-PET-10）。
  *
  * 为什么挂在这里能跨页常驻：Layout 是 Swup 的宿主页，本组件渲染在 Swup 的
  * 6 个替换容器**之外**，切页时节点不重建（ARCH.md §7.2 / §14.3 T10）。
@@ -149,6 +162,16 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 
 		const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 		const PET_KEY = "imiss.pet.pos";
+		/**
+		 * `review`（完成反馈）一次性动画的播放时长（R-PET-10）
+		 * ============================================================================
+		 * ⚠️ 这个数与 `PET_STATES.review` 的帧率是**绑死的**：6 帧 × 250ms = 1500ms。
+		 * `review` 是 `once` 状态，`setState()` 用 `busyUntil` 计时，到点后 `step()` 会
+		 * 无条件 `setState("idle")` —— 所以 hold 比"帧数 × 帧间隔"短的话，动画会在播完前
+		 * 被切掉（R-PET-10 把 review 从 9fps 放到 4fps 时，原来写死的 900ms 就只够播 3.6 帧）。
+		 * 改 `review` 的 fps 或 frames 时**必须同步改这里**（断言里有一条专门卡这个口径）。
+		 */
+		const REVIEW_HOLD = 1500;
 		const COLS = PET_COLS;
 		const ROWS = PET_ROWS;
 		const {
@@ -356,6 +379,11 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			sprite?.style.setProperty("--pet-dy", `${s.dy ?? 0}px`);
 			pet.busyUntil = s.once ? performance.now() + holdMs : 0;
 			el?.setAttribute("data-pet-state", name);
+			// R-PET-10：把**当前状态的帧间隔**也写进 DOM（毫秒，四舍五入）。
+			// 为什么要暴露：帧率下限（语气/待机类 ≥ 200ms）是"看不见的规格"，
+			// 只有写出来才能在真机里断言"此刻正在播的那一帧序列确实够慢"——
+			// verify:ui 的 R-PET-10 会同时用 DOM 属性与 `backgroundPosition` 的时间戳两条证据核。
+			el?.setAttribute("data-pet-frame-ms", String(Math.round(1000 / s.fps)));
 			pet.px = -1; // 逼 draw() 立刻重画一帧（reduced-motion 下没有 rAF 循环）
 			draw(0);
 		}
@@ -523,15 +551,35 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		 * 唯一多出来的一点：下落途中借 `PET_FLIGHT_POSE`（图集 row4，"双臂张开、双脚离地"，
 		 * 也是飞行用的那个姿态）**循环播放** —— 悬空时用站姿帧看起来像"平移"而不是"掉下来"；
 		 * 落地那一帧 `step()` 自己会 `setState("jumping", 420)` 播落地的弹跳。
+		 *
+		 * ⚠️ **R-PET-10（发起人 2026-09-26 第四轮反馈：「点击落下去之后没有真的落下去啊」）**：
+		 * 上面那条路径有一半不在这个函数里 —— `airborne = true` 只是"把下落立起来"，
+		 * 真正让它掉下去的是 `step()` 里的重力积分，而 `step()` 只在 rAF 循环里跑。
+		 * 于是有两个入口会让「落下去」变成"只换档、不落地"：
+		 *   ① `prefers-reduced-motion: reduce`：`start()` **根本不开 rAF 循环**（设计如此），
+		 *      重力积分永远不被推进 → 宠物带着 `mode=ground + airborne=true` 冻在半空；
+		 *   ② 聊天框开着：`step()` 原来在重力分支**之前** `if (pet.dragging || chatOpen) return;`。
+		 * 两条都在真机上复现过（见 §14.3 T45/T46 与 `reports/` 里的真机采样）。
+		 * ① 的选择是**直接落到地面线**（不是"修好动画"）：减少动态这一档本来就不做位移动画，
+		 * 而"落下去"是用户要的**落点**、不是装饰；语义与 `__imissSetMode("ground")` 的
+		 * "直接定位"一致。② 的修法是把 `chatOpen` 那道闸门挪到重力分支**之后**（见 `step()`）。
 		 */
 		function startFall(): void {
 			pet.walking = false;
 			pet.busyUntil = 0;
 			pet.airborne = pet.y < floorY - 2; // 离地不足 2px 就当已经在地面上
 			pet.vy = pet.airborne ? 60 : 0; // 60 = 拖动松手时的初速（P3 原值）
-			if (!pet.airborne) {
+			if (!pet.airborne || reduce) {
+				// 已经在地面线附近（贴地档再点一次 / 固定档被拖到最下面，`clampY` 允许 y 到 vh−h，
+				// 比 `floorY` 还低几像素）→ **对齐到地面线**，别停在离地 −7px 的位置；
+				// 或者这一档没有 rAF 循环（reduce）→ 直接落地。两条都必须是"立刻、可见"的，
+				// 不能让宠物带着 airborne 卡住（R-PET-10 的硬要求：落下去必须真的落地并保持）。
+				pet.y = floorY;
+				pet.vy = 0;
+				pet.airborne = false;
 				setState("idle");
 				pet.nextAt = performance.now() + 900;
+				applyTransform(); // setState 在"状态没变"时会提前返回、不重画，这里自己落一次位
 				return;
 			}
 			setState(PET_FLIGHT_POSE.state, 0, PET_FLIGHT_POSE.loop);
@@ -617,7 +665,13 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				if (pet.mode === "ground") pet.nextAt = now + 1200 + Math.random() * 3000;
 			}
 
-			if (pet.dragging || chatOpen) return;
+			// ⚠️ R-PET-10：「聊天框开着」这道闸门**必须在重力分支之后**（原来它在前面，
+			// `if (pet.dragging || chatOpen) return;`）。真机复现：聊天框开着点「落下去」→
+			// `startFall()` 把 `airborne` 立起来、`vy` 给了初速，可 `step()` 每次都在这里返回，
+			// 下面那段重力积分一次都没跑 —— 宠物带着 `mode=ground + airborne=true` 卡在半空
+			// （实测 y=396 连续 1.5 秒不动、离地 370px），菜单却已经换成「飘起来」。
+			// 拖动仍然留在前面：拖动期间 y 由指针直接写（`onPointerMove`），重力不能跟它抢。
+			if (pet.dragging) return;
 
 			// ① 自由落体：**只有贴地模式有重力**（悬浮/固定松手不落地，R-PET-06）
 			if (pet.mode === "ground" && pet.airborne) {
@@ -636,6 +690,10 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				}
 				return;
 			}
+
+			// 聊天框开着：重力（上面 ①）照跑，但**不再**走"走路位移 / 悬浮浮动 / decide()"。
+			// 放在这里而不是函数开头，就是为了让"聊天时点落下去 / 聊天时松手落地"仍然落得下去。
+			if (chatOpen) return;
 
 			// ② 位移：贴地是"走"，悬浮是"飘"（悬浮时同时继续上下浮动）
 			// R-PET-09「跳的时候就不要动了」：一次性跳跃（含落地弹跳）动画播放期间 `frozen` 为真，
@@ -970,7 +1028,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				const now = performance.now();
 				if (now - pet.lastClick < 320) {
 					pet.lastClick = 0;
-					setState("review", 900);
+					setState("review", REVIEW_HOLD);
 					pet.nextAt = now + 1200;
 					const r = hit?.getBoundingClientRect();
 					if (r) spark(r.left + r.width / 2, r.top + r.height * 0.42, 10);
@@ -1228,7 +1286,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				// P5：这里换成 utils/pet-agent-client.ts 的流式调用（R-AGT-03/04）
 				const pool = petConfig.mockReplies;
 				reply.textContent = pool[Math.floor(Math.random() * pool.length)];
-				setState("review", 900);
+				setState("review", REVIEW_HOLD);
 				pet.nextAt = performance.now() + 1200;
 			});
 		}
@@ -1319,7 +1377,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				if (pet.dragging) return;
 				const r = el?.getBoundingClientRect();
 				if (r) spark(r.left + r.width / 2, r.top + r.height * 0.42, 8);
-				setState("review", 900);
+				setState("review", REVIEW_HOLD);
 				pet.nextAt = performance.now() + 1300;
 			});
 
@@ -1373,6 +1431,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			// 把初始状态也写进 DOM：setState 在"状态没变"时会提前返回，
 			// reduced-motion 下更是压根不调它，属性就一直是空的（验收脚本读不到）
 			el?.setAttribute("data-pet-state", pet.state);
+			el?.setAttribute("data-pet-frame-ms", String(Math.round(1000 / PET_STATES[pet.state].fps)));
 
 			/* ── 调试钩子（`verify:ui` 的 R-PET-06 / R-PET-08 断言用）────────
 			   调的是**和真实行为同一个函数**，不是旁路：

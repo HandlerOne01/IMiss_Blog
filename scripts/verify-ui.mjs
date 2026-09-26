@@ -1617,6 +1617,247 @@ async function main() {
 			await sleep(200);
 		}
 
+		// ⑧d R-PET-10：**真机路径**的「落下去」验收（发起人 2026-09-26 第四轮反馈，附图）
+		// ==========================================================================
+		// 为什么 ⑧b / ⑧c 已经测过"落下去"还要再来一遍（这是本轮的核心教训）：
+		//   ⑧b 开菜单用的是 `menu.hidden = true` + `el.dispatchEvent(new MouseEvent("contextmenu"))`，
+		//   点菜单项用的是 `clickMenu("drop")` = `document.querySelector('[data-pet-act=drop]').click()`
+		//   —— **按属性选元素**：既不看那一项到底显不显示，也不管它上面压着什么。
+		//   于是"点到的其实是另一个按钮""按钮被别人盖住"这一整类真机故障，断言天然抓不到；
+		//   而它只跑一种现场（悬浮档 + 没开聊天 + 没有"减少动态"偏好），
+		//   真机上让「落下去」失效的两条路径**恰好都在这个现场之外**：
+		//     · 聊天框开着（`step()` 的 `chatOpen` 闸门原来挡在重力分支**前面**）
+		//     · `prefers-reduced-motion: reduce`（`start()` 按设计不开 rAF 循环 → 重力积分永不推进）
+		//   两条都实测复现过：宠物带着 `mode=ground + airborne=true` 卡在半空，y 连续 1.5 秒不动
+		//   （离地 370px），菜单却已经换成「飘起来」—— 发起人看到的正是"点了没反应"。
+		// 这里全部换成 `Input.dispatchMouseEvent` 的**真实鼠标事件**，且坐标取"当前可见那一项"的
+		// 矩形中心；两种现场各跑一遍；再补一条 ⑧b 没有的"落地之后要**一直**贴地"
+		// （⑧b 一落地就 break，看不到之后的巡检/自动活动会不会把它拉回悬浮）。
+		{
+			const realMouse = (type, x, y, button) =>
+				cdp.send("Input.dispatchMouseEvent", {
+					type,
+					x: Math.round(x),
+					y: Math.round(y),
+					button,
+					buttons: type === "mousePressed" ? (button === "right" ? 2 : 1) : 0,
+					clickCount: 1,
+				});
+			const realClick = async (x, y, button) => {
+				await realMouse("mouseMoved", x, y, "none");
+				await realMouse("mousePressed", x, y, button);
+				await realMouse("mouseReleased", x, y, button);
+			};
+			/** 宠物中心（真实右键的落点） */
+			const petCenter = async () =>
+				(
+					await cdp.send("Runtime.evaluate", {
+						expression: `(() => { const r = document.getElementById("pet").getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height * 0.55 }; })()`,
+						returnByValue: true,
+					})
+				).result.value;
+			/** 菜单里每一项的矩形 / `display` / 中心点上的 `elementFromPoint` 命中者 */
+			const menuItemsReal = async () =>
+				(
+					await cdp.send("Runtime.evaluate", {
+						expression: `(() => {
+							const menu = document.getElementById("pet-menu");
+							if (!menu || menu.hidden) return { hidden: true, items: [] };
+							return { hidden: false, items: [...menu.querySelectorAll("[data-pet-act]")].map((b) => {
+								const r = b.getBoundingClientRect();
+								const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+								const hit = (r.width > 0 && r.height > 0) ? document.elementFromPoint(cx, cy) : null;
+								return { act: b.dataset.petAct, text: b.textContent.trim(), hidden: b.hidden,
+									display: getComputedStyle(b).display,
+									cx: Math.round(cx), cy: Math.round(cy), w: Math.round(r.width), h: Math.round(r.height),
+									topHit: !hit ? "none" : (hit === b ? "self" : (b.contains(hit) ? "child" : (menu.contains(hit) ? "menu-other" : (hit.id || hit.tagName)))) };
+							}) };
+						})()`,
+						returnByValue: true,
+					})
+				).result.value;
+			/** 真机路径点菜单项：真右键开菜单 → 找**可见**且文字匹配的那一项 → 在它矩形中心派发真左键 */
+			const realMenuClick = async (label) => {
+				const c = await petCenter();
+				await realClick(c.cx, c.cy, "right");
+				await sleep(220);
+				const opened = await menuItemsReal();
+				const vis = opened.items.filter((i) => !i.hidden && i.display !== "none" && i.w > 0);
+				const target = vis.find((i) => i.text === label) ?? null;
+				const info = {
+					menuHidden: opened.hidden,
+					visible: vis.map((i) => `${i.text}@${i.cx},${i.cy}·${i.topHit}`),
+					all: opened.items.map((i) => `${i.text}:${i.display}`),
+					target,
+				};
+				if (!target) return info;
+				await realClick(target.cx, target.cy, "left");
+				return info;
+			};
+			/** 只取宠物那几个字段的轻量采样（比整份 COLLECT 便宜，采样点多） */
+			const petSample = async () =>
+				(
+					await cdp.send("Runtime.evaluate", {
+						expression: `(() => {
+							const el = document.getElementById("pet");
+							const r = el.getBoundingClientRect();
+							const b = document.getElementById("pet-bubble");
+							return { mode: el.dataset.petMode, state: el.dataset.petState || null,
+								frameMs: Number(el.dataset.petFrameMs || 0),
+								y: Math.round(r.top), gap: Math.round(window.innerHeight - r.bottom),
+								chat: !!b && b.classList.contains("is-chat") };
+						})()`,
+						returnByValue: true,
+					})
+				).result.value;
+			/** 每 120ms 采一次，采 ms 毫秒 */
+			const sampleFor = async (ms) => {
+				const t0 = Date.now();
+				const seq = [];
+				do {
+					const s = await petSample();
+					seq.push({ ms: Date.now() - t0, ...s });
+					await sleep(120);
+				} while (Date.now() - t0 < ms);
+				return seq;
+			};
+
+			// ① 悬浮档 · 真机点「落下去」：真右键 → 点可见项 → 采样下落 → 再采 5.4 秒确认"保持贴地"
+			await cdp.send("Runtime.evaluate", { expression: `window.__imissSetMode("float"); "ok"`, returnByValue: true });
+			await sleep(250);
+			await dragPet(700, 200); // 先拖到上部：留 600px 左右的行程，"下落"才看得出是一段过程
+			await sleep(400);
+			const d1open = await realMenuClick("落下去");
+			const d1fall = await sampleFor(1500);
+			const d1shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+			await fs.writeFile(path.join(OUT_DIR, "pet-drop-real-1440.png"), Buffer.from(d1shot.data, "base64"));
+			// 保持：覆盖 `nextAt`（落地后 1.2~4.2 秒的随机活动窗口）与 3 秒一次的"睡着"巡检
+			const d1hold = await sampleFor(5400);
+			facts["pet-drop-real"] = { open: d1open, fall: d1fall, hold: d1hold };
+
+			// ② 贴地档 · 真机点「飘起来」（反向）：菜单里该是「飘起来」、且「落下去」是 display:none
+			const d2open = await realMenuClick("飘起来");
+			const d2rise = await sampleFor(6600); // 单次飞行 4~6 秒
+			facts["pet-rise-real"] = { open: d2open, rise: d2rise };
+
+			// ③ 聊天框开着 · 真机点「落下去」（R-PET-10 的路径之一：chatOpen 曾经挡住重力分支）
+			await cdp.send("Runtime.evaluate", { expression: `window.__imissSetMode("float"); "ok"`, returnByValue: true });
+			await sleep(250);
+			await dragPet(700, 200);
+			await sleep(400);
+			const chatOpened = await realMenuClick("和爱弥斯聊天");
+			await sleep(350);
+			const beforeChatDrop = await petSample();
+			const d3open = await realMenuClick("落下去");
+			const d3fall = await sampleFor(2000);
+			const d3hold = await sampleFor(2000);
+			const d3shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+			await fs.writeFile(path.join(OUT_DIR, "pet-drop-chat-1440.png"), Buffer.from(d3shot.data, "base64"));
+			facts["pet-drop-chat"] = { chatOpened, before: beforeChatDrop, open: d3open, fall: d3fall, hold: d3hold };
+			// 关掉聊天，免得影响后面的步骤
+			await cdp.send("Runtime.evaluate", {
+				expression: `document.getElementById("pet-body").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); "esc"`,
+				returnByValue: true,
+			});
+			await sleep(300);
+
+			// ④ 帧率实测（R-PET-10 的另一半）：聊天状态（`running`）的实际帧间隔 ——
+			//    用 MutationObserver 抓 `#pet-sprite` 的 `backgroundPosition` 变化时间戳，
+			//    这是"像素真话"：不看代码写了多少 fps，看它到底多久换一帧。
+			{
+				await cdp.send("Runtime.evaluate", { expression: `window.__imissSetMode("float"); "ok"`, returnByValue: true });
+				await sleep(250);
+				const chatAgain = await realMenuClick("和爱弥斯聊天");
+				await sleep(400);
+				const frames = await cdp.send("Runtime.evaluate", {
+					expression: `(async () => {
+						const sprite = document.getElementById("pet-sprite");
+						const el = document.getElementById("pet");
+						const t = [];
+						let lastPos = getComputedStyle(sprite).backgroundPosition;
+						const mo = new MutationObserver(() => {
+							const pos = getComputedStyle(sprite).backgroundPosition;
+							if (pos !== lastPos) { lastPos = pos; t.push(performance.now()); }
+						});
+						mo.observe(sprite, { attributes: true, attributeFilter: ["style"] });
+						const state0 = el.dataset.petState;
+						await new Promise((r) => setTimeout(r, 3200));
+						mo.disconnect();
+						const d = t.slice(1).map((v, i) => v - t[i]).sort((a, b) => a - b);
+						return { state0, state1: el.dataset.petState, frameMs: Number(el.dataset.petFrameMs || 0),
+							n: t.length, intervals: d.map((v) => Math.round(v)),
+							min: Math.round(d[0] ?? 0), median: Math.round(d[Math.floor(d.length / 2)] ?? 0),
+							max: Math.round(d[d.length - 1] ?? 0) };
+					})()`,
+					returnByValue: true,
+					awaitPromise: true,
+				});
+				const chatShot = await cdp.send("Page.captureScreenshot", { format: "png" });
+				await fs.writeFile(path.join(OUT_DIR, "pet-chat-frames-1440.png"), Buffer.from(chatShot.data, "base64"));
+				facts["pet-frame-rate"] = { open: chatAgain, ...frames.result.value, state: await petSample() };
+				await cdp.send("Runtime.evaluate", {
+					expression: `document.getElementById("pet-body").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); "esc"`,
+					returnByValue: true,
+				});
+				await sleep(250);
+			}
+
+			// ⑤ 减少动态 · 真机点「落下去」（R-PET-10 的路径之二）——
+			//    重新载入页面让 `matchMedia` 在 boot 时就读到 reduce（探针不能只改媒体再指望组件重读）
+			await cdp.send("Emulation.setEmulatedMedia", {
+				features: [
+					{ name: "prefers-color-scheme", value: "dark" },
+					{ name: "prefers-reduced-motion", value: "reduce" },
+				],
+			});
+			const loadedR = cdp.once("Page.loadEventFired");
+			await cdp.send("Page.navigate", { url: `${BASE}/` });
+			await loadedR;
+			await sleep(1500);
+			const beforeReduceDrop = await petSample();
+			const d5open = await realMenuClick("落下去");
+			const d5fall = await sampleFor(1200);
+			const d5hold = await sampleFor(1600);
+			const d5shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+			await fs.writeFile(path.join(OUT_DIR, "pet-drop-reduce-1440.png"), Buffer.from(d5shot.data, "base64"));
+			facts["pet-drop-reduce"] = { before: beforeReduceDrop, open: d5open, fall: d5fall, hold: d5hold };
+			// 复位媒体模拟 + 重新载入，让后面的步骤回到"正常动态 + 出厂状态"
+			await cdp.send("Emulation.setEmulatedMedia", {
+				features: [{ name: "prefers-color-scheme", value: "dark" }],
+			});
+			const loadedN = cdp.once("Page.loadEventFired");
+			await cdp.send("Page.navigate", { url: `${BASE}/` });
+			await loadedN;
+			await sleep(2400);
+
+			// ⑥ 源码级口径（R-PET-10 的一半是"规格"）：解析 `PET_STATES` / `PET_MOOD_STATES`
+			//    与组件里的 `REVIEW_HOLD`，核对"语气/待机类帧间隔 ≥ 200ms""物理类没被动过"
+			//    "`review` 的播放时长 ≥ 帧数 × 帧间隔（否则一次性动画会被 busyUntil 截断）"。
+			{
+				const utilSrc = await fs.readFile(path.resolve("src/utils/pet-utils.ts"), "utf8");
+				const compSrc = await fs.readFile(path.resolve("src/components/features/AemeathPet.astro"), "utf8");
+				const block = /export const PET_STATES[\s\S]*?=\s*\{([\s\S]*?)\n\};/.exec(utilSrc)?.[1] ?? "";
+				const states = {};
+				for (const m of block.matchAll(
+					/^\s*"?(?<name>[a-z][a-z-]*)"?:\s*\{\s*row:\s*\d+,\s*frames:\s*(?<frames>\d+),\s*fps:\s*(?<fps>[\d.]+)/gm,
+				)) {
+					states[m.groups.name] = { frames: Number(m.groups.frames), fps: Number(m.groups.fps) };
+				}
+				const moodSrc = /export const PET_MOOD_STATES[^=]*=\s*\[([\s\S]*?)\]/.exec(utilSrc)?.[1] ?? "";
+				const mood = [...moodSrc.matchAll(/"([a-z][a-z-]*)"/g)].map((m) => m[1]);
+				const frameMs = Object.fromEntries(
+					Object.entries(states).map(([n, s]) => [n, Math.round(1000 / s.fps)]),
+				);
+				facts["pet-frames-src"] = {
+					states,
+					frameMs,
+					mood,
+					physical: Object.keys(states).filter((n) => !mood.includes(n)),
+					reviewHold: Number(/const REVIEW_HOLD\s*=\s*(\d+)/.exec(compSrc)?.[1] ?? 0),
+				};
+			}
+		}
+
 		// ⑤ 拖拽 → 困惑；松手落地
 		await cdp.send("Runtime.evaluate", {
 			expression: `(() => {
@@ -3210,6 +3451,164 @@ async function main() {
 			j?.keyState?.state === "jumping",
 			`按 Enter 后 data-pet-state=${j?.keyState?.state}（与左键单击得到的状态一致）`,
 		);
+	}
+
+	// ── R-PET-10 发起人第四轮反馈（「落下去」没真落地 + 聊天时抖动太快）──
+	// 断言口径：**证据必须来自真机路径**（真实鼠标事件 + 坐标随时间 + 图集帧的时间戳），
+	// 不看"属性被改了没有"。发起人这一轮的原话就是「点击落下去之后没有真的落下去啊」，
+	// 而上一轮的断言恰恰是全绿的 —— 所以这一组里有三条专门打"上一轮抓不到"的现场。
+	{
+		const d1 = facts["pet-drop-real"];
+		const d2 = facts["pet-rise-real"];
+		const d3 = facts["pet-drop-chat"];
+		const d5 = facts["pet-drop-reduce"];
+		const fr = facts["pet-frame-rate"];
+		const src = facts["pet-frames-src"];
+		const groundGap = facts["pet-ground"]?.landedGap ?? 6;
+
+		// ① 点的是"看得见的那一项"：真右键开出来的菜单里，「落下去」可见、「飘起来」display:none，
+		//    且「落下去」矩形中心的 `elementFromPoint` 命中的就是它自己（没被任何层盖住）。
+		//    ⚠️ 这条是上一轮缺的那一类断言：`clickMenu()` 按 `[data-pet-act]` 选元素，
+		//    "两个按钮都露出来""点到的是被盖住的那个"它一个都抓不到。
+		record(
+			"R-PET-10",
+			"真右键开菜单后点的是**可见**那一项（悬浮档：「落下去」可见且命中自身、「飘起来」display:none）",
+			d1?.open?.menuHidden === false && d1?.open?.target?.text === "落下去" && d1?.open?.target?.topHit === "self" && d1?.open?.all?.includes("飘起来:none"),
+			`菜单项显示=${JSON.stringify(d1?.open?.all)}；可见项=${JSON.stringify(d1?.open?.visible)}；点击坐标=(${d1?.open?.target?.cx},${d1?.open?.target?.cy}) 命中=${d1?.open?.target?.topHit}`,
+		);
+
+		// ② 悬浮档真机点「落下去」→ 真的向下掉（y 相对此前最高点最多回退 40px 以容忍落地回弹），
+		//    落点就是底部地面线（与拖动松手落地一致 ±4px），档位变 ground。
+		{
+			const fall = d1?.fall ?? [];
+			const ys = fall.map((s) => s.y);
+			const monotonic = ys.length >= 3 && ys.every((y, i) => i === 0 || y >= Math.max(...ys.slice(0, i)) - 40);
+			const land = fall[fall.length - 1];
+			record(
+				"R-PET-10",
+				"悬浮档·真机点「落下去」→ 宠物带重力落到地面线（真机鼠标事件，不是 click() 也不是调试钩子）",
+				monotonic && (land?.gap ?? 999) <= 20 && Math.abs((land?.gap ?? 999) - groundGap) <= 4 && land?.mode === "ground" && ys.length >= 3 && ys[0] - ys[ys.length - 1] < -100,
+				`真机点击后 y 采样=${fall.map((s) => `${s.y}@${s.ms}ms`).join(" ")}；落定离地 ${land?.gap}px（地面档基准 ${groundGap}px）、mode=${land?.mode}、耗时 ${land?.ms}ms`,
+			);
+		}
+
+		// ③ **落地之后要一直贴地**（⑧b 一落地就 break，看不到之后的巡检）：
+		//    再连续采 5.4 秒（覆盖落地后 1.2~4.2 秒的随机活动窗口 + 3 秒一次的"睡着"巡检），
+		//    每一次采样都必须是 mode=ground 且离地高度不变 —— 这条专门抓"被巡检/自动飞行拉回悬浮"。
+		{
+			const land = (d1?.fall ?? [])[d1?.fall?.length - 1];
+			const hold = d1?.hold ?? [];
+			const modes = new Set(hold.map((s) => s.mode));
+			const gaps = hold.map((s) => s.gap);
+			const drift = Math.max(...gaps.map((g) => Math.abs(g - (land?.gap ?? 0))), 0);
+			record(
+				"R-PET-10",
+				"落地后 5.4 秒内**一直**贴着地面线（不被自动飞行/睡着巡检拉回悬浮）",
+				hold.length >= 30 && modes.size === 1 && modes.has("ground") && drift <= 4,
+				`落定后 ${hold.length} 次采样（5.4s）：mode 集合=${JSON.stringify([...modes])}、离地 ${Math.min(...gaps)}~${Math.max(...gaps)}px（落定 ${land?.gap}px，最大漂移 ${drift}px）`,
+			);
+		}
+
+		// ④ 贴地档真机点「飘起来」→ 反向回悬浮：菜单里该项可见、点击命中自身、「落下去」隐藏；
+		//    y 明显变小、mode 回 float。
+		{
+			const rise = d2?.rise ?? [];
+			const y0 = rise[0]?.y ?? 0;
+			const last = rise[rise.length - 1];
+			record(
+				"R-PET-10",
+				"贴地档·真机点「飘起来」→ 反向升回悬浮（可见项换成「飘起来」、y 变小 > 200px、mode 回 float）",
+				d2?.open?.target?.text === "飘起来" &&
+					d2?.open?.target?.topHit === "self" &&
+					d2?.open?.all?.includes("落下去:none") &&
+					last?.mode === "float" &&
+					y0 - (last?.y ?? 0) > 200 &&
+					(last?.gap ?? 0) > 120,
+				`菜单项显示=${JSON.stringify(d2?.open?.all)}；点击 (${d2?.open?.target?.cx},${d2?.open?.target?.cy}) 命中=${d2?.open?.target?.topHit}；y ${y0} → ${last?.y}（${last?.ms}ms 后，离地 ${last?.gap}px，mode=${last?.mode}）`,
+			);
+		}
+
+		// ⑤ 现场之一：**聊天框开着**点「落下去」。原来 `step()` 的 `chatOpen` 闸门挡在重力分支
+		//    **前面**，`airborne` 立起来却没人积分 → 宠物卡在半空（真机复现 y 连续 1.5s 不动）。
+		{
+			const fall = d3?.fall ?? [];
+			const hold = d3?.hold ?? [];
+			const last = hold[hold.length - 1] ?? fall[fall.length - 1];
+			const y0 = d3?.before?.y ?? 0;
+			record(
+				"R-PET-10",
+				"聊天框开着·真机点「落下去」→ 仍然真的落地并保持（`chatOpen` 不再挡住重力积分）",
+				d3?.before?.chat === true && (last?.gap ?? 999) <= 20 && Math.abs((last?.gap ?? 999) - groundGap) <= 4 && last?.mode === "ground" && y0 - (last?.y ?? 0) < -100,
+				`聊天中（bubble.is-chat=${d3?.before?.chat}）点「落下去」：y ${y0} → ${last?.y}（离地 ${last?.gap}px、mode=${last?.mode}）；下落采样=${fall.map((s) => `${s.y}@${s.ms}ms`).join(" ")}`,
+			);
+		}
+
+		// ⑥ 现场之二：**prefers-reduced-motion: reduce**。这一档 `start()` 按设计不开 rAF 循环，
+		//    重力积分（在 `step()` 里）永远不会被推进 —— 所以「落下去」必须走"直接落到地面线"，
+		//    而不是把 `airborne` 立起来等一个永远不会来的循环。
+		{
+			const fall = d5?.fall ?? [];
+			const hold = d5?.hold ?? [];
+			const last = hold[hold.length - 1] ?? fall[fall.length - 1];
+			const y0 = d5?.before?.y ?? 0;
+			const gaps = hold.map((s) => s.gap);
+			record(
+				"R-PET-10",
+				"减少动态（reduced-motion）·真机点「落下去」→ 仍然真的落地并保持（不靠 rAF 循环）",
+				(last?.gap ?? 999) <= 20 && Math.abs((last?.gap ?? 999) - groundGap) <= 4 && last?.mode === "ground" && y0 - (last?.y ?? 0) < -100 && gaps.every((g) => Math.abs(g - (last?.gap ?? 0)) <= 4),
+				`减少动态下：y ${y0} → ${last?.y}（离地 ${last?.gap}px、mode=${last?.mode}）；落地后 ${hold.length} 次采样离地 ${Math.min(...gaps)}~${Math.max(...gaps)}px；下落采样=${fall.map((s) => `${s.y}@${s.ms}ms`).join(" ")}`,
+			);
+		}
+
+		// ⑦ **帧率实测**（发起人："聊天的时候小人抖动太快了，至少要慢一倍"）：
+		//    聊天状态 = `running`（图集 row7 戴墨镜）；用 MutationObserver 记 `backgroundPosition`
+		//    每次变化的时间戳，取中位帧间隔。改前是 12fps / 83ms，改后 4fps / 250ms。
+		record(
+			"R-PET-10",
+			"聊天状态确实是 `running`（图集 row7），且真机实测帧间隔 ≥ 200ms（改前 83ms → 至少慢一倍）",
+			fr?.state0 === "running" && fr?.state1 === "running" && (fr?.median ?? 0) >= 200 && (fr?.median ?? 0) >= 166,
+			`聊天中 data-pet-state=${fr?.state0}→${fr?.state1}、data-pet-frame-ms=${fr?.frameMs}；实测 ${fr?.n} 帧变化、帧间隔 中位 ${fr?.median}ms（${fr?.min}~${fr?.max}ms，逐帧=${JSON.stringify(fr?.intervals)}）；改前 12fps=83ms → 改后 ${fr?.median}ms`,
+		);
+
+		// ⑧ 规格侧（源码级）：九个状态都在表里；「语气/待机类」6 个状态的帧间隔**都** ≥ 200ms。
+		//    这条是"下次有人把聊天帧率调回去"的拦网 —— 光靠一次真机采样抓不住回归。
+		{
+			const st = src?.states ?? {};
+			const fs2 = src?.frameMs ?? {};
+			const mood = src?.mood ?? [];
+			const bad = mood.filter((n) => (fs2[n] ?? 0) < 200);
+			record(
+				"R-PET-10",
+				"源码口径：语气类/待机类状态的帧间隔全部都 ≥ 200ms（R-PET-10 的帧率下限）",
+				Object.keys(st).length === 9 && mood.length === 6 && bad.length === 0,
+				`九状态=${Object.keys(st).length} 个；语气/待机类（PET_MOOD_STATES）=${JSON.stringify(mood)}；它们的帧间隔=${JSON.stringify(Object.fromEntries(mood.map((n) => [n, fs2[n]])))}；低于 200ms 的=${JSON.stringify(bad)}`,
+			);
+			// ⑨ 物理类**没被动过**（走路 / 跳跃 / 下落 / 飞行是另一套参数，R-PET-10 明确不动）
+			record(
+				"R-PET-10",
+				"物理类状态帧率原样（走路 14fps / 跳跃 13fps 未被放慢；它们不受 200ms 下限管辖）",
+				(fs2["running-right"] ?? 0) <= 100 && (fs2["running-left"] ?? 0) <= 100 && (fs2.jumping ?? 0) <= 100 && (src?.physical ?? []).length === 3,
+				`物理类=${JSON.stringify(src?.physical)}；帧间隔=${JSON.stringify(Object.fromEntries((src?.physical ?? []).map((n) => [n, fs2[n]])))}（走路的步频与 walkSpeed 绑定、jumping 同时是下落/飞行的姿态帧）`,
+			);
+			// ⑩ 被反馈的那一个（`running`）相对改前至少慢一倍：83.3ms → 250ms = 3.0×
+			record(
+				"R-PET-10",
+				"被反馈的 `running`（聊天/打字）帧间隔 250ms，相对改前 83ms 慢 3.0 倍（≥ 2 倍）",
+				fs2.running === 250 && 83.3 * 2 <= 250,
+				`running: 12fps/83.3ms → ${st.running?.fps}fps/${fs2.running}ms（${(250 / 83.3).toFixed(2)}×）；review: 9fps/111.1ms → ${st.review?.fps}fps/${fs2.review}ms（${(250 / 111.1).toFixed(2)}×）`,
+			);
+			// ⑪ `review` 是一次性动画：播放时长必须 ≥ 帧数 × 帧间隔，否则会被 `busyUntil` 截断
+			//    （R-PET-10 把 review 从 9fps 放到 4fps 时，写死的 900ms 就只够播 3.6 帧）
+			{
+				const need = Math.round(((st.review?.frames ?? 0) / (st.review?.fps ?? 1)) * 1000);
+				record(
+					"R-PET-10",
+					"`review` 的播放时长 `REVIEW_HOLD` ≥ 帧数 × 帧间隔（放慢帧率不会把一次性动画截断）",
+					(src?.reviewHold ?? 0) >= need && need > 0,
+					`REVIEW_HOLD=${src?.reviewHold}ms ≥ ${st.review?.frames} 帧 × ${src?.frameMs?.review}ms = ${need}ms`,
+				);
+			}
+		}
 	}
 
 	// ── P3 壁纸（R-BG-01 / R-BG-04）──

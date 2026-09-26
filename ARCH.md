@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.31 |
+| 文档版本 | v1.32 |
 | 最后更新 | 2026-09-26 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -268,7 +268,7 @@ src/
 | `RankBoard.astro` 的内联脚本 + URL 契约（`?kind=`） | R-RANK-02 | §5.4 |
 | `src/components/pages/rank/RankBoard.astro` + `src/styles/pages/rank.css` | R-RANK-03 / R-RANK-05 / R-RANK-06 | §5.5、§5.6 |
 | `src/config/rankConfig.ts` + `src/types/rankConfig.ts` | R-RANK-04 | §5.3 |
-| `src/components/features/AemeathPet.astro` + `petConfig.ts` + `Layout.astro` 一行 | R-PET-01 / R-PET-02 / R-PET-03 / R-PET-05 / R-PET-06 / R-PET-07 | §7.1~§7.6 |
+| `src/components/features/AemeathPet.astro` + `petConfig.ts` + `pet-utils.ts`（`PET_MOOD_STATES` 等帧率口径）+ `Layout.astro` 一行 | R-PET-01 / R-PET-02 / R-PET-03 / R-PET-05 / R-PET-06 / R-PET-07 / R-PET-10 | §7.1~§7.6 |
 | `pioConfig.ts` 保持关闭 + 互斥注释 | R-PET-04 | §7.5 |
 | `agent/src/agent/**`（含 `persona.txt`） | R-AGT-01 / R-AGT-06 | §8.3 |
 | `agent/src/gateway/**` | R-AGT-02 / R-AGT-05 | §8.4、§8.5 |
@@ -614,7 +614,7 @@ export interface PetConfig {
 | 无操作超时 | `waiting` | 进入"屏幕待机"；有任何交互立刻回 `idle` |
 | 搜索框 / 命令面板打字 | `running` | 停止输入 `1.4s` 后回 `idle` |
 | 对话完成 / 切主题 | `review` | 触发一次庆祝动效。**注意：模板没有"星屑爆发"能力**（那是 `blog_test` 原型 `anime.js` 里的），所以庆祝动效用组件内部的纯 CSS 小动效实现，不引第三方库；若以后想要星屑，单独开一个小任务 |
-| 对话进行中 | `running` | 由 Agent 适配层的 `state` 事件驱动 |
+| 对话进行中 | `running` | 由 Agent 适配层的 `state` 事件驱动。⚠️ R-PET-10：聊天时的图集动画曾经"抖得很快"（12fps / 83ms，比待机呼吸还快一倍），现在 `running` 是 **4fps / 250ms**，且这一档还有一条**不变量**——`PET_MOOD_STATES`（语气/待机类）的帧间隔必须 ≥ 200ms；当前状态的实际帧间隔写在 DOM 的 `data-pet-frame-ms` 上，见 §7.6 第 17 条 |
 | 对话报错 | `failed` | 气泡内给可读提示（不暴露技术细节） |
 
 **交互**
@@ -696,6 +696,22 @@ export interface PetConfig {
 14. **「跳一下」菜单入口删除，但"跳"这件事只剩两条**。发起人原话：「**还有跳一跳的功能也删了，左键点击就能跳所以按键没有必要**」→ 菜单里的 `data-pet-act="jump"` 按钮与 `case "jump"` 一起删掉，菜单变成**三项**（说句话 / 落下去·飘起来 / 和爱弥斯聊天）。`jump()` **本体保留**：左键单击（`onPointerUp` → 双击判定之外的单击分支）与键盘 `Enter` 都在调它 —— 后者是 `role="button" tabindex="0"` 的**无障碍激活路径**，去掉之后宠物会变成"Tab 能聚焦、按下去却毫无反应"的假按钮（WCAG 2.1.1）。所以那句"按键没有必要"按**菜单按钮**理解并执行：菜单里那个按钮删了，键盘那条留着（它做的事和左键单击一模一样，不构成第二套功能）。⚠️ 如果发起人要求连键盘一起删，正确做法是同时去掉 `tabindex`/`role`，别只删监听器 —— 要另行确认。
 15. **「跳的时候就不要动了」= 跳变成纯动画**。改动前：悬浮档边跳边做 `±6px` 的正弦浮动，走路档（或刚被 ←/→ 指挥过）会"边走边跳"，桌面端还可能正好赶上一次自动飞行 —— 观感是"跳的时候还在到处动"。现在 `jump()` 起手先 `cancelFlight()` + `pet.walking = false`，再由 `step()` 里新加的 `frozen` 闸门（`pet.state === "jumping" && pet.busyUntil > now`）在动画播放期间**同时冻结走路位移与悬浮浮动**，动画播完（`busyUntil` 到期）自动恢复原档位行为。⚠️ 闸门**只认 `jumping` 这个一次性动画**："落下去"那条自由落体的 `busyUntil` 是 0、且走的是重力分支，不受影响（否则下落会被冻在半空）。实测：单击后 `120 / 290 / 460ms` 三个采样点坐标全等（独立探针一轮 `(1228,396)`、`verify:ui` 一轮 `(138,666)`）；跳完按 `←` 键 420ms 移动 40~41px（冻结不是永久性的）。
     `verify:ui` 的 R-PET-09 共 5 条断言（菜单里已无「跳一下」、左键单击仍会跳、跳跃期间位置定住、跳完 ← 键仍能移动、Enter 保留且与单击等价）。
+
+**R-PET-10（发起人 2026-09-26 第四轮：① 「点击落下去之后没有真的落下去啊」 ② 「聊天的时候小人抖动太快了，至少要慢一倍」）**
+
+16. ⚠️ **"把状态立起来"和"把状态跑完"是两件事：下落的执行体在 `step()` 里，而 `step()` 只在 rAF 循环里跑。** 这是本轮最贵的一条教训。`setMode("ground", smooth=true)` → `startFall()` 只做了 `pet.airborne = pet.y < floorY − 2` / `pet.vy = 60`（"把下落立起来"），真正让宠物掉下去的是 `step()` 里贴地档那段重力积分。于是**任何让 `step()` 提前 return 的条件，都会让"立起来的下落"永远停在半空**，而菜单/档位/DOM 属性全都已经正常翻成"贴地档"了 —— 表面上"点了没反应"，实际上是"状态机对了、执行体没跑"。两条真实路径（都实测复现过：宠物带着 `mode=ground + airborne=true`，y 连续 1.5 秒一动不动、离地 370px）：
+    - **聊天框开着**：`step()` 原来是 `if (pet.dragging || chatOpen) return;`，位置在重力分支**之前**。修法：闸门只留 `pet.dragging`（拖动期间 y 由 `onPointerMove` 直接写，重力不能跟它抢），`chatOpen` 挪到重力分支**之后**（重力照跑，但"走路 / 悬浮浮动 / `decide()`"仍然停）。
+    - **`prefers-reduced-motion: reduce`**：`start()` 里有 `if (raf || reduce || document.hidden) return;` —— 这一档**按设计根本不开 rAF 循环**，`step()` 永远不会被调用。修法：`startFall()` 在 `reduce` 下**直接落到 `floorY`**（不是"修好动画"：减少动态本来就不做位移动画，而"落下去"是用户要的**落点**、不是装饰，语义与 `__imissSetMode("ground")` 的"直接定位"一致）。
+    顺带把 `startFall()` 的"已经在地面线上下"分支也改成**对齐 `floorY`**：`clampY`（固定档）允许 y 一直到 `vh − h`，比 `floorY` 还低 7px，原来那条分支只是 `setState("idle")` 就 return，会停在离地 −7px 的位置。
+    ⚠️ 排查时被**排除**的三个怀疑（都实测过，不是想当然）：① 按钮文字与动作**对得上**（`drop` → `ground`、`rise` → `float`，真机点可见项的中心点实测）；② `hidden` 互斥**正确**（悬浮档只有「落下去」`display:block`、另一项 `display:none`，点击坐标上 `elementFromPoint` 命中的就是它自己）；③ `decide()` 的三档分流读的是**运行时** `pet.mode`，不是配置 —— **不存在"巡检按配置把宠物拉回 `float`"这回事**（配置只在 `boot()` 里当初始值，见第 4 条）。落地稳定性是单独断言出来的：落地后连续 5.4 秒 ≥ 45 次采样始终 `mode=ground`、离地高度不变。
+17. **语气类动画要有帧率下限，物理类不能跟着变。** 聊天时播的是 `running`（图集 row7 戴墨镜干活，`openChat()` 里 `setState("running")`）——原来 **12fps / 83ms 一帧**，比待机呼吸 `idle`（167ms）还快一倍；而聊天期间 `step()` 又被 `chatOpen` 冻住位置，**唯一在动的就是图集**，观感就是发起人说的"抖"。规则落在 `src/utils/pet-utils.ts`：
+    - `PET_MOOD_STATES`（语气/待机类：`idle` / `waving` / `failed` / `waiting` / `running` / `review`）**帧间隔 ≥ 200ms**；`running` 与 `review` 取 **250ms**。
+    - **物理类**（`running-right` / `running-left` / `jumping`）**不受这条管辖**：走路的帧率与 `PET_TUNING.walkSpeed` 是同一件事（慢下来会像"滑步"），`jumping` 同时是 `PET_FLIGHT_POSE`（下落与飞行途中循环播的姿态帧），放慢它等于放慢物理速度。
+    - 改动：`running` 12→4fps（83.3→250ms，**3.00×**）、`review` 9→4fps（111.1→250ms，**2.25×**）、`idle` 6→5fps、`waving`/`failed` 7→5fps、`waiting` 原样；物理类一个没动。
+    - ⚠️ **`once` 状态有一个隐蔽耦合**：`setState()` 用 `busyUntil = now + holdMs` 计时，到点后 `step()` 无条件 `setState("idle")` —— 所以 `holdMs` 必须 ≥ `frames × 帧间隔`，否则动画会被**截断**（`review` 放到 4fps 后 6 帧要 1500ms，原来写死的 900ms 只够播 3.6 帧）。现在这个数提成组件里的具名常量 `REVIEW_HOLD`，并有一条断言卡住"`REVIEW_HOLD ≥ frames × 帧间隔`"。
+    - 帧率也**写进 DOM**（`data-pet-frame-ms`），验收时能直接核对"此刻正在播的那一帧序列确实够慢"；再加一条 `MutationObserver` 抓 `backgroundPosition` 变化时间戳的真机实测（改前 83ms → 改后中位 250ms）。
+    - 图集里**没有**"听/说"这一行：row7（戴眼罩干活）是唯一"在工作"的形状，row3（单手挥）是一次性的打招呼手势（4 帧、`once`），循环播会变成"反复招手"。所以聊天继续用 `running`，只是把帧率放到不抖（"换个更贴合语义的形象"没做 —— 需要的话得先换图集，见第 8 条"九行 = 九状态"那条对应关系）。
+18. `verify:ui` 的 R-PET-10 共 11 条断言。这一轮特地加了三条"上一轮抓不到"的口径：**真机鼠标事件 + 点"当前可见那一项"的矩形中心**（不再 `querySelector('[data-pet-act=...]').click()`）、**落定后继续采样 5.4 秒**（不再一落地就 break）、**两条失效现场各跑一遍**（聊天框开着 / `reduced-motion`）。理由见 §14.3 T45。
 
 ---
 
@@ -1031,7 +1047,7 @@ dosc/blog/**/*.md（只读）
 | `pnpm preview` | 预览构建产物 | — |
 | `pnpm format` / `pnpm lint` | Biome 格式化与检查 | — |
 | `pnpm verify:posts` | **内容校验**（`scripts/verify-posts.mjs`，阻断式）：frontmatter 完整性 / slug 唯一且 ASCII / 正文非空 / **本地图片存在且非 0 字节** / `frontmatter.image` 存在性 / 站内链接目标存在 / 残留 Obsidian 语法 / 标题重复 / `rankConfig` 的 title 与 cover。`--quarantine` 可把出错文章移进 `src/content/_quarantine/` | ✅（P4 新增） |
-| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **203 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底、**P4 内容迁移全项**：配图真实加载 / 编号顺序 / 移动端 / 不生成 figure 图注 / URL 形态 / 双链改写 / 无 Obsidian 残留 / 表格与代码块 / 无标题短笔记 / 归档与分类收录），并输出 **29 张**截图到 `reports/screenshots/`。P3 起含桌宠与壁纸全项（九状态触发 / 键盘 / 拖拽 / 菜单 / 联动 / reduced-motion / 与浮动按钮不重叠 / 移动端隐藏 / 取景与暗罩），**P3-R-PET-06 起含三档运动模式全项**：默认档为 `float` 且悬空（底部距视口底 > 120px）/ 强制起飞后坐标真的变化且飞行中带 `data-pet-flying` / 飞行全程不出视口 / 固定档 1.6s 两次采样坐标完全相同且拖放不落地 / 贴地档松手回地面高度 / 三档都不与右下角浮动按钮重叠 / reduced-motion 下 `float` 两帧 `transform` 相同（静态悬浮）/ 位置记忆仍生效且模式以配置为准；**R-PET-07 起含飞行手感与菜单摆位**（位移 60~180px / 时长 4~6s / row4 姿态 / 菜单四边在视口内）；**R-PET-08 起菜单判据全部换成左右摆位**（并排在宠物左/右、纵向顶部对齐、哪边够放哪边、5 点 `elementFromPoint` 命中、被遮挡换边、两侧都被挡的两级兜底、`data-pet-menu-side` 取值与层级不变），并新增**菜单项与下落/上升行为**断言（档位二选一显示「落下去」/「飘起来」、点「落下去」后 y 在 3 秒内落到地面线且 `data-pet-mode=ground`、点「飘起来」后反向回到悬浮档）。⚠️ **数字基准是"对 `pnpm preview` 的静态产物跑"**：对 `pnpm dev` 跑会少 12 条（4 条 noindex 存根 + sitemap 4 条 + llms.txt 2 条 + `/rank/` 存根 + noscript/class 兜底），那时的旧口径 145 就是这么来的，别拿它当基准 | ✅（P1 新增，P2/P3/P4/R-PET-06/R-PET-07/R-PET-08 六次扩容） |
+| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **214 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底、**P4 内容迁移全项**：配图真实加载 / 编号顺序 / 移动端 / 不生成 figure 图注 / URL 形态 / 双链改写 / 无 Obsidian 残留 / 表格与代码块 / 无标题短笔记 / 归档与分类收录），并输出 **29 张**截图到 `reports/screenshots/`。P3 起含桌宠与壁纸全项（九状态触发 / 键盘 / 拖拽 / 菜单 / 联动 / reduced-motion / 与浮动按钮不重叠 / 移动端隐藏 / 取景与暗罩），**P3-R-PET-06 起含三档运动模式全项**：默认档为 `float` 且悬空（底部距视口底 > 120px）/ 强制起飞后坐标真的变化且飞行中带 `data-pet-flying` / 飞行全程不出视口 / 固定档 1.6s 两次采样坐标完全相同且拖放不落地 / 贴地档松手回地面高度 / 三档都不与右下角浮动按钮重叠 / reduced-motion 下 `float` 两帧 `transform` 相同（静态悬浮）/ 位置记忆仍生效且模式以配置为准；**R-PET-07 起含飞行手感与菜单摆位**（位移 60~180px / 时长 4~6s / row4 姿态 / 菜单四边在视口内）；**R-PET-08 起菜单判据全部换成左右摆位**（并排在宠物左/右、纵向顶部对齐、哪边够放哪边、5 点 `elementFromPoint` 命中、被遮挡换边、两侧都被挡的两级兜底、`data-pet-menu-side` 取值与层级不变），并新增**菜单项与下落/上升行为**断言（档位二选一显示「落下去」/「飘起来」、点「落下去」后 y 在 3 秒内落到地面线且 `data-pet-mode=ground`、点「飘起来」后反向回到悬浮档）。⚠️ **数字基准是"对 `pnpm preview` 的静态产物跑"**：对 `pnpm dev` 跑会少 12 条（4 条 noindex 存根 + sitemap 4 条 + llms.txt 2 条 + `/rank/` 存根 + noscript/class 兜底），那时的旧口径 145 就是这么来的，别拿它当基准 | ✅（P1 新增，P2/P3/P4/R-PET-06/R-PET-07/R-PET-08 六次扩容） |
 | `node scripts/import-posts.mjs` | **旧博客迁移**（默认 dry-run）：`--write` 落盘、`--batch 1..5`、`--cat`、`--only`、`--limit`、`--src`；报告写 `reports/import-report.json` | ✅（P4 新增） |
 | `pnpm verify:docs` | **文档一致性自检**（`scripts/verify-docs.mjs`）：核对三份文档互相之间、以及文档与仓库事实是否一致——版本号与"最后更新"日期、断言/截图数与最近一次实测、排行页清单与路由文件、导航子项与 `navBarConfig.ts`、需求编号引用闭环、阻塞项条数与编号连续、§2 与 §3 阶段状态，以及**配置事实**（`displaySettingsConfig.enable`、`rankConfig.dataStatus`、"4 组数据"类说法是否漏了第 5 份）。**每次收工前跑一次**（P2 加二游排行时文档漂移了 12 处，就是没有这道关卡） | ✅（v1.12 新增） |
 | `pnpm make:logo` | 把 `src/assets/images/logo/imiss-logo.svg`（手写矢量设计源）栅格化成导航栏 Logo（webp）与 favicon 四档 PNG | ✅（P1 新增） |
@@ -1040,7 +1056,7 @@ dosc/blog/**/*.md（只读）
 > **关于 `verify:ui` 的对比度检查**：主体走"token 级"校验（`--deep-text`/`--content-meta`/`--btn-content`/`--primary` 对卡片底/页面底），不是"扫全站文字元素"。
 > 原因：这个主题里大量文字压在封面图、壁纸、半透明面板上，逐元素自动判定无法可靠取得背景色（试了三版：canvas 转色 → 逐层合成 → Node 侧解析，期间还产出过"66/71 元素低于 3:1"的假警报）。
 > P2 补了两处**具体**的对比度断言（不依赖背景取色）：① 名次数字对名次底色（`getComputedStyle` 直接读两个颜色，白字压粉底 ≥ 3:1、深字压橙底 ≥ 4.5:1）；② 缺图占位把渐变各档合成到不透明底色上取最亮值，与白字算对比度（暗/亮主题各一条）。
-> 观感部分仍然是"**可复现的数字交给脚本，观感交给截图**"：脚本每轮输出 33 张截图并人工核对；另外把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
+> 观感部分仍然是"**可复现的数字交给脚本，观感交给截图**"：脚本每轮输出 37 张截图并人工核对；另外把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
 
 ---
 
@@ -1196,7 +1212,7 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | D9 | 评论区先关闭但页面保留 | 直接删留言页 | 页面结构与导航一次到位，评论系统到位后只改一个配置 |
 | D10 | 留言/评论与 Agent 解耦 | 用 Agent 当留言后端 | 两者目标不同（留言是异步公开记录，Agent 是实时对话）；耦合会让简单需求变复杂 |
 
-### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 44 条：T1~T19 来自 P0/P1，T20~T26 来自 P2，T27~T29 来自 P3，T30~T33 来自 P3-9/P3-11，T34~T38 来自 P4，T39~T40 来自 R-PET-06，T41~T42 来自 R-PET-07，T43 来自 R-PET-08，T44 来自 R-PET-09）
+### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 46 条：T1~T19 来自 P0/P1，T20~T26 来自 P2，T27~T29 来自 P3，T30~T33 来自 P3-9/P3-11，T34~T38 来自 P4，T39~T40 来自 R-PET-06，T41~T42 来自 R-PET-07，T43 来自 R-PET-08，T44 来自 R-PET-09，T45~T46 来自 R-PET-10）
 
 实现时按这张表走，不要凭"应该没问题"假设。每条都给了文件与行号，可当场复核。
 
@@ -1249,6 +1265,8 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | T42 | **"随机到视口任意点"这类参数没有上界，手感会随视口变大而失控**：`float` 档最早的飞行目标是 `edge + Math.random() × 可用宽/高`，1440×900 下单次位移实测 **414~550px**、时长固定 2600ms → 平均 ≈580px/s，发起人一眼看出"飞得太快太远"。这类"看起来能跑"的随机位移，**只要屏幕更大就会更离谱**（1024 宽时还有 ~350px，4K 下会到 1500px 以上），而且没有任何断言会红 | 动效与"自然、轻微"的预期不符，且越是大屏越糟；调参时不知道该改哪个量 | 位移/时长都改成**有上界的区间**（`PET_TUNING.flyDistanceRange` 60~180px、`petConfig.movement.flyDurationRange` 4000~6000ms），目标点相对**当前位置**取而不是相对视口取；缓动换成更柔的 `easeInOutSine`，弧线/倾角同步收小（44→12px、7°→3°）。断言直接锁定**区间上界**与**3 次实飞实测值**（位移 ≤ 200px、时长 ≥ 3.8s），避免以后又被"随机"改回去 |
 | T43 | **`elementFromPoint` 命中的"遮挡方"往往不是那条遮挡带本身**：R-PET-08 做遮挡避让时，宠物拖到视口最上面、菜单顶部对齐宠物顶部 → 顶部两个角落在模板导航栏下面（`#navbar-wrapper` 是 `z-index: 80`，比菜单的 67 高）。在抽样点上 `elementFromPoint` 返回的是导航栏里的 **`button.btn-plain`**（按钮自己的 rect 只有 ~40px 高），按它的底边往下让位 → 菜单顶边只挪到导航栏内部，**抽样依旧被挡，循环原地打转**（`elementFromPoint` 不告诉你"这一条带子有多高"） | 遮挡检测"看起来做了"，实际让不开；表现为菜单永远压着一截导航栏，而 `data-pet-menu-occluded` 一直非 0 | 从命中节点**沿祖先链上溯**，取"仍然覆盖该抽样点、且盒子更大"的最外层祖先当作遮挡带（本组件 `occluderBox()`，最多 6 层；实测能一路取到 `#navbar-wrapper`，一次就让开 61px）。另外遮挡判定的抽样点**不能只取中心**：中心在导航栏下方照样命中菜单，顶部两个角才暴露问题 —— 取"中心 + 四角内缩"，并且**换边优先于让位**（换边是发起人明确要的第一补救） |
 | T44 | **挂在元素上的 `keydown` 监听，用 CDP 的 `Input.dispatchKeyEvent` 打过去时不会触发** —— 事件是发给**当前焦点元素**的：宠物没聚焦时按键全落到 `document` 上，`#pet-body` 上的监听器收不到。R-PET-09 的探针第一版就踩了：按 `←` 之后宠物确实移动了 8px，看着像"通过"，其实是**后台的自动飞行**在动，按键根本没生效（差一点把假绿写进断言） | 键盘相关断言会静默变成"空跑"：状态恰好被别的行为改掉就假绿，否则假红，两种情况都看不出原因 | 键盘断言**先 `document.getElementById("pet-body").focus()`** 再 `dispatchKeyEvent`（本仓库 `verify:ui` 的 R-PET-02 键盘块一直是这么写的，探针要照抄）；并且断言要挑**只有这条路径能产生**的证据（R-PET-09 用"按 ← 后 420ms 内 x 位移 ≥ 20px"，位移量级对得上 93px/s 的悬浮滑行，而不是"动了就算过"） |
+| T45 | **`querySelector('[data-pet-act=...]').click()` 这种"按属性点元素"的断言，测不到"用户到底点到了什么"** —— 它绕过布局与命中测试：元素**不可见**（`display:none`）、**被别的层盖住**、或者"点到的其实是另一个按钮"，它全都照点不误并且全绿。R-PET-10 这一轮就是活例子：⑧b/⑧c 两条"落下去"的断言一直全绿，而真机上「落下去」有一整类现场根本不落地 —— 断言只跑了"悬浮档 + 没开聊天 + 没有减少动态偏好"这一种现场，而两条失效路径（`chatOpen` 挡在重力分支前面、`reduced-motion` 下压根没有 rAF 循环）**都在这三种现场之外**。另一个同源的坑：`menu.hidden = true` + `dispatchEvent(new MouseEvent("contextmenu"))` 合成右键，跳过了浏览器真实命中测试 | 断言全绿 + 真机不可用（发起人原话："点击落下去之后没有真的落下去啊"）；而且失效现场越"边缘"（开着聊天、系统开了减少动态）越测不到，恰好这些是真实用户会待的状态 | 菜单/弹出层的断言一律走 **`Input.dispatchMouseEvent` 的真实鼠标事件**（右键 `mousePressed`/`mouseReleased` button=right 走原生 `contextmenu`），坐标取**"当前可见那一项"的矩形中心**，并顺带核对 `getComputedStyle(项).display`、另一项是 `none`、以及该坐标上 `document.elementFromPoint` 命中的就是它自己；**同一个行为要把"能让它失效的现场"列出来各跑一遍**（这里是：聊天框开着 / `prefers-reduced-motion`），别只测出厂状态 |
+| T46 | **"把状态立起来"和"把状态跑完"分居两个函数时，任何提前 `return` 都会造成"状态对了、行为没发生"** —— `startFall()` 只写 `airborne = true` / `vy = 60`，真正的重力积分在 `step()` 里，而 `step()` 只在 rAF 循环里跑。于是：① `step()` 开头那句 `if (pet.dragging \|\| chatOpen) return;` 让"聊天框开着点落下去"卡在半空（实测 y 连续 1.5s 不动、离地 370px）；② `start()` 的 `if (raf \|\| reduce \|\| document.hidden) return;` 让**减少动态**这一档根本没有循环，`airborne` 立起来也永远没人积分。两次都是"`data-pet-mode` 已变 `ground`、菜单已换成「飘起来」、DOM 一切正常，就是宠物没动" | 用户看到的是"点了没反应/按钮是坏的"，而所有状态属性、菜单文字、档位**全都对**；断言若只看属性就必然假绿 | 立状态与跑状态**必须在同一个可判定条件下闭环**：要么保证执行体一定会被调到（把 `chatOpen` 闸门挪到重力分支**之后**，只留拖动——拖动期间 y 由指针直接写），要么在"执行体永远跑不到"的那一档**直接给终态**（`reduce` 下 `startFall()` 直接落到 `floorY`，语义与"直接定位"一致，不做位移动画）。断言口径：**位置随时间采样**（下落要有 ≥3 个递增采样点、落定要贴地、落地后还要继续采 5.4 秒确认没被拉走），不看属性变没变 |
 
 ### 14.4 被移除的上游功能怎么找回来
 

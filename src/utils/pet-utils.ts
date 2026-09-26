@@ -42,16 +42,62 @@ export type PetStateName =
 
 /** 行 → 状态 */
 export const PET_STATES: Record<PetStateName, PetStateSpec> = {
-	idle: { row: 0, frames: 6, fps: 6 },
+	idle: { row: 0, frames: 6, fps: 5 },
 	"running-right": { row: 1, frames: 8, fps: 14 },
 	"running-left": { row: 1, frames: 8, fps: 14 },
-	waving: { row: 3, frames: 4, fps: 7, once: true },
+	waving: { row: 3, frames: 4, fps: 5, once: true },
 	jumping: { row: 4, frames: 5, fps: 13, once: true },
-	failed: { row: 5, frames: 8, fps: 7, dy: -3 },
+	failed: { row: 5, frames: 8, fps: 5, dy: -3 },
 	waiting: { row: 6, frames: 6, fps: 5, dy: -3 },
-	running: { row: 7, frames: 6, fps: 12 },
-	review: { row: 8, frames: 6, fps: 9, once: true },
+	running: { row: 7, frames: 6, fps: 4 },
+	review: { row: 8, frames: 6, fps: 4, once: true },
 };
+
+/**
+ * 「语气类 / 待机类」状态（R-PET-10 的帧率下限只管这些）
+ * ============================================================================
+ * 发起人 2026-09-26 第四轮反馈（附图）：「**聊天的时候小人抖动太快了，至少要慢一倍**」。
+ * 聊天时（`openChat()`）宠物播的是 `running`（row7 戴墨镜干活）——原来 **12fps / 83ms 一帧**，
+ * 比待机呼吸（`idle`）还快一倍，位置上又被 `chatOpen` 冻住不动，于是**唯一在动的就是图集**：
+ * 观感就是"抖"。所以这里把"语气/待机类"单独列出来，给它们一条**帧率下限**：
+ *
+ *   帧间隔 ≥ 200ms（≤ 5fps）—— 除 `running` / `review` 取 250ms（4fps，见下）。
+ *
+ * 物理类（`running-right` / `running-left` / `jumping`）**不在这条规则里**：
+ * 走路的帧率跟 `PET_TUNING.walkSpeed` 的步频是同一件事，慢下来会变成"滑步"；
+ * `jumping` 还是 `PET_FLIGHT_POSE`（下落与飞行途中循环播的那个姿态），
+ * 放慢它等于放慢"下落/飞行"的观感 —— 这两条都属于"物理速度"，不动（R-PET-10 的要求）。
+ *
+ * 改动前后（R-PET-10，帧间隔 = 1000 / fps）：
+ * | 状态 | 类别 | 改前 | 改后 | 倍数 |
+ * |---|---|---|---|---|
+ * | `idle`    | 待机·循环 | 6fps / 166.7ms | 5fps / 200.0ms | 1.20× |
+ * | `waving`  | 语气·一次性 | 7fps / 142.9ms | 5fps / 200.0ms | 1.40× |
+ * | `failed`  | 语气·循环（拖动反馈） | 7fps / 142.9ms | 5fps / 200.0ms | 1.40× |
+ * | `waiting` | 待机·循环 | 5fps / 200.0ms | 5fps / 200.0ms | 1.00×（本来就在下限上） |
+ * | `running` | 语气·循环（**聊天/打字**） | 12fps / 83.3ms | **4fps / 250.0ms** | **3.00×** |
+ * | `review`  | 语气·一次性反馈 | 9fps / 111.1ms | **4fps / 250.0ms** | **2.25×** |
+ * | `running-right` / `running-left` / `jumping` | 物理 | 14 / 14 / 13fps | 原样 | — |
+ *
+ * 判据只有一条：**"比待机呼吸（旧 `idle` 166.7ms）还快"的语气类状态算"明显过快"，
+ * 至少放慢一倍** → 命中 `running`（3.00×）与 `review`（2.25×）；
+ * 其余（`waving` / `failed`，142.9ms，比旧基准只快 14%）判为"本来大致合适"，
+ * 只统一到 200ms 下限，不硬凑 2 倍 —— 它们是**一次性手势 / 拖动中的直接反馈**，
+ * 再慢会显得卡住。
+ *
+ * ⚠️ 这张表是**契约**：`scripts/verify-ui.mjs` 的 R-PET-10 会解析本文件，
+ * 逐条核对"语气/待机类的帧间隔 ≥ 200ms"，并在真机里实测聊天状态的实际帧间隔。
+ * 改这里的 fps 时，`AemeathPet.astro` 里的 `REVIEW_HOLD`（`review` 的播放时长 =
+ * frames × 帧间隔）也必须跟着改，否则一次性动画会被 `busyUntil` 截断。
+ */
+export const PET_MOOD_STATES: PetStateName[] = [
+	"idle",
+	"waving",
+	"failed",
+	"waiting",
+	"running",
+	"review",
+];
 
 /** 九个状态的展示名（文档与验收脚本用，别在 UI 里直接显示英文键名） */
 export const PET_STATE_LABELS: Record<PetStateName, string> = {
