@@ -4,10 +4,10 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.33 |
+| 文档版本 | v1.34 |
 | 最后更新 | **2026-09-26** |
-| 当前阶段 | **P4 完成（133 篇在站）· P5-0「契约冻结」已完成**，下一步 P5-1 起做接线；P3-8 视频壁纸仍等你确认素材 |
-| 整体进度 | **82%**（口径：文档与共识 10% + P0 5% + P1 20% + P2 10% + P3 主体 15% + P4 20% + P5-0 2%；各阶段权重见第 2 章） |
+| 当前阶段 | **P4 完成（133 篇在站）· P5-0 契约冻结 + P5-1~P5-3 接线完成**（桌宠已经真的接上 Agent），下一步：P5-4 的 LangSmith trace 与 P5-5 网关；P3-8 视频壁纸仍等你确认素材 |
+| 整体进度 | **86%**（口径：文档与共识 10% + P0 5% + P1 20% + P2 10% + P3 主体 15% + P4 20% + P5-0 2% + P5-1~P5-3 3%；各阶段权重见第 2 章） |
 | 关联文档 | `prd.md`（需求编号 R-xxx）、`ARCH.md`（改动落点） |
 | 阻塞项 | **14 条**（B-01 ~ B-14，其中 4 条为红色阻断，影响 P5 / P6；P2 已用占位数据绕开 B-08；B-12/B-13 是批次 1 审查发现的两件事；**B-14 是 P5-0 实测发现的 Agent 侧 CORS/鉴权缺口，上线前必修**） |
 
@@ -17,28 +17,49 @@
 
 **已完成**：需求共识（7 个决策点）→ 三份基线文档 → **P0 仓库基线与工具链** → **P1 站点身份与导航改造**（站点名/配色/导航树/侧边栏三处/留言页/清凭据 + 删除订阅功能 + 显示设置面板对访客开启）→ **P2 排行子系统**（`/rank/jp/`、`/rank/cn/` 两个维度榜 + `/rank/game/` 二游单一榜 + 全剧/单集切换 + 缺图占位 + 亮暗双主题适配）→ **P3 背景壁纸与桌宠**（4 张爱弥斯壁纸原图入库 + 九状态桌宠「爱弥斯」常驻全站）→ **P4 批次 1 内容迁移**（`scripts/import-posts.mjs` + `scripts/verify-posts.mjs`，18 篇旧博客笔记入库、9 张配图逐张核对过位置）。
 
-**当前在做**：**P5 桌宠 Agent** —— **P5-0「契约冻结」已完成**（接口定死 + 配置 + 可跑的契约测试，**未写任何对话业务**）；下一步从 P5-1 起做接线。P3-8（视频壁纸）仍等你一句话。
+**当前在做**：**P5 桌宠 Agent** —— **P5-0 契约冻结 + P5-1~P5-3 接线都已完成**：桌宠爱弥斯已经真的接上 `langgraph dev`（问一句会走真实检索/推荐链路、会反问、会按约定词续跑），**断掉后端也不报错**（按契约降级到本地 mock）。P3-8（视频壁纸）仍等你一句话；P5 剩下 **P5-4 的 LangSmith trace**（要你那边确认）与 **P5-5 网关**（上线前必修，B-14）。
 
-**P5-0 交付物在哪（要查契约就看这三处）**
+**P5 接线交付物在哪（要查"怎么接的"就看这四处）**
 
 | 想看什么 | 去哪 |
 | --- | --- |
-| 契约正文（端点 / 事件 / 最终答复取法 / `interrupt` 约定 / 降级规则 / 未决项） | **`ARCH.md` §8.9** |
-| 能被改的值（服务地址、默认图、超时、约定词、开关） | `src/config/agentConfig.ts`（注释里逐项写了怎么改） |
-| 契约是否还成立（14 项断言） | `pnpm verify:agent` → `reports/verify-agent.log` / `.json` |
+| 契约（冻结，不许改） | **`ARCH.md` §8.9** |
+| 契约在前端的落点（形状 / 要点 / 测试口径） | **`ARCH.md` §8.10**（P5-1~P5-3 新增） |
+| 接线代码 | `src/utils/agent-client.ts`（适配层）、`src/components/features/AemeathPet.astro` 的 `openChat()` / `runAsk()` / `closeChat()`、`src/config/agentConfig.ts`（`enable: true`） |
+| 端到端是否还成立 | `pnpm verify:ui` 的 **R-AGT 段**（产物 / 零请求 / 真往返 / interrupt 续跑 / 死端口降级 / 状态联动）；契约侧仍是 `pnpm verify:agent`（14 项） |
 
-> ⚠️ **P5-0 之后桌宠的行为没有任何变化**：`agentConfig.enable` 是 **false**，前端**一个请求都不发**，对话仍走 `petConfig.mockReplies`。真正的接线是 P5-1 起的活。
+> ⚠️ **P5-1~P5-3 改了三处口径**，都是实测逼出来的，别按旧印象读：
+> ① **`petConfig.agent.enable` 是死配置**（P3 遗留，没有消费方）——真正决定"发不发请求"的是 `agentConfig.enable`；
+> ② **契约 §8.9.5 只写了"纯反问"那一种 `interrupt`**，实测 `blog_agent` 的检索链路会**先给答复再反问**（"要不要我收进本子"），适配层已按"有没有答复"分流（`ARCH.md` §8.10 + 陷阱 T53）；
+> ③ 契约里 `resumeWords` 三个词被**两种**问句复用（问篇幅 / 问要不要收进本子），前端只能按问句形态推词（陷阱 T54）。**这三处契约侧的补充没有自己改 §8.9**，已登记在本节与 §5 未决项，等你拍板。
 
-**下一步（六条）**
+**下一步（七条）**
 
+0. **⏰ 现在就可以验收桌宠了（P5-1~P5-3 新增）**：`pnpm dev`（或 `pnpm preview`）打开站点，右键点右下角的爱弥斯 →「和爱弥斯聊天」→ 问一句「推荐几篇讲 Linux 的博客」。**会看到**：气泡先出现你在等的反馈（宠物切成"执行任务"的墨镜状态）→ 后端反问「要不要我收进本子」或「篇幅大概多少字」→ 你回**约定的那三个词**（「需要 / 不需要 / 不提供」）→ 拿到带**真实站内路径**的推荐。**再试一次断网**：把 `langgraph dev` 停掉再问，气泡会给人设台词（不报错、无技术字样）。⚠️ 后端（`agent_-for_-blog`）的检索依赖它自己的文章库，实测**偶发**回「数据库这会儿连不上」——那是后端侧的问题，不是前端坏了。
 1. **请你验收全量导入的 131 篇**：`pnpm preview` 后随便翻——`/archive/` 有全部 131 篇、`/categories/` 10 个分类、`/posts/linux/` 下是 Linux 笔记。重点抽查这几篇：`/posts/linux-net/http-xieyi/`（6 图 4 表）、`/posts/cpp/hongheishufengzhuangshixian-mymap-he-myset/`（代码最多）、`/posts/algorithm/suanfacuotiben/`（173KB 超长错题本、16 图）、`/posts/interview/cpp/`（227KB 八股长文）、`/posts/ai/sdd/`（没有标题的短笔记）。**每个分类的图片位置都有独立子 agent 逐张看过**（4 组并行，结论见 §6）。
 2. **⏰ AI应用 剩余两篇（`LangChain 能力详解` 351KB / `LangGraph 能力详解 · 学习笔记` 389KB）按你的指示暂不导入**——它们引用的 125 张 `page-*.png` 在源导出里整批缺失（B-06）。**我会主动提醒你**：等你找回配图（或说"就这样上"），我把这两篇补进来（脚本已把这两篇写进跳过名单，取消即可）。
 3. **两件仍要你拍板的事（B-12 / B-13）**：① `HTTP 协议` 那篇的 02/04 两张抓包截图里有**明文账号密码与真实域名**（`username=…&password=…`、`JSESSIONID`），要不要打码/裁掉那两行？（上线前必须处理）② `八股/` 那 11 篇看内容与图片外链像是第三方公开仓库 `guaguaupup/cpp_interview` 的整理稿，图片 hotlink 在别人的 jsDelivr 上——要不要署来源、或把图片转存到本站？
-4. **`P3-8` 视频壁纸 + `B-10` 横幅文案**还挂着：视频素材你说之后再给（原型里那份 `hero-loop.mp4` 9.23MB 也能直接用）；横幅文案给我一行我就换。
-5. **⏰ 上游示例页先留着、以后替换（发起人 2026-09-24 决定，并要求"记得提醒"）**：`/projects/`（2 个示例项目）、`/dynamic/`（4 条上游演示动态）、`/gallery/`（两个示例相册）、`/booknav/`（Firefly/CuteLeaf 卡片）、`/about/`（上游模板介绍）**暂时保留原样**，等你以后给真实内容再换。**我每次开工都会主动提这件事**。
-6. **⏰ 拿到域名后要回来重建（发起人 2026-09-24："我要分享块啊，只是后面提醒我添加域名而已"）**：**分享块是开着的**（`siteConfig.post.share: true`）——但海报二维码与「复制链接」取 `Astro.url.href`，而 `site_url` 还是占位域名 `imiss.example.com`（**B-01**），所以**上线前**扫出来/复制到的是假域名。**拿到域名时**：① `siteConfig.site_url` 填真域名 ② 重建 ③ 把 `verify:ui` 里"站点 URL 用的是本站占位域名"那条断言翻成真值断言。**我会主动提醒你**。
+4. **`P5-4` 的 LangSmith trace 还差你确认**：服务能跑、契约全绿、接线也通了，只剩"LangSmith 上能看到 trace"这条没人验（需要 LangSmith Key，属你那边资源）。**要不要现在就配**？
+5. **上线前必修 P5-5（网关，B-14）**：现在前端直连 `127.0.0.1:2024`（`langgraph dev` 裸跑，`ACAO: *`、零鉴权、无限流）。**推荐路线已写进 `agentConfig.ts` 注释与 `ARCH.md` §8.10：同源反代**（`PUBLIC_AGENT_BASE_URL=/api/agent` + Nginx `proxy_buffering off`）——前端**只依赖 `baseUrl` 一个值**，换形态不用改代码。
+6. **`P3-8` 视频壁纸 + `B-10` 横幅文案**还挂着：视频素材你说之后再给（原型里那份 `hero-loop.mp4` 9.23MB 也能直接用）；横幅文案给我一行我就换。
+7. **⏰ 上游示例页先留着、以后替换（发起人 2026-09-24 决定，并要求"记得提醒"）**：`/projects/`（2 个示例项目）、`/dynamic/`（4 条上游演示动态）、`/gallery/`（两个示例相册）、`/booknav/`（Firefly/CuteLeaf 卡片）、`/about/`（上游模板介绍）**暂时保留原样**，等你以后给真实内容再换。**我每次开工都会主动提这件事**。
+8. **⏰ 拿到域名后要回来重建（发起人 2026-09-24："我要分享块啊，只是后面提醒我添加域名而已"）**：**分享块是开着的**（`siteConfig.post.share: true`）——但海报二维码与「复制链接」取 `Astro.url.href`，而 `site_url` 还是占位域名 `imiss.example.com`（**B-01**），所以**上线前**扫出来/复制到的是假域名。**拿到域名时**：① `siteConfig.site_url` 填真域名 ② 重建 ③ 把 `verify:ui` 里"站点 URL 用的是本站占位域名"那条断言翻成真值断言。**我会主动提醒你**。
 
-> **当前口径（数字只认这一行）**：`pnpm verify:ui` **214 项断言**全绿（对 `pnpm preview` 静态产物跑；对 `pnpm dev` 跑会少 12 条，见 `ARCH.md` §11） · 截图 **37 张** · `pnpm verify:posts` **133 篇 0 错误**（5 个警告） · **`pnpm verify:agent` 14 项全绿（Agent 在跑时）/ 服务没起时 SKIP + 退出码 0** · 三份文档 v1.33 · 阶段 P4 **全量迁移完成**（131 篇在站 + 120 张配图）+ **P5-0 契约冻结完成**
+> **当前口径（数字只认这一行）**：`pnpm verify:ui` **227 项断言**全绿（对 `pnpm preview` 静态产物跑；对 `pnpm dev` 跑会少 12 条，见 `ARCH.md` §11） · 截图 **41 张** · `pnpm verify:posts` **133 篇 0 错误**（5 个警告） · **`pnpm verify:agent` 14 项全绿（Agent 在跑时）/ 服务没起时 SKIP + 退出码 0** · 三份文档 v1.34 · 阶段 P4 **全量迁移完成**（131 篇在站 + 120 张配图）+ **P5-0 契约冻结 + P5-1~P5-3 接线完成**（桌宠已真的接上 Agent）
+
+**最近变更**：2026-09-26 v1.34 —— **P5-1 / P5-2 / P5-3「把桌宠接到 Agent 上」（新增需求 R-AGT-08）**：**契约不变、`agent_-for_-blog` 一行没改**，只在前端把 §8.9 那条契约接到桌宠的对话入口上，并按发起人新确认的"Agent 跑在云服务器"补了两件事（`baseUrl` 构建期环境变量覆盖 + 同源反代口径）。
+- **交付物**：新增 **`src/utils/agent-client.ts`**（薄适配层：`probe` / `listAssistants`（按 `graph_id` 去重）/ `createThread` / `askAemeath`（内部完成 `runs/stream` + SSE 解析 + `interrupt` 三层检测 + `resume` 约定词 + 降级）/ `fallbackReply` / `pickLiveConfig` / `resetSession`）；`src/config/agentConfig.ts` 的 `enable` 改 **true**、`baseUrl` 改成 `resolveAgentBaseUrl()`（**`PUBLIC_AGENT_BASE_URL` 优先，没设才回落本机 2024**）；`AemeathPet.astro` 的 `openChat()` / `runAsk()` / `closeChat()` 全部改走适配层；新增 `scripts/verify-ui-log.mjs`（`pnpm verify:ui:log`，UTF-8 日志）；`pnpm verify:ui` 新增 **11 条 R-AGT 断言**。
+- **真机证据（`pnpm verify:ui --base http://localhost:4322`，227/227 全绿、退出码 0）**：
+  - **`enable:false` 零请求**：真机走"右键菜单 →「和爱弥斯聊天」→ 键入「在吗」→ 回车"，打到 `127.0.0.1:2024` 的请求数 **0 → 0**；气泡原文「嗯，我听着呢。⏎……你再多说一句。」（1050ms）——本地 mock，不是回车回声。
+  - **`enable:true` 真往返**：请求数 **0 → 5**（`/ok`、`/assistants/search`、`/threads`、`runs/stream`、`/state`）；气泡原文「在呀。你这一句打了两个来回，是手抖还是想确认我醒着？⏎⏎……我在的。想看点什么，还是就来坐坐？」（**4470ms / 47 字**，`data-pet-state` 序列 `["running","review"]`）。
+  - **`interrupt` + 约定词续跑**：问「推荐几篇讲 Linux 的博客」→ 首轮气泡先给 5 篇（`《Git》· Linux 系统 · 约 857 字 / /posts/linux/git/`…）+ 反问「要不要我收进本子」→ **组件自己推出续跑词「需要」**（不是脚本猜的）→ 续跑 3694ms → 收口 `resume=null / busy=false`、气泡 491 字、**不再反问**；全程禁词 0 命中、无「您」/无加粗/无表格/无完整域名。
+  - **降级（注入死端口 `127.0.0.1:2099`，测完还原）**：气泡仍是人设台词「嗯，我听着呢。⏎……你再多说一句。」（1851ms）、`data-pet-state` 序列 `["running","failed"]` → 1.5 秒后自己回 `running`、输入框仍可用、**禁词命中 0（气泡 / 桌宠 DOM / 整页三层各扫一遍）**。
+  - **状态联动与复位**：思考态 `running`（为什么不用 `review`：它是 `once` 一次性动画 + 星屑庆祝，语义是"完成了"）；连续两次提问都出现思考态且能复位；**关聊天框 → 立刻 `idle`**；**Swup 切页（→`/archive/`）→ 聊天框关掉、状态不卡在思考态**。
+  - **产物级断言**：从 `dist/` 里抠出桌宠 chunk，核对 `enable` 为真（防"悄悄关回去"）；注入钩子测完 `delete` 并断言已删。
+  - **`baseUrl` 环境变量实测**：`PUBLIC_AGENT_BASE_URL=https://agent-probe.example.invalid` 构建 → 哨兵值出现在 `dist/_astro/config.*.js`；不设再构建 → 哨兵消失、`127.0.0.1:2024` 回到产物里（两次 `astro build` 退出码都是 0）。
+- **三档时间闸门（发起人提醒的"别把长答复掐断"）**：**连接/首字节** `min(timeoutMs, 20s)` ｜ **流中途卡死** 60 秒没有任何新 chunk ｜ **单轮硬上限** 300 秒（与 §12.2 的 Nginx `proxy_read_timeout 300s` 对齐）。`/ok` 探测仍是 2 秒（§8.9.1）。重试：连接层错误 1 次、间隔 500ms，`4xx` 不重试，**流已开始后中途断开不重试**。
+- **顺带纠正三处**：① **`petConfig.agent.enable` 是死配置**（P3 遗留、无消费方；真实开关是 `agentConfig.enable`）——已加注释标注，等 P6 一起收；② 契约 §8.9.5 只写了"纯反问"那一种 `interrupt`，实测 `blog_agent` 检索链路会**先给答复再反问**，前端按"有没有答复"分流（陷阱 T53）；③ `resumeWords` 三个词被**两种问句**复用（问篇幅 / 问要不要收进本子），前端只能按问句形态推词（陷阱 T54）。**这三处都没有自己改 §8.9**，已登记在 §5 未决项。
+- **边界**：**未改** `agent_-for_-blog` 任何代码；**未改**契约（§8.9 一字未动）；未 commit / 未 push；测完临时起的 preview（4322）**按进程树清掉**。新增陷阱 **T49~T58**（10 条，见 `ARCH.md` §14.3）。
 
 **最近变更**：2026-09-26 v1.33 —— **P5-0「契约冻结」（新增需求 R-AGT-07）**：**在写任何接线业务代码之前**，把"博客前端 ↔ Agent 服务"的接口定死并做成**可跑的契约测试**。**本步不实现对话业务**——`agentConfig.enable` 保持 `false`，桌宠仍走 `petConfig.mockReplies`，**一个请求都不发**。
 - **交付物**：`ARCH.md` **新增 §8.9「Agent 接口契约（P5-0 冻结）」**（端点与调用序列 / 请求形状与必须·禁止字段 / SSE 事件契约与「最终答复」唯一取法 / `interrupt` 与人机交互约定 / 降级规则 / 未决项 8 条）；新增 `src/config/agentConfig.ts` + `src/types/agentConfig.ts`（**只放配置**，已挂 `src/config/index.ts` barrel）；新增 `scripts/verify-agent.mjs`（零依赖，风格对齐 `verify-ui.mjs`）；`package.json` 加 `"verify:agent"`。
@@ -96,7 +117,7 @@
 | **P2** | 排行子系统 | 三个榜单页（日漫/国漫为双维度、二游为单一榜）+ 5 份数据 + 全剧/单集切换 | 榜单视觉对齐参考图；`?kind=ep` 直开正确；二游无维度切换；空/缺图不崩 | **100%** | ✅ 已完成（含独立审查后修订，待审查） | P1 审查通过、B-08（数据可后补） |
 | **P3** | 背景壁纸与桌宠 | 图片期壁纸 + 桌宠组件 | 三种降级可用；桌宠九状态与键盘可达 | **90%** | 🟡 主体完成（P3-8 视频期待你确认素材） | P0 |
 | **P4** | 内容迁移 | 批次 1（18 篇）→ 全量 135 篇 | `pnpm verify:posts` 通过；抽查无断裂图片与残留 `![[` | **33%** | 🟡 批次 1 完成（18/135 篇，待发起人审查） | P0、P1 |
-| **P5** | 桌宠 Agent | `agent/` + 网关 + 前端适配层（**P5-0 契约冻结已交付**） | 三种意图可用、LangSmith 有 trace、断后端走 mock | **10%** | 🟡 进行中（**P5-0 契约冻结已完成**：`ARCH.md` §8.9 + `agentConfig.ts` + `pnpm verify:agent` 14 项；P5-1 起为接线） | P3、B-07、B-11、**B-14（上线前）** |
+| **P5** | 桌宠 Agent | 接线层：`agent-client.ts` + 桌宠对话入口 + 状态联动（**P5-0 契约 + P5-1~P5-3 接线已交付**） | 三种意图可用、LangSmith 有 trace、断后端走 mock | **75%** | 🟡 进行中（**P5-0 契约冻结 + P5-1/2/3 接线完成**；P5-4 的 LangSmith trace 待验、**P5-5 网关未做**） | P3、**B-14（上线前）** |
 | **P6** | 部署与回填 | Nginx 上线 + 站点信息回填 | 线上域名可访问；SSE 流式回复；sitemap 无关闭页 | 0% | ⬜ 未开始 | 全部、B-01 |
 
 图例：⬜ 未开始　🟡 进行中　✅ 已完成　⛔ 阻塞
@@ -195,14 +216,15 @@
   - **证据（契约不符必须退 1，注入验证 2 次）**：① 把一个图名改错 → **退出码 1**（配置对齐 + assistants/search 两条 ❌）；② 把"取最后一条 `ai`"改成"取第一条 `ai`" → **退出码 1**，精确命中「检索轮 · 只渲染最后一条」。**证明这条断言不是空话**
   - **顺带纠正两处文档与事实不符**：① **SSE 事件序列不确定**（同一句"在吗"：直接答复路径只发 1 个 `values`；走 `extend_graph` 才有完整序列）→ 契约只锁「事件名白名单 + `values` 收尾 + 与 `GET /threads/{id}/state` 一致」，**并在文档里写明为什么不锁顺序**；② **`langgraph dev` 的 CORS 实测是 `*`**，与 `ARCH.md` §8.5 的「仅同源 + 白名单」不符 → §8.5 已改成「现状 vs 目标」两栏，并新增阻塞项 **B-14**
   - ⚠️ **本步的边界**：`agentConfig.enable` 保持 **false**，桌宠**仍然一个请求都不发**（继续走 `petConfig.mockReplies`）；**未改** `agent_-for_-blog` 的任何代码，**未改**任何桌宠组件
-- [ ] P5-1 安装 Python 依赖（**B-11 实际已解除**：`agent_-for_-blog/.venv` 里 `langgraph dev` 已能起，见 P5-0 证据；本项可视为"环境已就绪"）
-- [ ] P5-2 `agent/` 骨架 + `persona.txt`（爱弥斯人设）
-- [ ] P5-3 图与节点（路由 / 检索 / 榜单 / 闲聊）
-- [ ] P5-4 `langgraph dev` 跑通，LangSmith 出 trace（等 B-07）
+- [x] **P5-1 安装 Python 依赖　✅ 已解除（无需本步动作）** —— `agent_-for_-blog/.venv` 里 `langgraph dev` 已能起（P5-0 证据：`/ok → 200`、4 张图都在）。**B-11 随之正式解除**；`uv` 未安装不影响（路线走的是 `pip`-installed venv）
+- [~] **P5-2 `agent/` 骨架 + `persona.txt`（爱弥斯人设）　→ 事实与计划不符，登记为"不做"** —— 计划里写的 `agent/` 目录（Python 骨架 + `persona.txt`）**没有实现，也不该实现**：发起人的硬约束是 **P5-0 冻结的契约 + 只读 `agent_-for_-blog`**，而实际跑起来的服务就是 `agent_-for_-blog`（4 张图、`persona-aemeath-v5.txt` 人设）。本仓库的 `agent/` 只放人设文本与档案（`persona-aemeath-v5.txt` / `persona-notes.md` / `archive/`），**不重复造骨架**。待发起人确认是否把这条从计划里删掉
+- [~] **P5-3 图与节点（路由 / 检索 / 榜单 / 闲聊）　→ 同上，由 `agent_-for_-blog` 提供** —— 本步**没有**在本仓库写任何 Python。前端接线（P5-6/7/8）恰恰是靠"不碰后端"完成的：契约 §8.9 把图名、事件、最终答复取法、`interrupt` 约定全部定死，所以本仓库只依赖契约、不依赖后端实现。待确认是否把 P5-3 改成"复用 `agent_-for_-blog` 既有图"
+- [ ] P5-4 `langgraph dev` 跑通，LangSmith 出 trace（等 B-07）—— **B-07 已解除、服务能跑已验**，只剩"LangSmith 上能看到 trace"这条**没人验**（需要 LangSmith Key，属发起人侧资源）
 - [ ] P5-5 网关（SSE）+ 限流 + CORS（**新增依赖 B-14**：CORS 白名单与鉴权是上线前必修）
-- [ ] P5-6 前端适配层与 mock 降级（契约见 §8.9，配置见 `agentConfig.ts`）
-- [ ] P5-7 宠物状态联动（思考/出错/完成）
-- [ ] P5-8 端到端联调 + 断后端回归
+- [x] **P5-6 前端适配层与 mock 降级（R-AGT-03 / R-AGT-08）　✅ 已完成（2026-09-26）** —— 新增 `src/utils/agent-client.ts`（薄适配层：`probe` / `listAssistants` 按 `graph_id` 去重 / `createThread` / `askAemeath` 内部完成 `runs/stream` + SSE 解析 + `interrupt` 三层检测 + `resume` 约定词 + 降级），`agentConfig.enable` 改 **true**，桌宠对话改走它；`enable:false` 时**一个请求都不发**
+  - **证据（真机，见 §2 与 §8）**：`enable:false` → 打 `127.0.0.1:2024` 的请求数 **0**；`enable:true` → **>0** 且气泡拿到人设化答复；注入死端口 `127.0.0.1:2099` → 仍可用、走 mock、页面无禁词泄漏
+- [x] **P5-7 宠物状态联动（思考 / 出错 / 完成）（R-AGT-04）　✅ 已完成（2026-09-26）** —— **复用现有九状态**：请求发出 → `running`，失败/降级 → `failed`（1500ms 后回 `running`），答复完成 → `review`；**未新增第 10 个状态、未动任何手感参数**。复位：`chatSession` + `AbortController` + 兜底计时器，关框 / Swup 切页 / 连续提问都不卡在思考态
+- [x] **P5-8 端到端联调 + 断后端回归（R-AGT-08）　✅ 已完成（2026-09-26）** —— `pnpm verify:ui` 新增 **11 条 R-AGT 断言**（零请求 / 真往返 + 人设口径 / `interrupt` + 约定词续跑 / 死端口降级 / 状态联动与复位 / 泄漏扫描 / 注入还原），并把 `agentConfig.enable` 的真值也写成断言（防"悄悄关回去"）
 
 ### P6 部署与回填（R-DEP）
 
@@ -345,6 +367,9 @@
 | 真机 390px、Lighthouse、首屏体积 | 只有 CDP 的 390×844 仿真 | P6 回归时跑一次 Lighthouse；榜单一页图片预算（≤1.5MB）等真实配图进来再核 |
 | 生产 Nginx 的 `/rank/` 301 与关闭页真 404 | `deploy/` 目录还没建（属 P6 交付物） | P6 部署后按 `ARCH.md` §12.2 逐条核对 |
 | 与参考图逐像素比对 | 参考图在 `my_-blog\dosc\排行`，不在本工作区 | 需要时把图放进工作区再量一次（当前的比例/配色是从发起人提供的裁切图量得的实测值） |
+| **Agent 的 `interrupt` 只有"纯反问"这一种被契约写过** | P5-1 接线时实测到**第二种形态**（`blog_agent` 检索链路先给答复再反问"要不要我收进本子"），前端已按"有没有答复"分流，但**没有**把它写进契约（§8.9 是冻结的） | 契约补充口径见 `ARCH.md` §8.10 + 陷阱 T53；等发起人确认后再决定是否动 §8.9 |
+| **`resumeWords` 一个词对应两组语义** | 三个约定词被两种问句复用（问篇幅 / 问要不要收进本子），前端只能按问句形态推词（`replyForAsk`），**字符串匹配天然脆** | 陷阱 T54；建议后端把"该回哪个词"放进 `interrupt` 的结构化载荷（需要改 `agent_-for_-blog`，本步不动） |
+| **后端文章库偶发不可用** | 实测同一句「推荐几篇讲 Linux 的博客」有时拿到正常推荐、有时拿到「数据库这会儿连不上，取不了数」；这时**不会**出 `interrupt` | `verify:ui` 的 interrupt 断言在这种情况下记 **SKIP 并显形**（与 `verify:agent` 的退出码规矩一致）；**前端行为是对的**（人设台词、无禁词、无报错） |
 
 ---
 
@@ -352,6 +377,7 @@
 
 | 日期 | 版本 | 变更 | 影响文档 |
 | --- | --- | --- | --- |
+| 2026-09-26 | v1.34 | **P5-1 / P5-2 / P5-3「把桌宠接到 Agent 上」→ 新增需求 R-AGT-08「端到端联动」**。**契约一字未改、`agent_-for_-blog` 一行未动**，只在前端把 §8.9 接到桌宠对话入口上。**交付物**：新增 `src/utils/agent-client.ts`（薄适配层：`probe`/`listAssistants`（按 `graph_id` 去重）/`createThread`/`askAemeath`（`runs/stream` + SSE 手写解析 + `interrupt` 三层检测 + `resume` 约定词 + 降级）/`fallbackReply`/`pickLiveConfig`/`resetSession`）；`agentConfig.enable` 改 **true**、`baseUrl` 改 `resolveAgentBaseUrl()`（**`PUBLIC_AGENT_BASE_URL` 优先、没设回落本机 2024**）；`AemeathPet.astro` 的 `openChat()`/`runAsk()`/`closeChat()` 改走适配层（**九状态复用**：请求发出 `running`、失败 `failed`、完成 `review`；`chatSession`+`AbortController`+兜底计时器保证关框/切页/连续提问都能复位）；`prd.md` 的 R-AGT-03/04 状态改「已实现」并纠正旧口径（原文要求"明确提示 Agent 未连接"与 §8.9.6 冲突）；新增 `scripts/verify-ui-log.mjs`（`pnpm verify:ui:log`，UTF-8 日志）。**真机证据**（`verify:ui` **227/227 全绿、退出码 0**）：`enable:false` 零请求（计数 0→0，气泡「嗯，我听着呢。…」1050ms）；`enable:true` 真往返（0→5，47 字答复 4470ms）；`interrupt`+续跑（首轮 5 篇 + 反问 → 组件推出「需要」→ 491 字收口）；死端口降级（气泡仍是人设台词、`["running","failed"]`、三层禁词 0 命中）；状态复位（关框回 `idle`、Swup 切页不卡思考态）；产物里 `enable` 为真。**三档时间闸门**（连接/首字节 20s ｜ 流中途卡死 60s ｜ 单轮硬上限 300s，与 Nginx `proxy_read_timeout` 对齐）。**三处顺带纠正**：`petConfig.agent.enable` 是死配置；`interrupt` 有第二种形态；`resumeWords` 一词两义。新增陷阱 **T49~T58**（10 条）。⚠️ 未改契约、未改后端、未 commit | `prd.md` **新增 R-AGT-08** / R-AGT-03 / R-AGT-04、`ARCH.md` **§8.10（新增）**/ §11 / §14.3、`PROJECT_STATUS.md` §1 / §2 / §3 / §5 / §7.1 / §8、`src/config/agentConfig.ts`、`src/config/petConfig.ts`、`src/components/features/AemeathPet.astro`、`scripts/verify-ui.mjs`、`package.json`、新增 `src/utils/agent-client.ts` / `scripts/verify-ui-log.mjs` / `reports/sync-doc-counts.mjs`（改）、产物 `reports/verify-ui.log` / `reports/verify-p4.log` / `reports/verify-agent.log` / `reports/screenshots/pet-agent-*.png`（3 张） |
 | 2026-09-26 | v1.33 | **P5-0「契约冻结」→ 新增需求 R-AGT-07「接口契约与降级」**。**在写任何接线业务代码之前**把"博客前端 ↔ Agent 服务"的接口定死：`ARCH.md` 新增 **§8.9**（端点与调用序列 / 请求形状与必须·禁止字段 / SSE 事件契约与「最终答复」唯一取法 / `interrupt` 与人机交互约定 / 降级规则 / 未决项 8 条）；新增 `src/config/agentConfig.ts` + `src/types/agentConfig.ts`（**只放配置**，挂 `src/config/index.ts` barrel）；新增 `scripts/verify-agent.mjs`（零依赖，14 项断言）+ `package.json` 的 `"verify:agent"`。**契约要点**：`/assistants/search` 现查 `assistant_id`（不硬编码）→ `/threads` → `/threads/{id}/runs/stream`；**最终答复 = 最后一个 `values` 事件里最后一条 `content` 非空的 `ai` 消息**；**禁止渲染工具消息**；`interrupt` **不是事件名**（在 `values`/`updates` 的 `__interrupt__` 或 `GET state` 的 `interrupts[]`）；续跑 `command:{resume:"不提供"}`；`configurable`+`context` 同时传 **HTTP 400**。**两处纠错（本轮实测）**：① **SSE 事件序列不确定**——同一句「在吗」直接答复路径只有 **1 个 `values`**、走 `extend_graph` 才有完整序列 → 契约只锁「事件名白名单 + `values` 收尾 + 与 `GET state` 一致」，并在 §8.9.3 写明为何**不能**锁顺序；② **`langgraph dev` 的 CORS 实测 `*`、鉴权为零**，与 §8.5 的「仅同源 + 白名单」**不符** → §8.5 改成「现状 vs 目标」两栏，新增 **B-14**（🔴 阻断上线、不阻断本地联调）。**测试两种环境都实测**：服务在跑 **14/14 绿、退出码 0**；**真停服**跑 → SKIP + 启动命令 + **退出码 0**（按进程树清干净、2024 释放；验完已重启，`/ok → 200`，4321 未受影响）；**注入 2 次契约漂移 → 都退出码 1**。另实测 `assistants/search` 返回 **5 条 / 4 图**（`blog_agent` 两个实例）→ 断言**去重后按图名**。新增陷阱 **T47**、**T48**。⚠️ `agentConfig.enable` 保持 `false`：桌宠行为**零变化**、一个请求都不发；未改 `agent_-for_-blog` 任何代码、未改桌宠组件、未 commit | `prd.md` 新增 **R-AGT-07**、`ARCH.md` **§8.9（新增）**/ §4 / §8.5 / §11 / §14.3、`PROJECT_STATUS.md` §1 / §2 / §3 / §4 / §8、新增 `src/config/agentConfig.ts` / `src/types/agentConfig.ts` / `scripts/verify-agent.mjs`、改 `src/config/index.ts` / `package.json`、产物 `reports/verify-agent.log` / `reports/verify-agent.json` |
 | 2026-09-26 | v1.32 | **发起人第四轮桌宠反馈（两张图）→ 新增 R-PET-10「『落下去』必须真的落地并保持 + 语气类动画帧率下限」**（核心教训：**断言全绿但真机不行** —— 上一轮 R-PET-08 的「落下去」两条断言一直全绿，而真机上有**两条完整路径**根本不落地）。发起人：① 「**点击落下去之后没有真的落下去啊**」；② 「**聊天的时候小人抖动太快了，至少要慢一倍**」。① **「落下去」根因（先真机复现、再改）**：`setMode("ground", smooth)` 只把 `airborne` **立起来**（`startFall()` 的 `airborne = y < floorY − 2` / `vy = 60`），真正让宠物掉下去的是 `step()` 里贴地档那段重力积分，而 `step()` 只在 rAF 循环里跑 → **任何让 `step()` 提前 return 的条件都会让下落停在半空**，而档位 / 菜单 / DOM 属性全都已经正常翻成"贴地档"（表面症状就是"点了没反应"）。两条路径：(a) **聊天框开着** —— `step()` 开头 `if (pet.dragging \|\| chatOpen) return;` 在重力分支**之前**（实测点「落下去」后 y=396 连续 1.5 秒一动不动、离地 370px，`data-pet-mode` 已是 `ground`、菜单已换成「飘起来」）→ 闸门只留 `pet.dragging`，`chatOpen` 挪到重力分支**之后**；(b) **`prefers-reduced-motion: reduce`** —— `start()` 按设计 `if (raf \|\| reduce \|\| document.hidden) return;` **根本不开 rAF 循环**，重力积分永远不被推进 → `startFall()` 在 `reduce` 下**直接落到 `floorY`**（减少动态本来就不做位移动画，而"落下去"是用户要的**落点**、不是装饰，语义与 `__imissSetMode("ground")` 的"直接定位"一致）。顺带把"已经在地面线上下"的分支改成**对齐 `floorY`**（`clampY` 允许固定档 y 到 `vh−h`，比 `floorY` 低 7px）。**逐个排除的怀疑**（都实测过）：按钮文字与动作对得上（真机点可见项中心：`drop`→`ground`、`rise`→`float`）；`hidden` 互斥正确（「落下去」`display:block`、「飘起来」`display:none`，点击坐标上 `elementFromPoint` 命中的就是它自己）；`decide()` 三档分流读的是**运行时 `pet.mode` 而不是配置** → **不存在"巡检按配置把宠物拉回 float"这回事**（配置只在 `boot()` 当初始值）；R-PET-09 的 `frozen` 闸门**没误伤自由落体**。② **帧率**：聊天播 `running`（图集 row7 戴墨镜）原来 **12fps / 83ms 一帧**，比待机呼吸 `idle`（167ms）还快一倍，而聊天期间位置又被 `chatOpen` 冻住 → **唯一在动的就是图集**，观感就是"抖"。新导出 `PET_MOOD_STATES`（语气/待机类：idle/waving/failed/waiting/running/review）定下**帧间隔 ≥ 200ms** 的下限，`running`/`review` 取 250ms，**物理类（走路 `running-right/left`、跳跃兼下落/飞行姿态 `jumping`）不受管辖**（走路的步频与 `walkSpeed` 是同一件事、`jumping` 就是 `PET_FLIGHT_POSE`，放慢等于放慢物理速度）；`running` 12→4fps（**3.00×**）、`review` 9→4fps（**2.25×**）、`idle` 6→5fps（166.7→200ms）、`waving`/`failed` 7→5fps（142.9→200ms）、`waiting` 与物理类原样；顺带锁住 `once` 状态一个隐蔽耦合「`holdMs` 必须 ≥ `frames × 帧间隔`」（否则 `step()` 到点无条件 `setState("idle")` 会把动画截断）→ `review` 的 900 提成具名常量 `REVIEW_HOLD = 1500ms`（6 帧 × 250ms）；当前状态的实际帧间隔也写进 DOM（`data-pet-frame-ms`）。**真机实测**：悬浮档点「落下去」y 采样 `139@1ms → 173@127 → 240@251 → 361@374 → 505@496 → 684@623 → 731@754 → 724@888 → 756@1016 → 759@1138ms`（落定离地 6px = 地面档基准、耗时 1384ms），**落地后 5.4 秒 43 次采样 mode 恒为 `ground`、离地 6~6px、最大漂移 0px**；贴地档点「飘起来」y `759 → 395`（6486ms、离地 371px、mode=float）；**聊天框开着**点「落下去」y `139 → 759`（离地 6px、mode=ground）；**`reduced-motion`** 下点「落下去」y `407 → 759`（首个采样即落地，13 次采样离地 6~6px）；聊天状态实测 **13 帧变化、中位帧间隔 250ms（248~267ms）**，`data-pet-frame-ms=250`。`verify:ui` 新增 **R-PET-10 共 11 条**断言（真机鼠标事件 + 点"当前可见那一项"的矩形中心、落定后再采 5.4 秒、聊天框开着 / reduced-motion 两条现场各跑一遍、帧率实测、源码口径核对）→ 断言 203 → **214 项**全绿 / 0 失败，截图 33 → **37 张**（新增 `pet-drop-real-1440` / `pet-drop-chat-1440` / `pet-chat-frames-1440` / `pet-drop-reduce-1440`）；`pnpm check` 0 error、`pnpm type-check` exit=0、`pnpm build` exit=0、`pnpm verify:posts` 133 篇 0 错误、`pnpm verify:docs` 通过。新增陷阱 **T45**（`querySelector('[data-pet-act=…]').click()` 这种"按属性点元素"的断言绕过布局与命中测试，测不到"用户到底点到了什么"，而失效现场越边缘越测不到）、**T46**（"把状态立起来"与"把状态跑完"分居两个函数时，任何提前 `return` 都会造成"状态对了、行为没发生"；立状态与跑状态必须在同一个可判定条件下闭环）。⚠️ 本次未 commit/push | `prd.md` R-PET-01~R-PET-08 汇总行 / 新增 R-PET-10、`ARCH.md` §4.4 / §7.3 / §7.6 / §14.3（新增 T45/T46）、`PROJECT_STATUS.md` §1 / §3（新增 P3-15）/ §8、`README.md`、`src/utils/pet-utils.ts`、`src/components/features/AemeathPet.astro`、`scripts/verify-ui.mjs` |
 | 2026-09-26 | v1.31 | **发起人第三轮桌宠反馈 → 新增 R-PET-09「删掉「跳一下」菜单入口 + 跳的时候不要动」**。发起人：「**跳的时候就不要动了，把这个功能删掉吧，还有跳一跳的功能也删了，左键点击就能跳所以按键没有必要**」。① **删掉右键菜单里的「跳一下」**（按钮 + `case "jump"`）→ 菜单三项（说句话 / 落下去·飘起来 / 和爱弥斯聊天）；`jump()` 本体保留（左键单击与键盘 Enter 都调它）。② **键盘 Enter 保留**（"按键"按菜单按钮理解并执行）：`role="button" tabindex="0"` 删掉 Enter 会变成"能聚焦、按不动"的假按钮（WCAG 2.1.1），且 Enter 与左键单击完全等价、不是第二套功能；若要坚持连键盘删，需同时去掉 `tabindex`/`role` 并另行确认（已登记）。③ **「跳的时候不要动」= 跳变成纯动画**：`jump()` 起手 `cancelFlight()` + `pet.walking = false`，`step()` 新增 `frozen` 闸门在 `jumping` 一次性动画期间冻结走路位移与悬浮浮动，播完自动恢复；"落下去"的自由落体不受影响（`busyUntil` 为 0、走重力分支）。实测：单击后 120 / 290 / 460ms 坐标全是 `(1228,396)`（改动前悬浮档这 700ms 会做 ±6px 浮动）、跳完按 ← 键 420ms 位移 40~41px、Enter 仍得到 `jumping`。`verify:ui`：R-PET-02 的"菜单跳一下"换成"左键单击仍会跳"，新增 R-PET-09 **5 条** → 断言 198 → **203 项**全绿 / 0 失败，截图 32 → **33 张**（新增 `pet-jump-1440`）；`pnpm check` 0 error、`pnpm type-check` exit=0、`pnpm build` exit=0、`verify:posts` 133 篇 0 错误、`verify:docs` 通过。新增陷阱 **T44**（元素级 `keydown` + CDP `dispatchKeyEvent` 必须先 `focus()`，否则键盘断言静默空跑） | `prd.md` R-PET-02 / R-PET-08 / 新增 R-PET-09、`ARCH.md` §4.4 / §7.6 / §11 / §14.3、`PROJECT_STATUS.md` §1 / §3 / §8、`README.md`、`src/components/features/AemeathPet.astro`、`scripts/verify-ui.mjs` |

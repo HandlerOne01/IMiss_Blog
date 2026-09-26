@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | IMiss Blog |
-| 文档版本 | v1.33 |
+| 文档版本 | v1.34 |
 | 最后更新 | 2026-09-26 |
 | 关联文档 | `ARCH.md`（架构与技术设计）、`PROJECT_STATUS.md`（阶段、进度、下一步、阻塞项） |
 | 基线代码 | Firefly v6.16.8（Astro 7 静态站点），来源 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\my_-blog\Blog template` |
@@ -214,11 +214,12 @@
 | --- | --- | --- | --- | --- |
 | R-AGT-01 | Agent 服务 | 新建独立 Python 项目（LangGraph + DeepSeek），人设为爱弥斯（单独文本文件，改文案不用动代码）；首期能力：检索本站文章、回答排行榜问题、闲聊 | 命令行能跑通三种意图（检索/排行/闲聊），LangSmith 上能看到对应的 trace | ◆ |
 | R-AGT-02 | 网关接口 | 对外只暴露一个网关：`POST /api/pet/chat`（流式）、`GET /api/pet/health`、`POST /api/pet/reset`；密钥只在服务端 | 用 curl 能收到流式增量；浏览器里调用不暴露任何 key | ◆ |
-| R-AGT-03 | 前端对话与 mock 降级 | 桌宠气泡支持输入与流式回复；**没有后端时不报错**，走本地 mock 回复并明确提示"Agent 未连接"；后端地址可配置 | 断开后端后页面仍可用，宠物仍能对话（mock） | ◆ |
-| R-AGT-04 | 状态联动 | 思考 → 执行任务；出错 → 困惑；完成 → 完成反馈 | 三种状态在对话过程中可见 | ◆ |
-| R-AGT-05 | 安全与限额 | 仅同源 + 白名单跨域；按 IP 限流；单条消息长度上限；单次回复 token 上限；不落库对话原文 | 超长消息被拒绝并给出友好提示；连续快速请求会被限流 | ◆ |
+| R-AGT-03 | 前端对话与 mock 降级 【已实现】（P5-1 / P5-2） | 桌宠气泡支持输入与**流式**回复（`POST /threads/{id}/runs/stream`，`stream_mode` 含 `messages`+`values`+`updates`）；**没有后端时不报错、不弹技术报错**，按 `ARCH.md` §8.9.6 走本地 mock；后端地址/开关/超时/约定词都可在 `src/config/agentConfig.ts` 改。⚠️ **P5-1 纠正了 P3 的原始口径**：原文写"走 mock 并**明确提示"Agent 未连接"**"——那条与 §8.9.6 第 3 条「"Agent 未连接"这类运维字样也不给访客看」**冲突**，且**没有任何断言能证明"一个请求都没发"**。新口径：① **`enable:false` = 零请求**（`agent-client.ts` 直接返回 mock，连 `/ok` 都不探）；② 降级时不提任何内部信息，只说人设口径的那几句；③ 契约不符（事件名越界 / 取不到非空 `ai` 消息 / 空答复 / `4xx`）一律降级，**绝不把工具消息渲染给用户** | 断开后端后页面仍可用，宠物仍能对话（mock）；`enable:false` 时**一个网络请求都不发**；注入死端口后气泡仍是人设台词且整页无报错泄漏 | ◆ 已实现 |
+| R-AGT-04 | 状态联动 | 思考 → 执行任务（`running`）；出错 → 困惑（`failed`）；完成 → 完成反馈（`review`）。**复用现有九状态，不新增第 10 个**；请求发出时气泡里给一句可见的占位（不是错误提示）；**关聊天框 / Swup 切页 / 连续提问之后必须能复位**（不许卡在思考态） | 三种状态在对话过程中可见；连续两次提问状态都能复位；关框后 `data-pet-state` 回到 `idle` | ◆ 已实现 |
+| R-AGT-05 | 安全与限额 | 仅同源 + 白名单跨域；按 IP 限流；单条消息长度上限；单次回复 token 上限；不落库对话原文。⚠️ **现状与目标的差距见 `ARCH.md` §8.5（网关未实现）与 B-14** | 超长消息被拒绝并给出友好提示；连续快速请求会被限流 | ◆ |
 | R-AGT-06 | 与参考项目解耦 | 完全新建，**不改** `agent_-for_-blog` 的任何代码 | git 上该目录无改动 | ◆ |
 | R-AGT-07 | **接口契约与降级**（P5-0 冻结） | **在写任何接线业务代码之前**，把"博客前端 ↔ Agent 服务"的接口定死并写成文档（`ARCH.md` §8.9）：端点与调用序列、请求形状与必须/禁止字段、SSE 事件契约与**「最终答复」的唯一取法**、`interrupt` 与人机交互约定、降级规则。配置只放 `src/config/agentConfig.ts`（`enable`/`baseUrl`/`graphId`/`timeoutMs`/`resumeWords`/`fallbackToMock`/`debug`），**不放业务逻辑**；契约配一个能自动跑的测试 `scripts/verify-agent.mjs`（`pnpm verify:agent`） | ① `pnpm verify:agent` 在 Agent 在跑时全绿（**14 项**）；② **Agent 没在跑时明确报告"跳过/不可用"并给出启动命令，退出码 0**（不因环境未就绪让 CI 变红）；③ **契约不符（事件名越界/取不到答复/工具输出泄进答复/400 坑失效）退出码 1**；④ 降级路径有断言：把 `baseUrl` 指向死端口能被识别为"不可用"（且同一探测函数对活服务返回可用，防假绿）；⑤ **前端只渲染最后一条面向用户的 AI 消息**，工具输出（`可用的表`、`CREATE TABLE …`）**不得**进气泡——这条要有断言证明"流里有、答复里没有" | ◆ |
+| R-AGT-08 | **端到端联动**（P5-1 / P5-2 / P5-3 新增） | 把契约接到桌宠上：`src/utils/agent-client.ts`（薄适配层，**只依赖 `agentConfig`**）实现契约的调用序列、SSE 解析、`interrupt` 三层检测与 `resume` 约定词、降级到 mock；`AemeathPet.astro` 的对话入口改走它；`agentConfig.enable` 打开。**测试口径**：`verify:ui` 用**真实 Chrome** 在**同一份构建产物**上分别验 `enable:false` / `enable:true`（注入覆盖开关，测完还原），并扫气泡与整页 DOM 的禁词表 | ① `enable:false` 时**零网络请求**（拦截 `fetch` 按 baseUrl 计数为 0）且对话走 mock；② `enable:true` 时真机往返至少一次；③ 答复符合人设口径（无「您」/无加粗/无表格/无完整域名）；④ `interrupt` 反问进气泡、回约定词「不提供」能续跑并拿到最终答复；⑤ 注入死端口 → 仍可用、走 mock、无报错泄漏；⑥ 状态联动与复位（见 R-AGT-04）；⑦ 气泡与 DOM 不含禁词表（`可用的表`/`CREATE TABLE`/`assistant_id`/`thread_id`/`127.0.0.1`/`langgraph`/`word_count_min`） | ◆ 已实现 |
 
 ### 3.8 内容迁移（R-CNT）
 

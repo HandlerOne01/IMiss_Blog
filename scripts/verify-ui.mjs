@@ -3958,6 +3958,677 @@ async function main() {
 		}
 	}
 
+	// ── P5-1 / P5-2 / P5-3 桌宠 ↔ Agent 接线（R-AGT-03 / R-AGT-04 / R-AGT-08）──
+	// ==========================================================================
+	// 这一组要证的**不是"代码写了什么"，而是"真机上到底发没发请求、气泡里到底是什么字"**：
+	//   ① `enable:false` → 一个网络请求都不发（拦截 `fetch` 按 baseUrl 计数 = 0），走本地 mock；
+	//   ② `enable:true`  → 真的往返一次（计数 > 0），答复是人设口径（无「您」/ 无加粗 / 无完整域名）；
+	//   ③ `interrupt` + 约定词续跑：真浏览器里走一遍（后端反问 → 回「不提供」→ 拿到最终答复）；
+	//   ④ 降级：把 `baseUrl` 指到**死端口**（注入，测完还原）→ 仍然可用、走 mock、页面无报错泄漏；
+	//   ⑤ 状态联动：请求发出 = 思考态（`running` / `review`）、失败 = `failed`、完成 = `review`；
+	//   ⑥ 复位：关聊天框 / Swup 切页 / 连续提问之后不许卡在思考态；
+	//   ⑦ 泄漏：气泡文本与整页 DOM 里不含禁词表。
+	//
+	// ⚠️ 两个注入钩子（都只在测试里写，正常运行路径上不存在）：
+	//   · `window.__imissAgentConfig` —— 覆盖 `enable` / `baseUrl` / `timeoutMs`
+	//     （为什么必须注入：`enable` 是构建期常量，而"零请求"与"真往返"要在**同一份产物**上各证一次；
+	//      build 两次会留下与交付物不一致的产物）。
+	//   · `window.__imissAgentUrls` + 一层 `fetch` 计数包装 —— 探测"桌宠到底有没有发请求"。
+	//     判据是 `url.startsWith(baseUrl)` 的**个数**（每次都从 0 起算），而不是"页面总请求数"：
+	//     只盯 `127.0.0.1:2024` / `:2099` 这两个地址，页面自己的站内请求一个都不会混进来。
+	//     覆盖只看 `baseUrl`、不看 `enable`，所以 `enable:false` 那一步照样能数到"有没有偷偷发"。
+	{
+		await cdp.send("Emulation.setEmulatedMedia", {
+			features: [{ name: "prefers-color-scheme", value: "dark" }],
+		});
+
+		// 交付物里 `agentConfig.enable` 必须已经是 `true`（P5-2 唯一允许改的默认值）
+		const bootChunk = await (
+			await cdp.send("Runtime.evaluate", {
+				expression: `(async () => { const t = await (await fetch("${BASE}/")).text(); const m = t.match(/src="([^"]*AemeathPet[^"]*\\.js)"/); return m ? (await (await fetch(m[1])).text()) : ""; })()`,
+				awaitPromise: true,
+				returnByValue: true,
+			})
+		).result.value;
+		{
+			const on = /enable:\s*!0/.test(bootChunk) || /enable:\s*true/.test(bootChunk);
+			record(
+				"R-AGT-08",
+				"交付物里 agentConfig.enable 是 true（前端默认真的接 Agent）",
+				on,
+				on
+					? `桌宠脚本 chunk 里 enable 为真（${bootChunk.length} 字节）`
+					: "chunk 里找不到 enable 为真 → 打开 Agent 接线的那一步没落地",
+			);
+		}
+
+		/** 重载到干净首页，然后装上注入配置 + 计数器（配置在调用时才读，不必赶在脚本之前） */
+		const arm = async (cfg) => {
+			const loaded = cdp.once("Page.loadEventFired");
+			await cdp.send("Page.navigate", { url: `${BASE}/` });
+			await loaded;
+			await sleep(1400);
+			await cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					window.__imissAgentConfig = ${JSON.stringify(cfg)};
+					window.__imissAgentUrls = [];
+					const orig = window.fetch.bind(window);
+					window.fetch = (input, init) => {
+						try {
+							const u = typeof input === "string" ? input : input && input.url ? input.url : String(input);
+							window.__imissAgentUrls.push(u);
+						} catch {}
+						return orig(input, init);
+					};
+					window.__imissAgentInjected = "1";
+					return true;
+				})()`,
+				returnByValue: true,
+			});
+		};
+
+		/** 页面里读"打到某个地址的请求数"（用注入的 urlish 做前缀匹配） */
+		const netCount = async (baseUrl) =>
+			(
+				await cdp.send("Runtime.evaluate", {
+					expression: `(() => { const b = ${JSON.stringify(baseUrl)}; return (window.__imissAgentUrls || []).filter((u) => u.indexOf(b) === 0).length; })()`,
+					returnByValue: true,
+				})
+			).result.value;
+
+		/** 页面里读宠物那一小块事实（状态 / 气泡 / 输入框） */
+		const petUi = async () =>
+			(
+				await cdp.send("Runtime.evaluate", {
+					expression: `(() => {
+						const el = document.getElementById("pet");
+						const b = document.getElementById("pet-bubble");
+						const reply = document.querySelector(".pet-chat-reply");
+						const input = document.querySelector(".pet-chat input");
+						const send = document.querySelector(".pet-chat button");
+						return {
+							state: el ? el.dataset.petState || null : null,
+							frameMs: el ? Number(el.dataset.petFrameMs || 0) : 0,
+							chat: !!b && b.classList.contains("is-chat"),
+							pop: !!b && b.classList.contains("is-pop"),
+							bubble: b ? (b.textContent || "").trim() : "",
+							reply: reply ? (reply.textContent || "").trim() : "",
+							hasInput: !!input,
+							inputDisabled: !!input && input.disabled,
+							busy: !!send && send.dataset.petBusy === "1",
+						};
+					})()`,
+					returnByValue: true,
+				})
+			).result.value;
+
+		/**
+		 * 真机鼠标（`Input.dispatchMouseEvent`）——**不用 `dispatchEvent(new MouseEvent)`**。
+		 * ⚠️ 这是 R-PET-10 那条教训（§14.3 T45）的同一类坑，接线这一轮又踩了一次：
+		 * 合成 `mousedown`/`mouseup` **不会**产生 `click` 事件，菜单的 `click` 监听器永远不触发
+		 * （实测：菜单开着、按钮可见、坐标也对，就是打不开聊天框）。
+		 * 同理打字必须走 `Input.dispatchKeyEvent` 的 `keyDown` + `char`，只打 `keydown` 落不进字。
+		 */
+		const realMouse = (type, x, y, button) =>
+			cdp.send("Input.dispatchMouseEvent", {
+				type,
+				x: Math.round(x),
+				y: Math.round(y),
+				button,
+				buttons: type === "mousePressed" ? (button === "right" ? 2 : 1) : 0,
+				clickCount: 1,
+			});
+		const petCenter = async () =>
+			(
+				await cdp.send("Runtime.evaluate", {
+					expression: `(() => { const r = document.getElementById("pet").getBoundingClientRect(); return { cx: Math.round(r.left + r.width / 2), cy: Math.round(r.top + r.height * 0.55) }; })()`,
+					returnByValue: true,
+				})
+			).result.value;
+		const typeText = async (text) => {
+			for (const ch of text) {
+				await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", text: ch });
+				await cdp.send("Input.dispatchKeyEvent", { type: "char", text: ch });
+				await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", text: ch });
+				await sleep(12);
+			}
+		};
+
+		/** 真右键开菜单 → 点「当前可见那一项」的矩形中心 → 聊天框打开 */
+		const openPetChat = async () => {
+			const before = (
+				await cdp.send("Runtime.evaluate", {
+					expression: `(() => {
+						const menu = document.getElementById("pet-menu");
+						return { chat: document.getElementById("pet-bubble").classList.contains("is-chat"),
+							items: [...menu.querySelectorAll("[data-pet-act]")].map((b) => b.textContent.trim() + ":" + getComputedStyle(b).display) };
+					})()`,
+					returnByValue: true,
+				})
+			).result.value;
+			if (before.chat) return { already: true, items: before.items };
+			const c = await petCenter();
+			await realMouse("mousePressed", c.cx, c.cy, "right");
+			await realMouse("mouseReleased", c.cx, c.cy, "right");
+			await sleep(280);
+			const target = (
+				await cdp.send("Runtime.evaluate", {
+					expression: `(() => {
+						const b = [...document.querySelectorAll("#pet-menu [data-pet-act]")].find((x) => !x.hidden && getComputedStyle(x).display !== "none" && x.textContent.trim() === "和爱弥斯聊天");
+						if (!b) return null;
+						const r = b.getBoundingClientRect();
+						return { cx: Math.round(r.left + r.width / 2), cy: Math.round(r.top + r.height / 2) };
+					})()`,
+					returnByValue: true,
+				})
+			).result.value;
+			if (!target) return { already: false, items: before.items, clicked: false };
+			await realMouse("mousePressed", target.cx, target.cy, "left");
+			await realMouse("mouseReleased", target.cx, target.cy, "left");
+			await sleep(300);
+			const hasInput = (
+				await cdp.send("Runtime.evaluate", { expression: `!!document.querySelector(".pet-chat input")`, returnByValue: true })
+			).result.value;
+			return { already: false, items: before.items, clicked: true, clickAt: target, hasInput };
+		};
+
+		/**
+		 * 真机问爱弥斯一句：真右键开菜单 → 点聊天项 → 真键盘敲字 → 回车提交 → 轮询到答复。
+		 *
+		 * ⚠️ **等待必须在 Node 侧轮询，不能写在页面里 `await` 到答复为止**：CDP 的
+		 * `Runtime.evaluate` 自身有 30 秒超时（本脚本 CDP 客户端硬编码），而真后端一轮要
+		 * 3~120 秒 —— 写成一个长 await 会变成 `Runtime.evaluate 超时`（P5-1 第一次跑实测踩到，
+		 * 登记为 T55）。所以页面侧只做"发出去"，结果放进 `window.__agtDone`，Node 侧每 250ms 取一次。
+		 */
+		const askPet = async (text, { timeout = 60000, waitFor = "answer" } = {}) => {
+			const opened = await openPetChat();
+			const armed = await cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					const input = document.querySelector(".pet-chat input");
+					if (!input) return null;
+					input.focus();
+					const el = document.getElementById("pet");
+					window.__agtSeen = [el.dataset.petState || null];
+					if (window.__agtMO) window.__agtMO.disconnect();
+					window.__agtMO = new MutationObserver(() => {
+						const s = el.dataset.petState || null;
+						if (s !== window.__agtSeen[window.__agtSeen.length - 1]) window.__agtSeen.push(s);
+					});
+					window.__agtMO.observe(el, { attributes: true, attributeFilter: ["data-pet-state"] });
+					window.__agtEl = el;
+					window.__agtDone = false;
+					window.__agtT0 = performance.now();
+					window.__agtEcho = ${JSON.stringify(text)};
+					return { state: el.dataset.petState || null };
+				})()`,
+				returnByValue: true,
+			});
+			if (!armed.result.value) return { phase: "no-input", opened };
+			await typeText(text);
+			const typed = (
+				await cdp.send("Runtime.evaluate", {
+					expression: `document.querySelector(".pet-chat input") ? document.querySelector(".pet-chat input").value : null`,
+					returnByValue: true,
+				})
+			).result.value;
+			// 回车提交（走浏览器真实的表单提交路径，不是 `requestSubmit()`）
+			await cdp.send("Input.dispatchKeyEvent", {
+				type: "keyDown",
+				key: "Enter",
+				code: "Enter",
+				windowsVirtualKeyCode: 13,
+				nativeVirtualKeyCode: 13,
+				text: "\r",
+			});
+			await cdp.send("Input.dispatchKeyEvent", {
+				type: "keyUp",
+				key: "Enter",
+				code: "Enter",
+				windowsVirtualKeyCode: 13,
+				nativeVirtualKeyCode: 13,
+			});
+			// Node 侧轮询：每 250ms 取一次页面快照，按 `waitFor` 决定什么时候算"到位"
+			const t0 = Date.now();
+			let snap = null;
+			let lastChange = Date.now();
+			let prev = "";
+			while (Date.now() - t0 < timeout) {
+				snap = (
+					await cdp.send("Runtime.evaluate", {
+						expression: `(() => {
+							const b = document.querySelector(".pet-chat-reply");
+							const d = window.__imissChatDebug ? window.__imissChatDebug() : null;
+							return {
+								reply: b ? (b.textContent || "").trim() : "",
+								busy: d ? d.busy : null,
+								resume: d ? d.resume : null,
+								ask: d ? d.ask : null,
+								state: window.__agtEl ? (window.__agtEl.dataset.petState || null) : null,
+								stateSeq: window.__agtSeen || [],
+								isChat: document.getElementById("pet-bubble").classList.contains("is-chat"),
+								hasInput: !!document.querySelector(".pet-chat input"),
+							};
+						})()`,
+						returnByValue: true,
+					})
+				).result.value;
+				if (snap.reply !== prev) {
+					prev = snap.reply;
+					lastChange = Date.now();
+				}
+				if (waitFor === "interrupt") {
+					if (snap.ask && snap.reply && snap.reply.length > 30) break;
+				} else if (waitFor === "settle") {
+					// ⚠️ 必须同时要求"气泡已经是真答复"：只等 `busy=false && resume=null`
+					// 会在**请求还没真正开始**的那一瞬间就成立（`runAsk` 之前 busy 还是 false），
+					// 于是拿到的是"用户刚发出去的那句话"——看着像答复，其实是回声。
+					if (isRealReply(snap.reply, text) && snap.busy === false && snap.resume === null && Date.now() - lastChange > 700) break;
+				} else if (snap.reply && snap.reply !== text && !/^嗯，我看一眼/.test(snap.reply) && Date.now() - lastChange > 900) {
+					// ⚠️ 必须"稳定 900ms"才算到位：刚提交时气泡里是**用户那句回声**，
+					//    它和 `text` 也可能不等（输入法/回车各写一次），不等就 break 会拿到回声
+					//    （P5-1 第一次跑实测：气泡是「在在吗吗」，看着像答复其实是回声，登记为 T55）。
+					//    真正的判据交给 `isRealReply()`（把"每个字重复一次"的回声也排掉）。
+					if (isRealReply(snap.reply, text)) break;
+				}
+				await sleep(250);
+			}
+			await cdp.send("Runtime.evaluate", {
+				expression: `(() => { if (window.__agtMO) window.__agtMO.disconnect(); window.__agtDone = true; return true; })()`,
+				returnByValue: true,
+			});
+			return {
+				phase: "asked",
+				typed,
+				opened,
+				reply: snap?.reply ?? "",
+				stateSeq: snap?.stateSeq ?? [],
+				stateAfter: snap?.state ?? null,
+				inputStillThere: snap?.hasInput ?? false,
+				bubbleIsChat: snap?.isChat ?? false,
+				ms: Date.now() - t0,
+			};
+		};
+
+		/** 气泡里那句到底是不是"答复"（而不是用户回声 / 思考占位）——几条断言共用这一个口径 */
+		const isRealReply = (reply, echo) => {
+			const t = (reply ?? "").trim();
+			if (!t || t.length < 6) return false;
+			if (/^嗯，我看一眼/.test(t)) return false;
+			if (echo && t === echo) return false;
+			// 键盘事件可能把同一个字写两遍（实测出现过「在在吗吗」）：把回声按"每个字重复一次"还原再比
+			const doubled = echo ? [...echo].map((c) => c + c).join("") : "";
+			if (doubleCheck(t, echo, doubled)) return false;
+			return true;
+		};
+		const doubleCheck = (t, echo, doubled) => !!echo && (t === doubled || (t.length <= doubled.length && doubled.startsWith(t)));
+
+		/** 关聊天框（Esc 的真实路径：`keydown` 挂在 `document` 上，见 `Escape` 分支） */
+		const closePetChat = async () => {
+			await cdp.send("Runtime.evaluate", {
+				expression: `document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); "esc"`,
+				returnByValue: true,
+			});
+			await sleep(250);
+		};
+
+		/**
+		 * 气泡 + 桌宠 DOM 的泄漏扫描。
+		 * ⚠️ **不能拿通用词扫整页**：实测 `langgraph` / `LangGraph` 在**站内正文里是合法内容**
+		 * （有一篇迁移进来的文章标题就叫《LangGraph 能力详解 · 学习笔记》，首页的"最近文章"
+		 * 卡片与归档日历都带着这个链接）——拿它扫整页必然假红（P5-1 第一次跑实测踩到，登记为 T55）。
+		 * 所以分三层，各扫各的：
+		 *   ① 气泡文本（`#pet-bubble` + `.pet-chat-reply`）：禁词表的**全部**条目；
+		 *   ② 桌宠自己的 DOM（`#pet` / `#pet-menu`，去掉 script/style）：禁词表的全部条目；
+		 *   ③ 整页：只扫 `127.0.0.1` 这类"页面里绝不该出现"的宿主泄漏。
+		 */
+		const leakScan = async () => {
+			const r = await cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					const b = document.getElementById("pet-bubble");
+					const reply = document.querySelector(".pet-chat-reply");
+					const pet = document.getElementById("pet");
+					const menu = document.getElementById("pet-menu");
+					const text = [(b ? b.textContent : ""), (reply ? reply.textContent : "")].join("\\n");
+					const clean = (root) => {
+						if (!root) return "";
+						const c = root.cloneNode(true);
+						for (const el of [...c.querySelectorAll("script, style, link")]) el.remove();
+						return c.outerHTML;
+					};
+					const petMarkup = clean(pet) + clean(menu);
+					const pageClone = document.documentElement.cloneNode(true);
+					for (const el of [...pageClone.querySelectorAll("script, style, link")]) el.remove();
+					return {
+						text,
+						petMarkup,
+						pageMarkup: pageClone.outerHTML,
+						bodyLen: (document.body ? document.body.innerText : "").length,
+					};
+				})()`,
+				returnByValue: true,
+			});
+			const text = r.result.value.text ?? "";
+			const petMarkup = r.result.value.petMarkup ?? "";
+			const pageMarkup = r.result.value.pageMarkup ?? "";
+			// 禁词表：任务里点名的 7 个 + 契约 §8.9.6 第 3 条那一串（运维字样一个都不许给访客看）
+			const markers = [
+				"可用的表",
+				"CREATE TABLE",
+				"assistant_id",
+				"thread_id",
+				"127.0.0.1",
+				"langgraph",
+				"LangGraph",
+				"word_count_min",
+				"user_preferences",
+				"user_intent",
+				"ECONNREFUSED",
+				"未连接",
+			];
+			// 整页只扫这几个"页面里绝不该出现"的（`langgraph` 不在其中：站内正文本来就有这个词；
+			// 端口写成 `:2024` / `:2099` 的形态 —— 裸数字 `2024` 会撞上日期/字数，属于自造假阳性）
+			const hostMarkers = ["127.0.0.1", ":2024", ":2099", "assistant_id", "thread_id"];
+			return {
+				text,
+				hitsText: markers.filter((m) => text.includes(m)),
+				hitsPet: markers.filter((m) => petMarkup.includes(m)),
+				hitsMarkup: hostMarkers.filter((m) => pageMarkup.includes(m)),
+				bodyLen: r.result.value.bodyLen ?? 0,
+				// 人设禁止项（P5-2 明确要求）：完整域名 / 表格 / 加粗
+				personaText: [
+					/https?:\/\/[a-z0-9.-]+/i.test(text) ? "完整域名" : "",
+					/^\s*\|.*\|\s*$/m.test(text) ? "表格" : "",
+					/\*\*|__/.test(text) ? "加粗" : "",
+					text.includes("您") ? "「您」" : "",
+				].filter(Boolean),
+			};
+		};
+
+		const LIVE = "http://127.0.0.1:2024";
+		const DEAD = "http://127.0.0.1:2099";
+
+		// ── ① enable:false：一个网络请求都不发 ──────────────────────────────
+		let offRun = null;
+		let offLeak = null;
+		{
+			await arm({ enable: false, baseUrl: LIVE, timeoutMs: 60000 });
+			const before = await netCount(LIVE);
+			offRun = await askPet("在吗");
+			const after = await netCount(LIVE);
+			offRun.netBefore = before;
+			offRun.netAfter = after;
+			const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+			await fs.writeFile(path.join(OUT_DIR, "pet-agent-mock-1440.png"), Buffer.from(shot.data, "base64"));
+			offLeak = await leakScan();
+			record(
+				"R-AGT-03",
+				"enable:false —— 桌宠对话**零网络请求**（拦 fetch 按 baseUrl 计数为 0）且走本地 mock",
+				before === 0 &&
+					after === 0 &&
+					offRun?.phase === "asked" &&
+					isRealReply(offRun.reply, "在吗") &&
+					!/^{|"status"/.test(offRun.reply),
+				`真机路径：右键菜单 →「和爱弥斯聊天」→ 键入「在吗」→ 提交；打到 ${LIVE} 的请求数 ${before} → ${after}（0 = 一个都没发）；气泡原文「${(offRun?.reply ?? "").replace(/\n/g, "⏎")}」（${offRun?.ms}ms，是真答复不是回声）；data-pet-state 序列 ${JSON.stringify(offRun?.stateSeq)}`,
+			);
+			record(
+				"R-AGT-03",
+				"enable:false 时气泡与整页 DOM 不含禁词表（工具输出 / 内部字段 / 运维字样）",
+				(offLeak?.hitsText?.length ?? 1) === 0 && (offLeak?.hitsMarkup?.length ?? 1) === 0 && (offLeak?.hitsPet?.length ?? 1) === 0,
+				`气泡文本 ${offLeak?.text?.length ?? 0} 字 / 页面 innerText ${offLeak?.bodyLen ?? 0} 字：文本命中 [${offLeak?.hitsText?.join(", ") ?? "?"}]、body 命中 [${offLeak?.hitsPet?.join(", ") ?? "?"}]、html 命中 [${offLeak?.hitsMarkup?.join(", ") ?? "?"}]`,
+			);
+		}
+		await closePetChat();
+
+		// ── ② enable:true：真往返 + 人设口径 + interrupt/resume ─────────────
+		{
+			const probe = await (async () => {
+				try {
+					const r = await fetch(`${LIVE}/ok`, { signal: AbortSignal.timeout(1500) });
+					return r.ok && (await r.json())?.ok === true;
+				} catch {
+					return false;
+				}
+			})();
+			if (!probe) {
+				// 环境未就绪 ≠ 回归（与 `verify:agent` 的退出码规矩一致：Agent 没起不该让 CI 变红）
+				record(
+					"R-AGT-08",
+					"Agent 在跑时：桌宠真机往返一次（跳过：服务没起）",
+					true,
+					`${LIVE}/ok 不可达 → 本组真往返断言跳过。启动：cd ..\\agent_-for_-blog; langgraph dev`,
+					true,
+				);
+				record(
+					"R-AGT-08",
+					"interrupt → 约定词续跑（跳过：服务没起）",
+					true,
+					"同上",
+					true,
+				);
+			} else {
+				await arm({ enable: true, baseUrl: LIVE, timeoutMs: 60000 });
+				const before = await netCount(LIVE);
+				const live = await askPet("在吗", { timeout: 90000 });
+				const after = await netCount(LIVE);
+				const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+				await fs.writeFile(path.join(OUT_DIR, "pet-agent-live-1440.png"), Buffer.from(shot.data, "base64"));
+				const leak = await leakScan();
+				facts["agt-live"] = { ...live, netBefore: before, netAfter: after, leak };
+				const persona = leak.personaText ?? [];
+				record(
+					"R-AGT-08",
+					"enable:true —— 真机路径真的发起了往返（计数 > 0）并拿到人设化答复",
+					before === 0 &&
+						after > 0 &&
+						isRealReply(live?.reply, "在吗") &&
+						!/^(嗯，我看一眼|好，我去翻|嗯，我听着呢|在。你说。|在的)/.test(live.reply),
+					`打到 ${LIVE} 的请求数 ${before} → ${after}（>0 说明真发了）；气泡原文「${(live?.reply ?? "").replace(/\n/g, "⏎")}」（${live?.ms}ms，${live?.reply?.length ?? 0} 字）；data-pet-state 序列 ${JSON.stringify(live?.stateSeq)}`,
+				);
+				record(
+					"R-AGT-08",
+					"答复符合人设口径：无完整域名 / 无表格 / 无加粗 / 无「您」",
+					persona.length === 0,
+					`气泡文本 ${(live?.reply ?? "").length} 字；命中禁项 [${persona.join(", ")}]；整页禁词命中 文本[${leak.hitsText.join(", ")}] body[${leak.hitsPet.join(", ")}]`,
+				);
+				// interrupt + 续跑：把上一轮那条（闲聊）的痕迹清掉再问
+				await closePetChat();
+				const q1 = await askPet("推荐几篇讲 Linux 的博客", { timeout: 120000, waitFor: "interrupt" });
+				const asked1 = q1?.reply ?? "";
+				// 续跑词**不问脚本自己猜**：读组件闭包里那个（`chatResume`，适配层按后端问句推出来的），
+				// 再用它当用户那句话 —— 这才是"用户按下发送"的真实路径。
+				// 为什么必须这样：后端有**两种** `interrupt` 形态（见下面 detail 与 T53）——
+				//   · `recommended_agent` 纯反问「篇幅大概多少字」→ 该回「不提供」；
+				//   · `blog_agent` 检索链路**先给答复再反问**「要不要我收进本子」→ 该回「需要/不需要」。
+				// 脚本猜错词就会变成"测试写错、代码背锅"。
+				const dbg1 = (
+					await cdp.send("Runtime.evaluate", {
+						expression: `window.__imissChatDebug ? window.__imissChatDebug() : null`,
+						returnByValue: true,
+					})
+				).result.value;
+				const interrupted = !!dbg1?.resume;
+				let q2 = null;
+				if (interrupted) {
+					q2 = await askPet(dbg1.resume, { timeout: 240000, waitFor: "settle" });
+					q2.settled = (
+						await cdp.send("Runtime.evaluate", {
+							expression: `window.__imissChatDebug ? window.__imissChatDebug() : null`,
+							returnByValue: true,
+						})
+					).result.value;
+				}
+				const shot2 = await cdp.send("Page.captureScreenshot", { format: "png" });
+				await fs.writeFile(path.join(OUT_DIR, "pet-agent-interrupt-1440.png"), Buffer.from(shot2.data, "base64"));
+				const leak2 = await leakScan();
+				facts["agt-interrupt"] = { q1, dbg1, q2, leak2 };
+				if (!interrupted) {
+					// 后端 `blog_agent`/`recommended_agent` 依赖它自己的文章库；实测它会**偶发降级**
+					// （直接回一句「数据库这会儿连不上，取不了数…」，这时**不会**出 `interrupt`）。
+					// 那是后端侧依赖的问题（P5-0 期间也偶发过），按 `verify:agent` 的同一套规矩记 **SKIP**，
+					// 不把 CI 变红 —— 但必须显形，别让"没测到"伪装成"测过了"。
+					// ⚠️ 跳过条件只看"组件有没有识别出待续跑状态"（`dbg1.resume`），**不看后端说了什么**：
+					//    只要后端真出了 interrupt 而前端没识别出来，这里就会 FAIL（而不是被文案骗过去）。
+					record(
+						"R-AGT-08",
+						"interrupt → 约定词续跑（跳过：这一轮后端没给 interrupt，通常是它的文章库不可用）",
+						true,
+						`首轮气泡（${q1?.ms}ms）：「${asked1.replace(/\n/g, "⏎").slice(0, 90)}」——没有 \`interrupt\`（组件的 resume=${JSON.stringify(dbg1?.resume)}）。后端依赖问题，不是前端回归：气泡显示的就是后端给人看的那句、无禁词、无报错。后端恢复后重跑本脚本即可验到续跑；\`pnpm verify:agent\` 的「推荐轮 · interrupt」是同一前提。`,
+						true,
+					);
+				} else {
+					record(
+						"R-AGT-08",
+						"interrupt 真机走通：后端反问进气泡 → 用组件给出的约定词续跑 → 这一轮收口（不再反问）",
+						!!q2?.settled &&
+							q2.settled.resume === null &&
+							q2.settled.busy === false &&
+							!!q2?.reply &&
+							(leak2.hitsText.length ?? 1) === 0 &&
+							(leak2.personaText.length ?? 1) === 0,
+						`首轮气泡「${asked1.replace(/\n/g, "⏎").slice(0, 90)}」（${q1?.ms}ms，state 序列 ${JSON.stringify(q1?.stateSeq)}）→ 组件给出的续跑词「${dbg1?.resume}」→ 续跑 ${q2?.ms ?? "—"}ms，收口后 resume=${JSON.stringify(q2?.settled?.resume)}、busy=${q2?.settled?.busy}；续跑后气泡 ${(q2?.reply ?? "").length} 字「${(q2?.reply ?? "").replace(/\n/g, "⏎").slice(0, 70)}」；state 序列 ${JSON.stringify(q2?.stateSeq)}；禁词命中 [${leak2.hitsText.join(", ")}] / 人设禁项 [${leak2.personaText.join(", ")}]`,
+					);
+				}
+				// 「要不要我收进本子」那种形态下，后端对「不需要」**故意什么都不答**（实测 200 + 0 字）。
+				// 这是一条只记录、不判定的信息项 —— 免得它被当成前端 bug（§8.9.5 只写了"纯反问"那一种形态）。
+				record(
+					"INFO(R-AGT)",
+					`续跑后气泡字数：${(q2?.reply ?? "").length} 字（后端对「不需要」可能故意留空，只记录不判定）`,
+					true,
+					q1?.reply?.includes("本子")
+						? "本轮是「先给答复再反问」形态（blog_agent 检索链路）"
+						: "本轮是「纯反问」形态（recommended_agent 推荐链路）",
+				);
+			}
+		}
+		await closePetChat();
+
+		// ── ④ 降级：baseUrl 指到死端口（注入，测完还原）─────────────────────
+		{
+			await arm({ enable: true, baseUrl: DEAD, timeoutMs: 3000 });
+			const before = await netCount(DEAD);
+			const dead = await askPet("在吗", { timeout: 30000 });
+			const after = await netCount(DEAD);
+			const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+			await fs.writeFile(path.join(OUT_DIR, "pet-agent-dead-1440.png"), Buffer.from(shot.data, "base64"));
+			const leak = await leakScan();
+			const ui = await petUi();
+			// 降级后的状态要等一次：气泡里答复一到手就进入 `failed`（1500ms 后回 `running`），
+			// 所以"看到 failed"这件事必须单独采一次，不能混在"答复到位"那一轮里。
+			// ⚠️ 快失败（死端口）时 `running → failed` 可能在同一个 tick 里发生，
+			//    MutationObserver 只报一次（`failed`）—— 所以这里只取"之后"的序列，
+			//    `failed` 的观测证据取自上面 `dead.stateSeq`，两条断言各用各的证据。
+			const deadStateSeq = (
+				await cdp.send("Runtime.evaluate", {
+					expression: `(() => {
+						const el = document.getElementById("pet");
+						const seen = [el.dataset.petState || null];
+						return new Promise((resolve) => {
+							const mo = new MutationObserver(() => {
+								const s = el.dataset.petState || null;
+								if (s !== seen[seen.length - 1]) seen.push(s);
+							});
+							mo.observe(el, { attributes: true, attributeFilter: ["data-pet-state"] });
+							setTimeout(() => {
+								mo.disconnect();
+								resolve({ seq: seen, state: el.dataset.petState || null });
+							}, 2400);
+						});
+					})()`,
+					returnByValue: true,
+					awaitPromise: true,
+				})
+			).result.value;
+			const alive = isRealReply(dead?.reply, "在吗") && ui.hasInput;
+			// 注 ①：这里**故意不断言** `after > 0`。死端口上 `fetch` 会立刻抛错，有些路径
+			// （例如 URL 规范化差异）数不到也不算异常；真正要证的是"降级了、还能用、没泄漏"。
+			// 注 ②：也**不**在这里断言 `failed`：死端口的失败**很快**，`running → failed` 可能
+			// 落在同一个 tick 里（MutationObserver 只报一次），时有时无。状态联动由下一条断言
+			// 专门验（它跑的是同一套注入，但会等答复到位后再采一次）。
+			record(
+				"R-AGT-03",
+				`baseUrl 指向死端口（${DEAD}）—— 桌宠仍可用、走 mock、无报错泄漏`,
+				alive && leak.hitsText.length === 0 && leak.hitsMarkup.length === 0 && leak.hitsPet.length === 0,
+				`注入 baseUrl=${DEAD}（测后还原）→ 打到它的请求数 ${before} → ${after}；气泡原文「${(dead?.reply ?? "").replace(/\n/g, "⏎")}」（${dead?.ms}ms，人设台词、不是报错）；问答轮 state 序列 ${JSON.stringify(dead?.stateSeq)}；答复到位后 state 序列 ${JSON.stringify(deadStateSeq?.seq)}；输入框仍在=${ui.hasInput}（刻意不禁用）；禁词命中 文本[${leak.hitsText.join(", ")}] 桌宠 DOM[${leak.hitsPet.join(", ")}] 整页[${leak.hitsMarkup.join(", ")}]`,
+			);
+			record(
+				"R-AGT-04",
+				"降级时状态走 `failed`（困惑），随后自己回得来、不复位成死状态",
+				// 判据用"**失败态真的出现过**"（两次提问的序列里任一次观测到 `failed`）+ "最后回到 running"：
+				// 死端口的失败很快，`running → failed` 可能落在同一个 tick 里只报一次，所以不做顺序断言。
+				((dead?.stateSeq ?? []).includes("failed") || (deadStateSeq?.seq ?? []).includes("failed")) &&
+					deadStateSeq?.state === "running",
+				`第 1 次提问 state 序列 ${JSON.stringify(dead?.stateSeq)}、答复到位后 ${JSON.stringify(deadStateSeq?.seq)}、当前 ${deadStateSeq?.state}（failed 观测到了；1500ms hold 到期后自己回 running，聊天框还开着不算待机）`,
+			);
+		}
+
+		// ── ⑤⑥ 状态联动与复位（真机，`data-pet-state` 逐次采样）─────────────
+		{
+			// 用死端口跑这一组：**请求一定会失败**，于是"思考态 → failed → 复位"这条链
+			// 每次都能在几秒内跑完，比拿真后端赌"答复快不快"稳定得多。
+			await arm({ enable: true, baseUrl: DEAD, timeoutMs: 3000 });
+			const r1 = await askPet("在吗", { timeout: 30000 });
+			const r2 = await askPet("再问一句", { timeout: 30000 });
+			const seq1 = r1?.stateSeq ?? [];
+			const seq2 = r2?.stateSeq ?? [];
+			const THINK = ["running", "review"];
+			record(
+				"R-AGT-04",
+				"请求发出时是**思考态**（`running` 或 `review`），答复/降级后离开思考态",
+				seq1.some((s) => THINK.includes(s)),
+				`第 1 次提问的 state 序列 ${JSON.stringify(seq1)}；收尾态 ${r1?.stateAfter}；气泡「${(r1?.reply ?? "").replace(/\n/g, "⏎")}」`,
+			);
+			record(
+				"R-AGT-04",
+				"连续两次提问：状态每次都能复位（第 2 次仍出现思考态，不卡在思考中）",
+				seq2.some((s) => THINK.includes(s)) && !!r2?.reply && r2.inputStillThere === true,
+				`第 2 次提问「再问一句」的 state 序列 ${JSON.stringify(seq2)}；收尾态 ${r2?.stateAfter}；输入框仍在=${r2?.inputStillThere}`,
+			);
+			// 关聊天框 → 立刻复位（`closeChat()` 里 `setState("idle")`）
+			await closePetChat();
+			const closed = await petUi();
+			record(
+				"R-AGT-04",
+				"关掉聊天框 → 气泡清空、状态立刻复位成 `idle`（不留在思考态）",
+				closed.chat === false && closed.bubble === "" && closed.state === "idle",
+				`关闭后：is-chat=${closed.chat}、气泡「${closed.bubble}」、data-pet-state=${closed.state}`,
+			);
+			// Swup 切页 → 状态复位
+			const swupClick = `(() => { const a = [...document.querySelectorAll("a")].find((x) => (x.getAttribute("href") || "").indexOf("/archive/") === 0); if (!a) return false; a.click(); return true; })()`;
+			const clicked = await cdp.send("Runtime.evaluate", { expression: swupClick, returnByValue: true });
+			await sleep(2200);
+			const onArchive = await cdp.send("Runtime.evaluate", {
+				expression: `({ path: location.pathname, state: (document.getElementById("pet") || {}).dataset ? document.getElementById("pet").dataset.petState : null })`,
+				returnByValue: true,
+			});
+			await sleep(3000);
+			const rest = await petUi();
+			record(
+				"R-AGT-04",
+				"Swup 切页 → 聊天框关掉、状态复位（不卡在思考中）",
+				clicked.result.value === true &&
+					onArchive.result.value.path?.startsWith("/archive") &&
+					rest.chat === false &&
+					!THINK.includes(rest.state),
+				`切页后 pathname=${onArchive.result.value.path}；刚到时 data-pet-state=${onArchive.result.value.state}；+3 秒后 data-pet-state=${rest.state}（思考态集合 ${JSON.stringify(THINK)}）、is-chat=${rest.chat}`,
+			);
+			// 还原注入（测完不留痕：删掉全局量 → 走 `agentConfig` 真值）
+			await cdp.send("Runtime.evaluate", {
+				expression: `(() => { delete window.__imissAgentConfig; delete window.__imissAgentUrls; window.__imissAgentRestored = true; return true; })()`,
+				returnByValue: true,
+			});
+			const restored = await cdp.send("Runtime.evaluate", {
+				expression: `(() => ({ restored: window.__imissAgentRestored === true, leftover: "imissAgent" in window && !!window.__imissAgentConfig }))()`,
+				returnByValue: true,
+			});
+			record(
+				"R-AGT-08",
+				"注入的测试配置已还原（页面回到 `agentConfig` 真值，不留测试痕迹）",
+				restored.result.value.restored === true && restored.result.value.leftover === false,
+				`__imissAgentConfig 已删除=${!restored.result.value.leftover}`,
+			);
+		}
+	}
+
 	child.kill();
 	await fs.rm(profile, { recursive: true, force: true }).catch(() => {});
 

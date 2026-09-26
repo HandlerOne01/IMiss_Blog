@@ -46,11 +46,21 @@ export const petConfig: PetConfig = {
 		"光标停在哪，我就看向哪。",
 		"排行榜那三张榜，我可是很认真排的。",
 	],
-	// 没有后端时的本地兜底回复（R-AGT-03）：P5 接上 Agent 后这些只在断连时用
+	/**
+	 * 没有后端时的本地兜底回复（R-AGT-03）
+	 * ============================================================================
+	 * P5 接上 Agent 之后这些只在**降级**时用：`agentConfig.enable: false`（一个请求都不发）、
+	 * 或者连不上 / 超时 / 契约不符 / 答复为空（`agent-client.ts` 按 ARCH.md §8.9.6 落回这里）。
+	 * ⚠️ 台词口径取自 `agent/persona-aemeath-v5.txt` 的红线段落：**短、平、然后给出口**。
+	 *    · 不许"星轨紊乱了"这种表演（人设第十节：宁可说「我这边断了」）；
+	 *    · **一个运维字样都不许有**（不提服务、端口、连接、模型、图、线程、错误码）。
+	 * 组件会先按用户这句话挑一句更贴的（`agent-client.ts` 的 `fallbackReply()`），
+	 * 这里这三句是"随机陪聊"那一路的出厂台词。
+	 */
 	mockReplies: [
-		"我还没连上大脑（Agent 服务还没起），先陪你聊两句吧。",
-		"这个问题等我的后端上线了再认真回答你——现在只能说：我在听。",
-		"（挠头）我现在的记忆只有这个页面，等我连上博客的检索能力再答你。",
+		"嗯，我听着呢。\n……你再多说一句。",
+		"好，我去翻。\n……等我一下。",
+		"谢什么，这不就是我的活儿嘛。",
 	],
 	/**
 	 * 运动模式（R-PET-06，发起人 2026-09-26 的新需求）
@@ -86,12 +96,26 @@ export const petConfig: PetConfig = {
 		// reduced-motion 下只保留"静态悬浮"（停在悬浮基准线上，不浮动也不飞行）
 		flyRespectReducedMotion: true,
 	},
+	/**
+	 * 桌宠 ↔ Agent 的**输入框**参数（R-AGT-03）
+	 * ============================================================================
+	 * ⚠️ P5-1 起：**服务地址与总开关都不看这里**了 —— 它们统一在 `agentConfig`
+	 *    （`enable` / `baseUrl` / `timeoutMs`），对话走 `src/utils/agent-client.ts`。
+	 *    为什么留这一份而不是删掉：`maxLength` 是输入框的体验参数（属于桌宠），
+	 *    `enable` / `apiBase` / `timeoutMs` 三个字段**当前没有消费方**（死配置），
+	 *    删它们等于改 `PetAgentConfig` 类型与 P3 的验收口径，超出本步范围——
+	 *    已写进 `ARCH.md` 的小坑记录，等 P6 一起收。
+	 *    看着像"开关"但其实不生效的那个是 `petConfig.agent.enable`；
+	 *    **真正决定发不发请求的是 `agentConfig.enable`**。
+	 */
 	agent: {
-		// ⚠️ P3 阶段保持 false：不发任何请求，走 mockReplies
+		// ⚠️ 死配置（无消费方）：真实开关是 `src/config/agentConfig.ts` 的 `enable`
 		enable: false,
-		// 空字符串 = 同源（最终由 Nginx 把 /api/ 反代到 Python 网关，见 ARCH.md §12.2）
+		// ⚠️ 死配置（无消费方）：真实地址是 `agentConfig.baseUrl`
 		apiBase: "",
+		// ⚠️ 死配置（无消费方）：真实超时是 `agentConfig.timeoutMs`
 		timeoutMs: 60000,
+		// 生效：输入框的 maxlength（体验参数，不是安全边界，见 ARCH.md §8.5）
 		maxLength: 500,
 	},
 };

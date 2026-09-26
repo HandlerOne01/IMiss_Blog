@@ -125,6 +125,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 
 <script>
 	import { petConfig } from "@/config";
+	import { askAemeath, type AgentTurn } from "@/utils/agent-client";
 	import {
 		PET_COLS,
 		PET_FLIGHT_POSE,
@@ -221,6 +222,32 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		let lastLine = -1;
 		let workTimer = 0;
 		let chatOpen = false;
+
+		/* ── 对话接线（R-AGT-03 / R-AGT-04，P5-1 / P5-2 / P5-3）───────────
+		   ⚠️ 五个会话变量**各管一件事**，别合并（合并过一次，结果是"关了聊天框
+		      还会把答复写进气泡"这类只在真机上出现的错位）：
+		     · `chatSession`  —— 第几次开聊天框。每次 `openChat()`/`closeChat()` 都 +1，
+		        异步回调回来时先比它，**不是当前这一轮就整个丢掉**（切页 / 关框后不写气泡）。
+		     · `chatBusy`     —— 这一轮请求还在飞（防连点、给输入框上锁）。
+		     · `chatAsk`      —— 上一轮后端反问的那句原文（判"用户这句是不是在回答它"）。
+		     · `chatResume`   —— 用户明确说了约定词（不提供/需要/不需要）时，下一轮该回的话。
+		     · `chatAbort`    —— 关框 / 切页时掐掉已发出的流；`thinkTimer` 是"思考中"的兜底：
+		        即使请求在中途被丢掉，状态也不会永远卡在思考态（R-PET-04 的硬要求）。 */
+		let chatSession = 0;
+		let chatBusy = false;
+		let chatAsk: string | null = null;
+		let chatResume: string | null = null;
+		let chatAbort: AbortController | null = null;
+		let thinkTimer = 0;
+		let stateTimer = 0;
+		/** 输入框里已经填过的上一位"爱弥斯说的话"（判约定词用；`closeChat()` 清空） */
+		let lastReply = "";
+		/** 后端反问时气泡里除了询问原文还会补这一行（人设口径，且不含任何内部信息） */
+		const INTERRUPT_HINT = "回我「不提供」也行，我替你挑。";
+		/** 等待时的占位文本：不是"错误提示"，是"正在翻"的可见反馈（R-AGT-04 的思考态要有落点） */
+		const THINKING_TEXT = "嗯，我看一眼。\n……等我一下。";
+		/** 后端反问句最多显示多少字（气泡宽 260px，太长会顶到视口外；截断只发生在极长句上） */
+		const ASK_MAX_CHARS = 220;
 
 		const pet = {
 			x: 0,
@@ -868,6 +895,131 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			sayTimer = window.setTimeout(() => bubble.classList.remove("is-pop"), 4200);
 		}
 
+		/* ── 对话：把答复写进气泡（只碰文本，不碰结构）──────────────────
+		   为什么不让适配层直接写 DOM：适配层要能被单独测（`verify:ui` 里那几条
+		   零请求 / 泄漏 / 降级断言都不该依赖气泡），DOM 与九状态联动留在这里。 */
+		function setReply(reply: HTMLElement, text: string): void {
+			if (!text) return;
+			reply.textContent = text;
+			lastReply = text;
+		}
+
+		/** 收尾（无论网络那侧发生了什么）：解锁输入、停"思考中"计时、按会话比一次再复位 */
+		function endTrip(session: number, state: PetStateName, hold = 0): void {
+			if (chatSession !== session) return;
+			chatBusy = false;
+			clearTimeout(thinkTimer);
+			reEnableInput();
+			setState(state, hold);
+			if (hold > 0) {
+				// 一次性动画播完回到"聊天中该有的样子"（`running`），而不是回待机：
+				// 聊天框还开着的时候宠物打瞌睡很怪，而且下一次提问的状态切换会看不出来。
+				clearTimeout(stateTimer);
+				stateTimer = window.setTimeout(() => {
+					if (chatOpen && chatSession === session && !pet.dragging) setState("running");
+				}, hold + 80);
+			}
+		}
+
+		/**
+		 * 把输入框放回可用（并清掉"发送"上的锁标记）。
+		 * ⚠️ 降级之后**必须**还能继续问：R-AGT-03 与 §8.9.6 第 4 条写的是"仍然可用、
+		 * 能连续降级、能重试"，而输入框一旦被锁死，用户看到的就是"坏了"。
+		 */
+		function reEnableInput(): void {
+			const input = bubble.querySelector<HTMLInputElement>(".pet-chat input");
+			if (!input) return;
+			input.disabled = false;
+			input.removeAttribute("data-pet-busy");
+			if (chatOpen && document.activeElement !== input) input.focus();
+		}
+
+		/** 清掉这一轮的全部残留（关框 / 切页都走它），顺带把状态从"思考中"摘出来 */
+		function clearChatRuntime(): void {
+			chatSession++;
+			chatBusy = false;
+			chatAsk = null;
+			chatResume = null;
+			lastReply = "";
+			clearTimeout(thinkTimer);
+			clearTimeout(stateTimer);
+			chatAbort?.abort();
+			chatAbort = null;
+		}
+
+		/**
+		 * 把一次问答交给适配层，并把结果落到气泡与九状态上（R-AGT-03 / R-AGT-04）。
+		 * 状态口径（**复用现有九状态，不新增**）：
+		 *   · 发出请求 → `running`（"执行任务"）。为什么不用 `review`：`review` 是 `once`
+		 *     一次性动画 + 一次星屑庆祝，语义是"完成了"；用它在"还在等"的时候眨眼会误导。
+		 *   · 失败 / 降级 → `failed`（"困惑"，1500ms 后回 `running`，聊天框还开着不算待机）。
+		 *   · 拿到答复 → `review`（"完成反馈"）。
+		 */
+		function runAsk(reply: HTMLElement, message: string, pending: string | null): void {
+			const session = chatSession;
+			chatBusy = true;
+			chatAsk = null;
+			chatResume = null;
+			// 「思考中」的可见反馈：状态切到 `running`（执行任务）+ 气泡里给一句占位。
+			// 等一会儿再补一次：后端可能先反问一句（`interrupt`），那一步也可能要几秒。
+			const thinking = () => {
+				if (chatSession !== session || pet.dragging) return;
+				setState("running");
+				if (!reply.textContent) reply.textContent = THINKING_TEXT;
+			};
+			thinking();
+			thinkTimer = window.setTimeout(thinking, 1200);
+
+			chatAbort?.abort();
+			const ac = new AbortController();
+			chatAbort = ac;
+
+			void askAemeath(message, {
+				signal: ac.signal,
+				// `pending` = 后端上一轮反问过（用户这句很可能是对它的回答）；
+				// 适配层再按约定词判一次，**不匹配就当新消息发**（契约：不匹配也不许报错）
+				lastReply: pending ? lastReply : undefined,
+				events: {
+					onReply: (text) => {
+						// 中途的流式增量：会话变了就丢掉（不能往已经关掉的气泡里写）
+						if (chatSession !== session) return;
+						setReply(reply, text);
+					},
+				},
+			}).then((turn: AgentTurn) => {
+				if (chatSession !== session) return; // 关框 / 切页之后的迟到结果，丢掉
+				clearTimeout(thinkTimer);
+				if (turn.status === "interrupt") {
+					chatAsk = turn.interrupt?.ask ?? null;
+					chatResume = turn.interrupt?.reply ?? null;
+					// ⚠️ 两种 `interrupt` 形态都要照顾（实测见 agent-client.ts 的 T53 注释）：
+					//   · `recommended_agent`：先反问、**没有**答复 → 气泡就是那句反问；
+					//   · `blog_agent` 检索链路：**先给答复、再反问**（要不要收进本子）→
+					//     答复必须留在气泡里，只显示反问会把刚查到的文章列表丢掉。
+					// 适配层已经按这个顺序拼好 `text`（答复在前、反问在后），这里原样上屏，
+					// 只有"纯反问"那一种才补一行提示。
+					setReply(reply, trimAsk(turn.text, turn.text.length > ASK_MAX_CHARS));
+					const onlyAsk = !turn.text.includes("\n\n");
+					if (onlyAsk) setReply(reply, `${trimAsk(turn.text, true)}\n\n${INTERRUPT_HINT}`);
+					endTrip(session, "running");
+					return;
+				}
+				if (turn.status === "disabled" || turn.status === "fallback") {
+					setReply(reply, turn.text);
+					// 降级不改输入框的可用性：还能接着问（契约 §8.9.6 第 4 条）
+					endTrip(session, "failed", 1500);
+					return;
+				}				setReply(reply, turn.text);
+				endTrip(session, "review", REVIEW_HOLD);
+			});
+		}
+
+		/** 询问原文可能很长（实测 100 字上下）：超长才截断，避免气泡顶出视口 */
+		function trimAsk(text: string, cut = false): string {
+			const t = text.trim();
+			return cut && t.length > ASK_MAX_CHARS ? `${t.slice(0, ASK_MAX_CHARS)}…` : t;
+		}
+
 		/* ── 星屑（纯 CSS 动效，不引第三方）───────────────── */
 		function spark(cx: number, cy: number, count: number): void {
 			if (reduce) return;
@@ -1250,11 +1402,17 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			if (menu) menu.hidden = true;
 		}
 
-		/* ── 对话（P3 走本地 mock；P5 接真 Agent）─────────── */
+		/* ── 对话（P5：`enable:false` 走本地 mock，`enable:true` 走适配层）─────────
+		   ⚠️ 这条路径**不再读 `petConfig.agent.enable`**（那是 P3 的遗留死配置）：
+		      真正的开关是 `agentConfig.enable`，由 `askAemeath()` 在里面判（关掉时
+		      **一个请求都不发**，直接回 mock）。气泡提示语也照这个分叉，但两边都不许
+		      出现"服务/连接/后端"这类运维字样。 */
 		function openChat(): void {
 			chatOpen = true;
+			clearChatRuntime(); // 上一次的计时器 / AbortController / 待续跑状态一律作废
 			pet.walking = false;
 			pet.busyUntil = 0;
+			clearTimeout(stateTimer);
 			if (pet.asleep) wake();
 			setState("running");
 			bubble.classList.add("is-chat");
@@ -1262,7 +1420,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			clearTimeout(sayTimer);
 			bubble.innerHTML = "";
 			const tip = document.createElement("div");
-			tip.textContent = petConfig.agent.enable ? "聊点什么？" : "聊点什么？（我还没连上大脑，先随便聊聊）";
+			tip.textContent = "聊点什么？";
 			const reply = document.createElement("div");
 			reply.className = "pet-chat-reply";
 			const form = document.createElement("form");
@@ -1281,19 +1439,21 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			form.addEventListener("submit", (e) => {
 				e.preventDefault();
 				const text = input.value.trim();
-				if (!text) return;
+				if (!text || chatBusy) return; // 请求还在飞就别再发一条（会白等两轮）
 				input.value = "";
-				// P5：这里换成 utils/pet-agent-client.ts 的流式调用（R-AGT-03/04）
-				const pool = petConfig.mockReplies;
-				reply.textContent = pool[Math.floor(Math.random() * pool.length)];
-				setState("review", REVIEW_HOLD);
-				pet.nextAt = performance.now() + 1200;
+				// 刻意**不** disable 输入框：`chatBusy` 已经挡住重复提交，而禁用会让
+				// "读到 disabled 就当坏了"的旁路判断和读屏体验都变差（气泡里的答复才是反馈）。
+				send.dataset.petBusy = "1"; // 只给验收脚本读"正在飞"这个事实，样式不动
+				reply.textContent = text; // 用户那句先上屏，接着才是思考态与答复
+				lastReply = text; // 兜底：适配层拿它判"这句是不是在回答刚才的反问"
+				runAsk(reply, text, chatResume);
 			});
 		}
 
 		function closeChat(): void {
 			if (!chatOpen) return;
 			chatOpen = false;
+			clearChatRuntime(); // 关框 = 这一轮作废：掐流、清计时器、迟到结果不许再写气泡
 			bubble.classList.remove("is-chat");
 			bubble.classList.remove("is-pop");
 			bubble.textContent = "";
@@ -1451,6 +1611,14 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 					flying: boolean;
 					reduce: boolean;
 				};
+				/** 对话状态探针（R-AGT-04 的断言用）：只读，返回当前快照，**不改任何行为** */
+				__imissChatDebug?: () => {
+					open: boolean;
+					busy: boolean;
+					ask: string | null;
+					resume: string | null;
+					lastReply: string;
+				};
 			};
 			dbg.__imissFlyNow = () => startFlight(performance.now(), true);
 			dbg.__imissSetMode = (m) => {
@@ -1471,6 +1639,18 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				y: Math.round(pet.y),
 				flying: pet.flight !== null,
 				reduce,
+			});
+			// R-AGT-04：把"待续跑"这条状态**只读地**暴露出来。
+			// 为什么要它：`interrupt` 的续跑词是适配层按后端问句推出来的（`replyForAsk`），
+			// 断言要验的是"组件真的会拿这个词去续跑"，而这个词只存在于闭包里 ——
+			// 没有这个探针，脚本只能自己猜一个词，猜错了会变成"测试写错、代码背锅"。
+			// 与 `__imissFlyNow` 那批同理：**只读不写**，不提供任何旁路。
+			dbg.__imissChatDebug = () => ({
+				open: chatOpen,
+				busy: chatBusy,
+				ask: chatAsk,
+				resume: chatResume,
+				lastReply,
 			});
 
 			hit?.addEventListener("pointerdown", onPointerDown);

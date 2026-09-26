@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.33 |
+| 文档版本 | v1.34 |
 | 最后更新 | 2026-09-26 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -1115,6 +1115,106 @@ const reply = ai?.content ?? "";                    // ← 只有它进气泡
 
 > **这条规矩是"验过"的，不是写上去的**：2026-09-26 停掉 `langgraph dev` 后跑，输出 `⏭️ [SKIP]` + 启动命令，**退出码 0**；再注入两次契约漂移（① 把一个图名改错，② 把"取最后一条 `ai`"改成"取第一条 `ai`"）→ 都是 **退出码 1**，且第二条精确命中了「检索轮 · 只渲染最后一条」这条断言。
 
+### 8.10 前端实现落点（P5-1 / P5-2 / P5-3）
+
+> §8.9 是**契约**（冻结，不许改）；这一节是**契约在前端的落点**（可以改，改完要同步这一节与 `verify:ui` 的 R-AGT 断言）。
+
+**代码落点**
+
+| 落点 | 文件 | 职责 |
+| --- | --- | --- |
+| 适配层 | **`src/utils/agent-client.ts`**（新增） | HTTP + SSE + `interrupt` 判定 + 降级。**只依赖 `agentConfig`**，组件不许自己写 `fetch` / 解析 SSE |
+| 配置 | `src/config/agentConfig.ts` | `enable` 已改 **true**（P5-2）；`baseUrl` **支持构建期环境变量覆盖**（见下）；`graphId`/`timeoutMs`/`resumeWords`/`fallbackToMock`/`debug` 照旧 |
+| 对话入口 | `src/components/features/AemeathPet.astro` 的 `openChat()` / `runAsk()` / `closeChat()` | 气泡 DOM、九状态联动、会话作废（不再读 `petConfig.agent.enable`——那是遗留死配置） |
+
+**`baseUrl` 怎么定（发起人 2026-09-26 确认：Agent 是跑在云服务器上的，不是访客本机）**
+
+```
+① import.meta.env.PUBLIC_AGENT_BASE_URL   // Astro 只把 PUBLIC_ 前缀的变量注入客户端
+② 没设 → DEFAULT_AGENT_BASE_URL = "http://127.0.0.1:2024"（langgraph dev 默认端口）
+```
+
+| 场景 | 怎么配 | 说明 |
+| --- | --- | --- |
+| 本地开发 | **什么都不用设** | 打本机 2024，就是现在的行为 |
+| 上线（**推荐：同源反代**） | `PUBLIC_AGENT_BASE_URL=/api/agent`，Nginx 把 `/api/agent/` 反代到 `127.0.0.1:2024` | ① **同源没有 CORS 问题**（现在是 `ACAO: *`，见 B-14；同源之后浏览器不发预检，也不必求对方改 CORS）；② SSE 只需 Nginx 上 `proxy_buffering off`（§12.2 已写好）；③ 端口不外露，限流/鉴权将来都落这一层 |
+| 独立域名 / 将来的网关 | 给完整 URL（如 `https://agent.example.com`） | 前提是它实现了 §8.9 的端点序列 |
+
+> **前端只依赖 `baseUrl` 一个值**：直连（本机 2024）与反代（同源 `/api/agent`）走的是同一份代码，
+> 换形态只改这个变量 / 环境变量，**不改任何别的文件**。
+> 实测证据：设 `PUBLIC_AGENT_BASE_URL=https://agent-probe.example.invalid` 构建 → 哨兵值出现在
+> `dist/_astro/config.*.js`；不设再构建 → 哨兵消失、`127.0.0.1:2024` 回到产物里。
+
+**三档时间闸门（这是"别拿一个总时长把流掐断"的落点）**
+
+| 闸门 | 取值 | 管什么 | 为什么 |
+| --- | --- | --- | --- |
+| 连接 / 首字节 | `min(agentConfig.timeoutMs, 20s)` | "发出请求 → 拿到响应头"这一小段 | 实测首字节 1~5 秒；服务在排队时别一直耗着 |
+| 流中途卡死 | **60 秒没有任何新 chunk** | 流已经开了但不动了 | 检索轮总耗时实测 30~120 秒且抖动大（§8.9.7 未决项 #7）；**固定总时长掐流 = 真机"聊到一半断掉"** |
+| 单轮硬上限 | **300 秒** | 兜底，防"永远挂着" | 与 §12.2 的 Nginx `proxy_read_timeout 300s` 对齐 —— 前端比反代稍早收手，用户看到的是降级台词而不是 504 |
+| `/ok` 探测 | 2 秒（§8.9.1） | 降级判定的唯一入口 | 本机 `ECONNREFUSED` 是立刻返回的 |
+| 重试 | 连接层错误 1 次 / 间隔 500ms；`4xx` 不重试；**流已开始后中途断开不重试** | — | 重试会把半截答复重放一遍 |
+
+**适配层对外的形状**（组件只认这些；内部字段一律不出这个文件）
+
+```ts
+export async function askAemeath(message: string, opts?: {
+  signal?: AbortSignal;                       // 关聊天框 / 切页时取消
+  events?: { onReply?: (text: string) => void };  // 流式增量（去重后）
+  lastReply?: string;                         // 上一轮气泡里的那句话（判"是不是在回答 interrupt"）
+}): Promise<AgentTurn>;                       // 永不抛异常
+
+type AgentTurnStatus = "answer" | "interrupt" | "fallback" | "disabled";
+interface AgentTurn {
+  text: string;             // 进气泡的文本
+  status: AgentTurnStatus;  // 组件按它做状态联动
+  fromMock: boolean;        // 走了 mock（降级 / 开关关掉）
+  reason?: string;          // **只给日志与断言看**，绝不许进气泡
+  interrupt?: { ask: string; reply: string; via: "values" | "updates" | "state" };
+  elapsedMs: number;
+}
+// 另导出 probe / listAssistants / createThread / fallbackReply / pickLiveConfig / resetSession（测试与排障用）
+```
+
+**实现要点（逐条与 §8.9 对应）**
+
+1. **`listAssistants()` 按 `graph_id` 去重**后取 `agentConfig.graphId` 对应的那一个 → **不硬编码 `assistant_id`**。`assistant_id` 与 `thread_id` 都只活在模块级变量里，**不进 DOM、不进气泡、不写 `localStorage`**（服务端是内存 checkpoint，存了也要处理失效，见 §8.9.7 未决项 #5）。
+2. **SSE 手写解析**：`fetch` + `body.getReader()` + 自写的增量解析器（约 30 行，零依赖）。**先把 `\r\n`/`\r` 归一成 `\n`**，行前缀用 `/^(event|data):\s?/` 而不是 `startsWith("data: ")`（中间有代理时会去掉空格）；`:` 开头当注释/心跳跳过；**跨 chunk 的半截事件留在缓冲里**。
+3. **事件白名单**（§8.9.3 的 8 个名字）之外的任何事件名 → 判契约不符 → 降级（`reason` 里显形，气泡里一个字都不露）。
+4. **只认 `values`**：`tool` 消息、`messages/partial`、`messages/metadata`、`messages/complete` **一个都不送给 UI**。最终答复 = 最后一个 `values` 里**最后一条 `content` 非空的 `ai` 消息**（§8.9.3 的唯一取法）。
+5. **`interrupt` 三层**：① `values.__interrupt__` → ② `updates.__interrupt__` → ③ `GET /threads/{id}/state`。第三层**优先读 `tasks[].interrupts[]` 而不是 `interrupts[]`** —— 后者是**历史累计**（跑过几轮就有几条），拿它会把"上一轮的旧问题"混进来（P5-1 实测踩到，登记为 T50）。
+6. **约定词**：判定规则写死在 `replyForAsk()` 里（问句里出现「不提供 / 不想说」→ 默认词；出现「多少字 / 篇幅 / 时长」→ 默认词；出现「要不要我 / 需要我」→ `provide`）。用户那句本身若含约定词，就用他说的那个（`decline` 优先于 `provide`）；**不含就当新消息发**，绝不报错（§8.9.5）。
+7. **超时与重试**：见上面那张「三档时间闸门」表 —— **连接/首字节**与**整轮**是分开的，长答复不会被一刀切断。
+8. **降级**（§8.9.6 六条触发条件全覆盖）：
+
+   | 触发 | 判定 | 行为 |
+   | --- | --- | --- |
+   | `enable:false` | 读配置 | **一个请求都不发**，直接 `fallbackReply()` |
+   | 连不上 | `fetch` 抛 `TypeError` | 重试 1 次 → 仍失败就降级 |
+   | 超时 | 首字节 20s / 整轮 180s | 降级 |
+   | 契约不符 | 白名单外事件名 / 末事件不是 `values`（等价于取不到答复）/ 响应没有 body | 降级 |
+   | 返回空 | 最后一条非空 `ai` 消息是空串 | 降级 |
+   | 服务端错误 | `5xx`（含重试后仍失败） | 降级 |
+   | **调用方取消** | `signal.aborted`（关框 / 切页） | **不降级、不报错**：返回 `text: ""`，组件按会话号丢弃（不算 §8.9.6 的六条） |
+
+9. **mock 台词口径**：`fallbackReply()` 按用户这句话挑一句（人设红线：短、平、然后给出口），出厂台词池是 `petConfig.mockReplies`（已按同一口径重写）。**两边都不含任何运维字样**（不提服务/端口/连接/模型/图/线程/错误码）。
+10. **九状态联动**（R-AGT-04，**不新增第 10 个状态**）：请求发出 → `running`（"执行任务"；不用 `review` 是因为它是 `once` 一次性动画 + 星屑庆祝，语义是"完成了"）；失败/降级 → `failed`（1500ms 后回 `running`，聊天框还开着不算待机）；答复完成 → `review`（"完成反馈"）+ `waving` 的意图由 `openChat()` 的 `running` 承接。
+11. **复位**（R-PET-04 的硬要求）：`chatSession` 计数器 + `AbortController` + `thinkTimer` 三件套 —— 关聊天框、Swup 切页、连续提问时**迟到的结果一律丢弃**，状态由 `endTrip()` / `closeChat()` 复位。⚠️ `closeChat()` 只 `abort()` 不断流会让 `fetch` 抛 `AbortError`，**必须同时作废会话号**（登记为 T51）。
+
+**测试落点（`pnpm verify:ui` 的 R-AGT 段，11 条）**
+
+| 断言 | 做法 |
+| --- | --- |
+| 产物里 `enable` 是 true | 从 `dist/` 的首页抠出桌宠 chunk，核对 `enable` 为真 |
+| `enable:false` 零请求 | 注入 `{enable:false}` + 包装 `fetch` 计数 → 真机走一遍"右键菜单 → 聊天 → 键入 → 提交"，打到 `127.0.0.1:2024` 的请求数必须 **0** |
+| 真往返 + 人设口径 | 注入 `{enable:true}` 再走一遍：计数 **>0**、气泡文本无完整域名 / 无表格 / 无加粗 / 无「您」 |
+| `interrupt` + 续跑 | 真机问「推荐几篇讲 Linux 的博客」→ 气泡里出现反问 → 回「不提供」→ 拿到 >60 字的最终答复且**不再反问** |
+| 死端口降级 | 注入 `baseUrl=http://127.0.0.1:2099`（测完还原）→ 仍可用、走 mock、`data-pet-state` 序列含 `failed`、整页无禁词 |
+| 状态联动与复位 | 死端口跑两次提问，用 `MutationObserver` 记 `data-pet-state` 序列；关框后回 `idle`；Swup 切页后不卡在思考态 |
+| 还原 | 测完 `delete window.__imissAgentConfig` 并断言已删 |
+
+> **为什么要注入开关**：`enable` 是构建期常量，"零请求"与"真往返"要在**同一份产物**上各证一次；build 两次会留下与交付物不一致的产物。注入钩子（`window.__imissAgentConfig`，白名单只放 `enable`/`baseUrl`/`timeoutMs`）只在 `verify:ui` 里被写入，正常运行路径上这个全局量不存在。
+
 ---
 
 ## 9. 内容迁移流水线（R-CNT）
@@ -1274,17 +1374,18 @@ dosc/blog/**/*.md（只读）
 | `pnpm preview` | 预览构建产物 | — |
 | `pnpm format` / `pnpm lint` | Biome 格式化与检查 | — |
 | `pnpm verify:posts` | **内容校验**（`scripts/verify-posts.mjs`，阻断式）：frontmatter 完整性 / slug 唯一且 ASCII / 正文非空 / **本地图片存在且非 0 字节** / `frontmatter.image` 存在性 / 站内链接目标存在 / 残留 Obsidian 语法 / 标题重复 / `rankConfig` 的 title 与 cover。`--quarantine` 可把出错文章移进 `src/content/_quarantine/` | ✅（P4 新增） |
-| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **214 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底、**P4 内容迁移全项**：配图真实加载 / 编号顺序 / 移动端 / 不生成 figure 图注 / URL 形态 / 双链改写 / 无 Obsidian 残留 / 表格与代码块 / 无标题短笔记 / 归档与分类收录），并输出 **29 张**截图到 `reports/screenshots/`。P3 起含桌宠与壁纸全项（九状态触发 / 键盘 / 拖拽 / 菜单 / 联动 / reduced-motion / 与浮动按钮不重叠 / 移动端隐藏 / 取景与暗罩），**P3-R-PET-06 起含三档运动模式全项**：默认档为 `float` 且悬空（底部距视口底 > 120px）/ 强制起飞后坐标真的变化且飞行中带 `data-pet-flying` / 飞行全程不出视口 / 固定档 1.6s 两次采样坐标完全相同且拖放不落地 / 贴地档松手回地面高度 / 三档都不与右下角浮动按钮重叠 / reduced-motion 下 `float` 两帧 `transform` 相同（静态悬浮）/ 位置记忆仍生效且模式以配置为准；**R-PET-07 起含飞行手感与菜单摆位**（位移 60~180px / 时长 4~6s / row4 姿态 / 菜单四边在视口内）；**R-PET-08 起菜单判据全部换成左右摆位**（并排在宠物左/右、纵向顶部对齐、哪边够放哪边、5 点 `elementFromPoint` 命中、被遮挡换边、两侧都被挡的两级兜底、`data-pet-menu-side` 取值与层级不变），并新增**菜单项与下落/上升行为**断言（档位二选一显示「落下去」/「飘起来」、点「落下去」后 y 在 3 秒内落到地面线且 `data-pet-mode=ground`、点「飘起来」后反向回到悬浮档）。⚠️ **数字基准是"对 `pnpm preview` 的静态产物跑"**：对 `pnpm dev` 跑会少 12 条（4 条 noindex 存根 + sitemap 4 条 + llms.txt 2 条 + `/rank/` 存根 + noscript/class 兜底），那时的旧口径 145 就是这么来的，别拿它当基准 | ✅（P1 新增，P2/P3/P4/R-PET-06/R-PET-07/R-PET-08 六次扩容） |
+| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **227 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底、**P4 内容迁移全项**：配图真实加载 / 编号顺序 / 移动端 / 不生成 figure 图注 / URL 形态 / 双链改写 / 无 Obsidian 残留 / 表格与代码块 / 无标题短笔记 / 归档与分类收录），并输出 **29 张**截图到 `reports/screenshots/`。P3 起含桌宠与壁纸全项（九状态触发 / 键盘 / 拖拽 / 菜单 / 联动 / reduced-motion / 与浮动按钮不重叠 / 移动端隐藏 / 取景与暗罩），**P3-R-PET-06 起含三档运动模式全项**：默认档为 `float` 且悬空（底部距视口底 > 120px）/ 强制起飞后坐标真的变化且飞行中带 `data-pet-flying` / 飞行全程不出视口 / 固定档 1.6s 两次采样坐标完全相同且拖放不落地 / 贴地档松手回地面高度 / 三档都不与右下角浮动按钮重叠 / reduced-motion 下 `float` 两帧 `transform` 相同（静态悬浮）/ 位置记忆仍生效且模式以配置为准；**R-PET-07 起含飞行手感与菜单摆位**（位移 60~180px / 时长 4~6s / row4 姿态 / 菜单四边在视口内）；**R-PET-08 起菜单判据全部换成左右摆位**（并排在宠物左/右、纵向顶部对齐、哪边够放哪边、5 点 `elementFromPoint` 命中、被遮挡换边、两侧都被挡的两级兜底、`data-pet-menu-side` 取值与层级不变），并新增**菜单项与下落/上升行为**断言（档位二选一显示「落下去」/「飘起来」、点「落下去」后 y 在 3 秒内落到地面线且 `data-pet-mode=ground`、点「飘起来」后反向回到悬浮档）。⚠️ **数字基准是"对 `pnpm preview` 的静态产物跑"**：对 `pnpm dev` 跑会少 12 条（4 条 noindex 存根 + sitemap 4 条 + llms.txt 2 条 + `/rank/` 存根 + noscript/class 兜底），那时的旧口径 145 就是这么来的，别拿它当基准 | ✅（P1 新增，P2/P3/P4/R-PET-06/R-PET-07/R-PET-08 六次扩容） |
 | `node scripts/import-posts.mjs` | **旧博客迁移**（默认 dry-run）：`--write` 落盘、`--batch 1..5`、`--cat`、`--only`、`--limit`、`--src`；报告写 `reports/import-report.json` | ✅（P4 新增） |
 | `pnpm verify:docs` | **文档一致性自检**（`scripts/verify-docs.mjs`）：核对三份文档互相之间、以及文档与仓库事实是否一致——版本号与"最后更新"日期、断言/截图数与最近一次实测、排行页清单与路由文件、导航子项与 `navBarConfig.ts`、需求编号引用闭环、阻塞项条数与编号连续、§2 与 §3 阶段状态，以及**配置事实**（`displaySettingsConfig.enable`、`rankConfig.dataStatus`、"4 组数据"类说法是否漏了第 5 份）。**每次收工前跑一次**（P2 加二游排行时文档漂移了 12 处，就是没有这道关卡） | ✅（v1.12 新增） |
 | `pnpm verify:agent` | **Agent 接口契约自检**（`scripts/verify-agent.mjs`，零依赖）：把 `ARCH.md` §8.9 的契约变成 **14 项断言**——配置对齐（读 `agentConfig.ts` 原文核对）/ `GET /ok` / `GET /assistants/search` 去重后 4 张图 / 闲聊轮事件白名单+`values` 收尾+与 `GET state` 一致+最终答复 / 检索轮「工具输出进了流但没进答复」/ 推荐轮 `interrupt`→`resume:「不提供」` / `configurable`+`context` 400 坑 / 降级探测（死端口不可用 + 活服务可用对照项）。**退出码规矩与其它 `verify:*` 不同**：Agent 没在跑 = **SKIP + 退出码 0**（打印 `langgraph dev` 启动命令），**契约不符 = 退出码 1**。产物 `reports/verify-agent.log` + `reports/verify-agent.json` | ✅（v1.33 / P5-0 新增） |
+| `pnpm verify:ui` 的 **R-AGT 段** | **端到端联动断言（11 条，见 §8.10）**：产物里 `enable` 是真的 / `enable:false` **零请求** / `enable:true` 真往返 + 人设口径（无「您」无加粗无表格无完整域名）/ `interrupt` 反问进气泡 + 回约定词「不提供」续跑 / 死端口降级仍可用 / 状态联动与复位（关框、Swup 切页、连续提问）/ 气泡与整页 DOM 无禁词表 / 注入已还原。⚠️ Agent 没在跑时**真往返那两条记 SKIP 不计失败**（与 `verify:agent` 的退出码规矩一致：环境未就绪不算回归） | ✅（v1.34 / P5-1~P5-3 新增） |
 | `pnpm make:logo` | 把 `src/assets/images/logo/imiss-logo.svg`（手写矢量设计源）栅格化成导航栏 Logo（webp）与 favicon 四档 PNG | ✅（P1 新增） |
 | `node scripts/make-rank-cover-guide.mjs` | 生成榜单配图比例对照图 `docs/imiss/rank-cover-guide.png`（16:9 原图裁成 5.7:1 后哪一条留下；发起人准备素材时看这张） | ✅（v1.13 新增） |
 
 > **关于 `verify:ui` 的对比度检查**：主体走"token 级"校验（`--deep-text`/`--content-meta`/`--btn-content`/`--primary` 对卡片底/页面底），不是"扫全站文字元素"。
 > 原因：这个主题里大量文字压在封面图、壁纸、半透明面板上，逐元素自动判定无法可靠取得背景色（试了三版：canvas 转色 → 逐层合成 → Node 侧解析，期间还产出过"66/71 元素低于 3:1"的假警报）。
 > P2 补了两处**具体**的对比度断言（不依赖背景取色）：① 名次数字对名次底色（`getComputedStyle` 直接读两个颜色，白字压粉底 ≥ 3:1、深字压橙底 ≥ 4.5:1）；② 缺图占位把渐变各档合成到不透明底色上取最亮值，与白字算对比度（暗/亮主题各一条）。
-> 观感部分仍然是"**可复现的数字交给脚本，观感交给截图**"：脚本每轮输出 37 张截图并人工核对；另外把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
+> 观感部分仍然是"**可复现的数字交给脚本，观感交给截图**"：脚本每轮输出 41 张截图并人工核对；另外把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
 
 ---
 
@@ -1440,7 +1541,7 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | D9 | 评论区先关闭但页面保留 | 直接删留言页 | 页面结构与导航一次到位，评论系统到位后只改一个配置 |
 | D10 | 留言/评论与 Agent 解耦 | 用 Agent 当留言后端 | 两者目标不同（留言是异步公开记录，Agent 是实时对话）；耦合会让简单需求变复杂 |
 
-### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 48 条：T1~T19 来自 P0/P1，T20~T26 来自 P2，T27~T29 来自 P3，T30~T33 来自 P3-9/P3-11，T34~T38 来自 P4，T39~T40 来自 R-PET-06，T41~T42 来自 R-PET-07，T43 来自 R-PET-08，T44 来自 R-PET-09，T45~T46 来自 R-PET-10，**T47~T48 来自 P5-0 契约冻结**）
+### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 58 条：T1~T19 来自 P0/P1，T20~T26 来自 P2，T27~T29 来自 P3，T30~T33 来自 P3-9/P3-11，T34~T38 来自 P4，T39~T40 来自 R-PET-06，T41~T42 来自 R-PET-07，T43 来自 R-PET-08，T44 来自 R-PET-09，T45~T46 来自 R-PET-10，T47~T48 来自 P5-0 契约冻结，**T49~T58 来自 P5-1~P5-3 接线**）
 
 实现时按这张表走，不要凭"应该没问题"假设。每条都给了文件与行号，可当场复核。
 
@@ -1498,6 +1599,14 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | T47 | **`langgraph dev` 的 SSE 事件集随"路由走哪个节点"变化，契约不能锁事件名顺序** —— 同一句「在吗」实测两种形态：**直接答复路径整个流只有 1 个 `values` 事件**（无 `metadata`、无 `messages/complete`，消息 `human,ai`）；走 `extend_graph` 路径才有 `metadata → values → updates → values → messages/metadata → messages/partial ×N → messages/complete → updates → values`（消息 `human,human,ai,tool,ai,ai,tool,ai,tool,ai`）。**两者都合法** | 契约测试若断言"首个事件必须是 `metadata`、必须含 `messages/complete`"，就会变成一个**随机失败的假红灯**（跑十次红几次），最后被人加 `skip` 绕过——比不测更糟 | 契约只锁**可判定且稳定**的三条：**事件名白名单**（越界说明上游改了协议）+ **末事件必须是 `values`**（前端就靠它拿最终状态）+ **`metadata` 若出现必须在任何 `messages/*` 之前**。再加一层保险：拿**最后一个 `values` 的消息数与 `GET /threads/{id}/state` 对比**，确保"前端拿到的最终状态 == 线程真实状态"。**P5-0 实测依据见 §8.9.3** | ✅ 已按此实现（`scripts/verify-agent.mjs`「闲聊轮 · 事件序列」） |
 | T48 | **`POST /assistants/search` 同一个 `graph_id` 可能有多个 assistant，断言必须去重** —— 实测返回 **5 条**，其中 `blog_agent` 有**两个实例**（不同 `assistant_id`），去重后才是 **4 张图**（`blog_agent` / `recommended_agent` / `collect_agent` / `extend_agent`） | 按返回条数断言（`expect(list).toHaveLength(4)`）会**因为后端多注册一个实例就变红**，而契约（"有这 4 张图可用"）其实没破；反过来也可能因为"少一张图但多了别的"而假绿 | 断言口径写成**去重后的图名集合**（`new Set(list.map(a => a.graph_id))` 必须包含契约清单里的每一张），并把**真实条数**只作为 detail 打印出来。同时**永远不要硬编码 `assistant_id`**——它是部署时生成的，每次都可能变 |
 
+| T49 | **同一份构建产物只能有一种 `enable`，而「零请求」与「真往返」两种路径都要证** —— `agentConfig.enable` 是构建期常量，build 两次会留下与交付物不一致的产物；只改配置不重建则验的是旧产物 | 断言只能覆盖一半：要么永远验不到「关掉时一个请求都不发」，要么永远验不到真链路 | 适配层读配置时**多看一眼测试注入钩子**（`window.__imissAgentConfig`，白名单只放 `enable`/`baseUrl`/`timeoutMs`，见 `src/utils/agent-client.ts` 的 `pickLiveConfig()`）：`verify:ui` 在同一份产物上分别注入 `false`/`true`/死端口，**测完 `delete` 并断言已还原**。⚠️ 钩子只在测试里写，正常运行路径上这个全局量不存在 |
+| T50 | **`GET /threads/{id}/state` 的 `interrupts[]` 是「历史累计」，不是「当前待回答」** —— 一个线程跑过 N 轮推荐，`interrupts[]` 里就可能有 N 条（上一轮的问题还在里面）。P5-1 接线时若直接取 `interrupts[0]`，会出现「用户问新问题、气泡里却弹出上一轮那句反问」（而且 `resume` 会把旧答案回给新问题） | 偶发地把**上一轮的反问**当成这一轮的问题；`resume` 用错词，推荐结果跑偏且不报错（最难查的一类） | 第三层兜底**优先读 `tasks[].interrupts[]`**（当前活跃任务），只有在它为空时才退回 `interrupts[]`；第一、二层（`values.__interrupt__` / `updates.__interrupt__`）本就只反映本轮 |
+| T51 | **取消 ≠ 降级**：`AbortController.abort()` 会让 `fetch` 抛 `AbortError`，如果适配层把它和「连不上」归成一类，就会**在用户关掉聊天框之后**再弹一句 mock 台词进气泡（气泡已经清空了，字却写进去） | 关框 / 切页之后气泡里冒出一句没头没尾的话；用户以为「它自己乱了」 | 适配层识别 `signal.aborted` → 返回 `text: ""` 且**不降级**；组件侧再叠一层 `chatSession` 会话号：异步回调回来先比会话号，不是当前这轮就整个丢掉（`openChat()`/`closeChat()` 都会 `chatSession++`） |
+| T52 | **「永远像没在思考」和「卡在思考」是同一个 bug 的两头** —— `running` 是**循环**状态（不是 `once`），`setState("running")` 在状态已经等于 `running` 时会提前 return：连续提问时第二次请求**看不到任何状态变化**；反过来，如果只把状态立起来、复位交给一条可能永远不来的网络回调，关框 / 切页 / 请求被丢弃时就会**卡在思考中** | 用户看不出「它在忙」；或宠物一直戴墨镜干活动画不放 | 每次提问都**用会话号 + 兜底计时器复位**（`endTrip()` 里 `setState(state, hold)` + `stateTimer` 到点回 `running`）；请求一发出就 `setState("running")`，收尾（答复 / 降级 / 取消 / 关框）**每条路径都要复位**。`verify:ui` 用 `MutationObserver` 记 `data-pet-state` 序列，断言「每次提问都出现思考态、连续两次都能复位、关框后回 `idle`、切页后不卡在思考态」 |
+| T55 | **CDP 的 `Runtime.evaluate` 自己有 30 秒超时，而真后端一轮要 3~120 秒** —— 把「等到答复为止」整段写成页面里的一个 `await`（配 `awaitPromise: true`），短答复时看不出问题，**检索/推荐轮必然抛 `Runtime.evaluate 超时`**（P5-1 第一次真机跑实测踩到，整脚本崩在这一句上） | 长链路（正是最需要验的那条）永远测不到，而且报的是「脚本超时」这种与业务无关的错 | 页面侧只做「**发出去**」，结果放进 `window.__agtDone` 之类的槽；**Node 侧每 250ms 轮询一次状态**（每次 `Runtime.evaluate` 都是短调用）。判定条件用「稳定窗口」而不是「第一次变化」——刚提交时气泡里是**用户那句回声**，`reply !== text` 也可能立刻成立（输入法/回车各写一次，实测拿到过「在在吗吗」这种看着像答复的回声） |
+| T56 | **泄漏扫描词表里的通用词会撞上站内合法内容** —— `langgraph` / `LangGraph` 在正文里到处都是（站里有一篇文章标题就叫《LangGraph 能力详解 · 学习笔记》，首页「最近文章」卡片与归档日历都带这个链接），拿它扫**整页 DOM** 必然假红；反过来，`.pet-bubble` 这种「真正会给访客看」的层反而没扫到 | 断言假红 → 被人 `skip` 掉 → 真正要守的那条（工具输出不许进气泡）失守；或者为了让它变绿把词表删空，等于没测 | 分**三层**扫、各扫各的：① 气泡文本 —— 禁词表**全部**条目；② 桌宠自己的 DOM（`#pet` / `#pet-menu`，去掉 `script/style`）—— 全部条目；③ 整页 —— 只扫「页面里绝不该出现」的宿主泄漏（`127.0.0.1`、`:2024`、`:2099`、`assistant_id`、`thread_id`）。⚠️ 端口要写成 `:2024` 这种带冒号的形态，裸数字 `2024` 会撞上日期与字数 |
+| T57 | **「长答复」与「卡死的连接」必须用两个不同的闸门** —— 契约 §8.9.7 早就写了检索轮总耗时实测 **30~120 秒且抖动很大**，但如果适配层拿**一个固定总时长**去 `AbortController.abort()` 整条流，真机上就会出现「聊到一半断掉」（发起人 2026-09-26 专门提醒过这一点）。反过来只按「没有新 chunk」判卡死，遇到「服务收下请求但永远不返回响应头」又会一直挂着 | 前者：答复被截断、用户以为后端坏了；后者：气泡永远停在「等我一下」 | 拆成**三档**（`agent-client.ts` 顶部常量）：① **连接/首字节** `min(timeoutMs, 20s)` —— 只管「发出请求 → 拿到响应头」；② **流中途卡死** 60 秒没有任何新 chunk（每读一次重置看门狗，`reader.cancel()` 让 `read()` 立刻返回）；③ **单轮硬上限** 300 秒兜底，且与 `ARCH.md` §12.2 的 Nginx `proxy_read_timeout 300s` 对齐（前端比反代稍早收手，用户看到的是降级台词而不是 504）。拿到响应头后必须把「连接」那一路的信号**摘掉**（`removeEventListener`），否则读到一半会被它误杀 |
+| T58 | **PowerShell 的 `*>` / `Out-File` 默认写 UTF-16LE，而下游脚本按 UTF-8 读** —— `node scripts/verify-ui.mjs --base … *> reports/verify-p4.log` 之后，`reports/sync-doc-counts.mjs` 报「日志里读不到「功能断言 N 项」」，`read` 工具也会把它当成二进制文件拒读（P5-1 实测踩到，卡了同步文档那一步） | 文档数字同步不了 → `verify:docs` 卡在"断言数与最近实测不符"；日志本身还是好的，容易误判成"脚本坏了" | 需要 UTF-8 日志时用 **`pnpm verify:ui:log`**（`scripts/verify-ui-log.mjs`：用 `spawnSync(..., {encoding:"utf8"})` 收输出再显式 `fs.writeFileSync(..., "utf8")`，写 `reports/verify-ui.log`）；`sync-doc-counts.mjs` 也改成**优先读 `reports/verify-ui.log`**、回退阶段日志 |
 ### 14.4 被移除的上游功能怎么找回来
 
 P1 按发起人要求删掉了**订阅（RSS/Atom）**。删除是有意为之，但恢复路径要写清楚，免得以后想加回来时满仓库找：
