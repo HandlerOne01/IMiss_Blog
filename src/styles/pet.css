@@ -1,5 +1,5 @@
 /* ============================================================================
- * 桌宠「爱弥斯」样式（R-PET-01 ~ R-PET-06）
+ * 桌宠「爱弥斯」样式（R-PET-01 ~ R-PET-08）
  *
  * 素材：8 列 × 9 行、单格 144×156 的图集（`src/assets/images/pet/pet-aemeath.webp`）。
  * 一帧 = 一个格子，**只靠 background-position 定位**：
@@ -215,7 +215,11 @@
 /* R-PET-07：菜单由 JS 按"宠物矩形"摆位（见 AemeathPet.astro 的 placeMenu），
    四边都夹在视口内。这里的 max-height/overflow 是**兜底**：万一视口比菜单还矮
    （约 220px 以下），JS 的 clamp 也变不出空间来，至少让菜单自己能滚，
-   而不是探出屏幕被裁掉一半。 */
+   而不是探出屏幕被裁掉一半。
+   R-PET-08：「落下去」/「飘起来」两个按钮由 JS 翻 `hidden` 二选一 ——
+   下面那条 `button[hidden]` 必须显式写：模板的全局样式/Tailwind preflight 里
+   `display` 的优先级容易压过 UA 的 `[hidden] { display: none }`，
+   而菜单是 `display: grid`，漏掉这条就会出现"两个按钮同时露出来"（实测过）。 */
 .pet-menu {
 	position: fixed;
 	display: grid;
@@ -234,6 +238,10 @@
 }
 
 .pet-menu[hidden] {
+	display: none;
+}
+
+.pet-menu button[hidden] {
 	display: none;
 }
 

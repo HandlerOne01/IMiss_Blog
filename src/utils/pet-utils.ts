@@ -103,7 +103,7 @@ export const PET_TUNING = {
 	 * 目标点、鼠标拖放、窗口缩放都会被它夹回，免得悬浮模式看起来像贴地站着。
 	 */
 	airMinGap: 48,
-	/** 悬浮模式下键盘 / 菜单「跟过来」的位移倍速（飘比走快一点，但仍是缓动位移） */
+	/** 悬浮模式下键盘 ←/→ 的位移倍速（飘比走快一点，但仍是缓动位移）；菜单「跟过来」入口已在 R-PET-08 移除 */
 	glideSpeedFactor: 1.6,
 	/**
 	 * 单次飞行的位移区间（px，R-PET-07）：`[最短, 最长]`，方向随机。
@@ -128,7 +128,9 @@ export const PET_TUNING = {
 	flyZoom: 0.04,
 	/**
 	 * 右键菜单与宠物之间的间隙、与视口四边的安全边距（px，R-PET-07）。
-	 * 菜单摆位见 `AemeathPet.astro` 的 `placeMenu()`：四边都必须夹进视口。
+	 * 菜单摆位见 `AemeathPet.astro` 的 `placeMenu()`：R-PET-08 起是**左右摆位**
+	 * （优先右侧，放不下翻左侧），纵向顶部对齐宠物顶部，四边都必须夹进视口；
+	 * 摆好之后还要用 `elementFromPoint` 抽样确认没被遮挡（被挡就换边）。
 	 */
 	menuGap: 10,
 	menuMargin: 8,

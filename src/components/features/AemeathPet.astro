@@ -1,6 +1,6 @@
 ---
 /**
- * 桌宠「爱弥斯」（R-PET-01 ~ R-PET-06）
+ * 桌宠「爱弥斯」（R-PET-01 ~ R-PET-08）
  * ============================================================================
  * 素材：`src/assets/images/pet/pet-aemeath.webp`（8 列 × 9 行，单格 144×156）
  *   Codex 自定义宠物图集（MIT），九行 = 九个状态。
@@ -65,7 +65,17 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			    而模板里 `#wallpaper-wrapper` 是 z-index 10、`#content-panel` 是 30 —— 菜单被画在
 			    壁纸和正文面板**下面**，只在两者都盖不到的地方露出来（实测 elementFromPoint 命中的
 			    是壁纸 <img> 而不是菜单），看起来就是"菜单缺了一块/被裁掉一半"。
-			    67 仍然远低于浮动按钮（1000）与移动端菜单面板（1100），R-PET-05 的"低于浮动控件"不受影响。 */}
+			    67 仍然远低于浮动按钮（1000）与移动端菜单面板（1100），R-PET-05 的"低于浮动控件"不受影响。
+			    ⚠️ R-PET-08 的另一半：层级只负责"不被常驻层压住"，**不负责"不被遮挡"** ——
+			    摆位的最后一关是 `placeMenu()` 里的 `elementFromPoint` 抽样（见该函数注释）；
+			    这里是"换边躲开遮挡"，不是"抬高 z-index 压过去"。
+
+			    菜单项（R-PET-08）：说句话 / 跳一下 / 「落下去」·「飘起来」（**按当前档位二选一显示**）
+			    / 和爱弥斯聊天。发起人原话：「（跟过来、睡一会儿）**这两个没有鸟用啊**」→
+			    两个入口已删除：`walkTo()` 与 `waiting` 状态**本体都还在用**（键盘 ←/→ 走 `walkTo()`；
+			    45 秒无操作超时进 `waiting`），只是不再有菜单入口 —— 所以只删入口、不删能力。
+			    「落下去」/「飘起来」**两个按钮都渲染**（不是条件渲染）：切档时只翻 `hidden`，
+			    不用重建节点；谁显示谁隐藏由 `syncMenuMode()` 按 `pet.mode` 决定。 */}
 			<div
 				class="pet-menu"
 				id="pet-menu"
@@ -80,11 +90,14 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				<button type="button" role="menuitem" data-pet-act="jump">
 					跳一下
 				</button>
-				<button type="button" role="menuitem" data-pet-act="follow">
-					跟过来
+				{/* 落下去 = 切到贴地档，但**不瞬移**：复用拖动松手那条重力路径落到底（startFall）；
+				    飘起来 = 反向回到悬浮档，复用 startFlight 的缓动插值竖直飘上悬浮基准线。
+				    悬浮/固定档显示「落下去」，贴地档显示「飘起来」——否则落下去就回不来了。 */}
+				<button type="button" role="menuitem" data-pet-act="drop">
+					落下去
 				</button>
-				<button type="button" role="menuitem" data-pet-act="sleep">
-					睡一会儿
+				<button type="button" role="menuitem" data-pet-act="rise">
+					飘起来
 				</button>
 				<button type="button" role="menuitem" data-pet-act="chat">
 					和爱弥斯聊天
@@ -127,6 +140,9 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		const sprite: HTMLElement = sprite0;
 		const bubble: HTMLElement = bubble0;
 		const menu: HTMLElement = menu0;
+		// R-PET-08：「落下去」/「飘起来」按档位二选一显示，同步在 syncMenuMode() 里
+		const dropItem = menu.querySelector<HTMLElement>('[data-pet-act="drop"]');
+		const riseItem = menu.querySelector<HTMLElement>('[data-pet-act="rise"]');
 
 		const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 		const PET_KEY = "imiss.pet.pos";
@@ -381,6 +397,9 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		 * 起飞一次。`force` 只给调试钩子 `__imissFlyNow()` 用（跳过"睡着"判断），
 		 * 其余判断与自动飞行完全一致 —— 验收脚本测的是**飞行函数本身**，不是绕过它。
 		 *
+		 * `dest`（R-PET-08）：**显式目标点**，只给菜单「飘起来」用 —— 从贴地档回到悬浮档时
+		 * 竖直飘上悬浮基准线。带了它就不摇随机方向，直接往那个点插值（x 不动）。
+		 *
 		 * ⚠️ R-PET-07 改了目标点的取法：原来是"在**整个视口**里随机取一个点"
 		 * （实测单次位移 414~550px，发起人反馈："你飞的太快了……自然一点就**微微挪动**就好了"）。
 		 * 现在是"**以当前位置为圆心**、朝随机方向挪 `flyDistanceRange`（60~180px）"，
@@ -388,36 +407,42 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		 * 目标点仍然先过 `rightLimit(y1)`（右下角浮动按钮，R-PET-05）、飞行中逐帧再 clamp
 		 * （不出视口）；夹回后位移缩水太多就重摇，摇几次都不行就这次不飞（过一会儿再试）。
 		 */
-		function startFlight(now: number, force = false): boolean {
+		function startFlight(now: number, force = false, dest?: { x: number; y: number }): boolean {
 			if (pet.mode !== "float" || pet.dragging || chatOpen || pet.flight) return false;
 			if (flyBlocked) return false; // reduced-motion：只保留静态悬浮，不飞
 			if (pet.asleep && !force) return false;
 			if (force) wake();
 
-			const [distLo, distHi] = flyDistanceRange;
-			const minDist = Math.max(1, distLo);
 			let x1 = pet.x;
 			let y1 = pet.y;
-			let best = -1;
-			// 最多摇 6 次：随机方向可能正好指向视口外或浮动按钮区，clamp 之后位移会缩水
-			for (let i = 0; i < 6; i++) {
-				const dist = minDist + Math.random() * Math.max(0, distHi - minDist);
-				const ang = Math.random() * Math.PI * 2;
-				const ty = pet.y + Math.sin(ang) * dist * flyVerticalRatio;
-				const cx = clampX(pet.x + Math.cos(ang) * dist, ty);
-				const cy = clampAirY(ty);
-				const d = Math.hypot(cx - pet.x, cy - pet.y);
-				if (d > best) {
-					best = d;
-					x1 = cx;
-					y1 = cy;
+			if (dest) {
+				// 显式目标（菜单「飘起来」）：不摇随机方向，只把目标夹回既有约束
+				x1 = clampX(dest.x, dest.y);
+				y1 = clampAirY(dest.y);
+			} else {
+				const [distLo, distHi] = flyDistanceRange;
+				const minDist = Math.max(1, distLo);
+				let best = -1;
+				// 最多摇 6 次：随机方向可能正好指向视口外或浮动按钮区，clamp 之后位移会缩水
+				for (let i = 0; i < 6; i++) {
+					const dist = minDist + Math.random() * Math.max(0, distHi - minDist);
+					const ang = Math.random() * Math.PI * 2;
+					const ty = pet.y + Math.sin(ang) * dist * flyVerticalRatio;
+					const cx = clampX(pet.x + Math.cos(ang) * dist, ty);
+					const cy = clampAirY(ty);
+					const d = Math.hypot(cx - pet.x, cy - pet.y);
+					if (d > best) {
+						best = d;
+						x1 = cx;
+						y1 = cy;
+					}
+					if (d >= minDist) break; // 已经达到下界，够"看得出挪了"
 				}
-				if (d >= minDist) break; // 已经达到下界，够"看得出挪了"
-			}
-			// 摇了 6 次都被夹到"几乎没动"（贴边/贴按钮的极端位置）→ 这次不飞，过一会儿再试
-			if (best < minDist * 0.5) {
-				pet.nextAt = now + 3000;
-				return false;
+				// 摇了 6 次都被夹到"几乎没动"（贴边/贴按钮的极端位置）→ 这次不飞，过一会儿再试
+				if (best < minDist * 0.5) {
+					pet.nextAt = now + 3000;
+					return false;
+				}
 			}
 			const [durLo, durHi] = MV.flyDurationRange;
 			const dur = Math.max(1000, durLo + Math.random() * Math.max(0, durHi - durLo));
@@ -484,11 +509,45 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		}
 
 		/**
+		 * 让宠物从**当前高度受重力落到地面**（R-PET-08，菜单「落下去」）
+		 * ============================================================================
+		 * 「复用」是字面意思：重力积分那段**就是** `step()` 里贴地档的
+		 * `pet.mode === "ground" && pet.airborne` 分支（P3 起就在跑），这里只把
+		 * "松手落地"的起手两行（`airborne = y < floorY - 2`、`vy = 60`）抽成公共入口，
+		 * 于是**拖动松手**（`onPointerUp`）与**菜单「落下去」**走的是同一条下落路径 ——
+		 * 逐帧加速度、落地判定（`y >= floorY && vy >= 0`）、撞击回弹（`impact > 1100`
+		 * 时弹一下）全部照旧，没有第二套缓动/插值。
+		 * 唯一多出来的一点：下落途中借 `PET_FLIGHT_POSE`（图集 row4，"双臂张开、双脚离地"，
+		 * 也是飞行用的那个姿态）**循环播放** —— 悬空时用站姿帧看起来像"平移"而不是"掉下来"；
+		 * 落地那一帧 `step()` 自己会 `setState("jumping", 420)` 播落地的弹跳。
+		 */
+		function startFall(): void {
+			pet.walking = false;
+			pet.busyUntil = 0;
+			pet.airborne = pet.y < floorY - 2; // 离地不足 2px 就当已经在地面上
+			pet.vy = pet.airborne ? 60 : 0; // 60 = 拖动松手时的初速（P3 原值）
+			if (!pet.airborne) {
+				setState("idle");
+				pet.nextAt = performance.now() + 900;
+				return;
+			}
+			setState(PET_FLIGHT_POSE.state, 0, PET_FLIGHT_POSE.loop);
+			// 姿态是循环的"悬空帧"，不能被一次性动画的收尾逻辑（step 里的 busyUntil 分支）接管
+			pet.busyUntil = 0;
+		}
+
+		/**
 		 * 切模式：启动时按配置调一次；验收脚本的 `__imissSetMode()` 也走这里（不是旁路）。
 		 * 切完位置一律 clamp 回视口 —— 贴地 → 落回地面；悬浮 → 抬到悬浮基准线；
 		 * 固定 → 就地停在当前高度（不悬浮、不掉落）。
+		 *
+		 * `smooth`（R-PET-08，菜单「落下去」/「飘起来」）：**不要瞬移**，走既有的位移路径 ——
+		 *   · `ground` → `startFall()`（拖动松手那条重力落地，真的"掉下去"）；
+		 *   · `float`  → `startFlight()` 的缓动插值竖直飘上悬浮基准线（不是"啪"地跳上去）。
+		 * 默认 `false`：启动与调试钩子 `__imissSetMode()` 走的仍是"直接定位"原语义
+		 * （验收脚本的 R-PET-06 逐档取样就靠它）。
 		 */
-		function setMode(next: PetMovementMode): void {
+		function setMode(next: PetMovementMode, smooth = false): void {
 			pet.mode = next;
 			el?.setAttribute("data-pet-mode", next);
 			cancelFlight(false);
@@ -499,22 +558,47 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			pet.asleep = false;
 			pet.x = clampX(pet.x);
 			const now = performance.now();
+			/** 平滑上升的目标高度（只有 `float` + `smooth` 会填） */
+			let liftTo: number | null = null;
 			if (next === "ground") {
-				pet.y = floorY;
-				pet.nextAt = now + 1800;
+				if (smooth) {
+					// 位置**不动**：交给 startFall() 从当前高度掉下去（下面统一调）
+					pet.nextAt = now + 1800;
+				} else {
+					pet.y = floorY;
+					pet.nextAt = now + 1800;
+				}
 			} else if (next === "float") {
 				// 从地面切过来时 y 贴着地（离地不足）→ 抬到悬浮基准线；本来就在半空 → 就地悬停
-				pet.hoverBase = pet.y <= maxAirY() - 8 ? clampAirY(pet.y) : floatBaseY();
+				const base = pet.y <= maxAirY() - 8 ? clampAirY(pet.y) : floatBaseY();
+				pet.hoverBase = base;
 				pet.hoverPhase = 0;
-				pet.y = pet.hoverBase;
 				pet.nextAt = now + nextFlyDelay();
+				if (smooth && base < pet.y - 8) {
+					liftTo = base; // 贴地档回悬浮：交给飞行插值往上飘（下面统一调）
+				} else {
+					pet.y = base;
+				}
 			} else {
 				pet.y = clampY(pet.y);
 				pet.nextAt = Number.POSITIVE_INFINITY; // 固定：不再安排任何自动动作
 			}
 			setState("idle");
 			applyTransform();
+			syncMenuMode(); // 档位换了 → 菜单里「落下去」/「飘起来」二选一也要跟着换
 			placeMenu(); // 切档会整块换高度（贴地/悬浮/固定），菜单要跟着重排
+			if (!smooth) return;
+			if (next === "ground") {
+				startFall();
+			} else if (next === "float" && liftTo !== null && !startFlight(now, true, { x: pet.x, y: liftTo })) {
+				// 起不来（reduced-motion 下不飞 / 已经在飞）→ 退回"直接定位到悬浮基准线"，
+				// 不能让宠物带着 float 的档位卡在地面上
+				pet.y = liftTo;
+				pet.hoverBase = liftTo;
+				pet.hoverPhase = 0;
+				applyTransform();
+				placeMenu();
+			}
 		}
 
 		/* ── 每帧 ───────────────────────────────────────── */
@@ -589,6 +673,9 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				return;
 			}
 			// 贴地模式：原有行为，一行没改
+			// （R-PET-08 备注：菜单里的「睡一会儿」入口已按发起人要求移除，但 `waiting`
+			//   **不是死状态** —— hookInputs 里那个 3000ms 的巡检到 `idleSecondsToSleep`
+			//   仍会 `pet.asleep = true; setState("waiting")`，这里的随机行为也照旧被 `pet.asleep` 挡住。）
 			// 阅读页安静一点：站着就好，别在正文下面来回走
 			if (root.dataset.petRoute === "post") {
 				pet.nextAt = now + 9000;
@@ -612,7 +699,10 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		}
 
 		function walkTo(x: number, now: number): void {
-			if (pet.mode === "fixed") return; // 固定模式：不位移（键盘 ←→ 与「跟过来」都不动）
+			// 固定模式：不位移（键盘 ←→ 也不动）。
+			// R-PET-08：菜单里的「跟过来」入口已按发起人要求移除（原话："这两个没有鸟用啊"），
+			// 但**函数本体仍在使用** —— 键盘 ←/→（keydown 分支）与贴地档 decide() 的随机走都调它。
+			if (pet.mode === "fixed") return;
 			cancelFlight(); // 手动指挥优先：立刻中断正在进行的飞行
 			pet.targetX = clampX(x);
 			if (Math.abs(pet.targetX - pet.x) < 6) {
@@ -749,6 +839,22 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			pet.nextAt = performance.now() + 900;
 		}
 
+		/**
+		 * 进入「屏幕待机」（九状态里的 `waiting`）
+		 * ============================================================================
+		 * R-PET-08：菜单里的「睡一会儿」入口已按发起人要求移除（原话："这两个没有鸟用"），
+		 * 但这个状态**不是死状态** —— hookInputs 里那个 3 秒巡检到 `idleSecondsToSleep`
+		 * （45 秒无操作）仍会走到这里。判定之后的动作抽成一个函数，是为了让验收脚本的
+		 * `__imissSleepNow()` 调**同一段逻辑**（与 R-PET-06 的 `__imissFlyNow()` / `__imissSetMode()`
+		 * 同一个惯例：钩子不绕过行为，只跳过计时与前置换挡）。
+		 */
+		function doze(): void {
+			pet.walking = false;
+			pet.busyUntil = 0;
+			pet.asleep = true;
+			setState("waiting");
+		}
+
 		function onPointerDown(e: PointerEvent): void {
 			if (e.button !== 0 && e.pointerType === "mouse") return;
 			// 用户一动手（拖动或单击）就中断本次飞行（R-PET-06）
@@ -815,13 +921,10 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				pet.dragging = false;
 				hit?.classList.remove("is-drag");
 				if (pet.mode === "ground") {
-					// 贴地：松手受重力落地（P3 原行为）
-					pet.airborne = pet.y < floorY - 2;
-					pet.vy = pet.airborne ? 60 : 0;
-					if (!pet.airborne) {
-						setState("idle");
-						pet.nextAt = performance.now() + 900;
-					}
+					// 贴地：松手受重力落地（P3 原行为）。
+					// R-PET-08：起手那一小段抽成了 `startFall()`，菜单「落下去」走同一个入口 ——
+					// 下落本身仍然是 step() 里那段重力积分，一处逻辑两处入口。
+					startFall();
 				} else if (pet.mode === "float") {
 					// 悬浮：松手**就地悬停**，不掉落；很快再飘一次（刚被拖过，让它自己找找位置）
 					pet.airborne = false;
@@ -870,29 +973,130 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 
 		/* ── 右键菜单 ───────────────────────────────────── */
 		/**
-		 * 菜单尺寸缓存（只为 clamp 用）：菜单是固定的五项，量一次就够。
-		 * 视口尺寸变了会清零重量（`max-height: calc(100vh - 16px)` 会改变实际高度）。
+		 * 菜单尺寸缓存（只为 clamp 用）：同一档位下菜单项固定，量一次就够。
+		 * 视口尺寸变了会清零重量（`max-height: calc(100vh - 16px)` 会改变实际高度）；
+		 * R-PET-08 起**切档也会清零**（「落下去」/「飘起来」二选一，菜单高度会变，见 syncMenuMode）。
 		 */
 		let menuW = 0;
 		let menuH = 0;
 
+		/** 遮挡抽样的四角内缩量（px）：避开圆角/边框，别让"压在圆角外"被算成遮挡 */
+		const MENU_SAMPLE_INSET = 6;
+
 		/**
-		 * 把菜单摆到宠物旁边，并保证**四边都在视口内**（R-PET-07）
+		 * 按当前档位决定菜单里显示「落下去」还是「飘起来」（R-PET-08）
 		 * ============================================================================
-		 * 踩过的坑（发起人附图：「**这框都在下面**」，菜单跑到屏幕底部还被裁掉一半）：
-		 * 原来 `openMenu(clientX, clientY)` 直接拿**鼠标坐标**当 left/top，只做了
-		 * 「左边不许溢出」+「top 不小于 10」两条 clamp：
-		 *   ① 菜单根本不在宠物旁边 —— 鼠标点在哪它开在哪（也不是"宠物右键菜单"该有的样子）；
-		 *   ② **纵向没有任何下界** —— 只要锚点落在视口下半部分，高约 200px 的菜单就整块
-		 *      探出视口底部被裁掉。悬浮档的悬浮基准线是 `vh × 0.52`（宠物中心），
-		 *      再往下拖一点、或点宠物下半身，锚点就已经在"下半屏"了。
-		 * 现在按**宠物矩形**（组件自己维护的 `pet.x/pet.y/w/h`，不读布局 → 拖拽/飞行逐帧
-		 * 重排也不引发 layout thrash）摆位：
-		 *   · 纵向：优先贴宠物**下方**（气泡在宠物上方，菜单放下面不跟气泡打架），
-		 *     下方放不下就翻到**上方**；上下都放不下（超矮视口）取空间大的一侧再夹回视口；
-		 *   · 横向：优先与宠物**左对齐**，右边放不下就**右对齐到宠物右侧**，最后夹回视口；
-		 *   · 两侧都留 `menuMargin` 安全边距、与宠物之间留 `menuGap` 间隙。
-		 * `data-pet-menu-side` 记下这次贴的是上方还是下方，排查与断言用。
+		 * 两个按钮都在 DOM 里（不是条件渲染）：切档只翻 `hidden`，不用重建节点。
+		 * 悬浮/固定档 → 显示「落下去」（可以把宠物放回地面）；贴地档 → 显示「飘起来」
+		 * （否则一旦落下去就再也回不到悬浮，发起人会陷进死路）。
+		 * ⚠️ 显隐会改变菜单高度 → 尺寸缓存必须作废，否则 `placeMenu()` 会拿旧高度算摆位。
+		 */
+		function syncMenuMode(): void {
+			if (!menu) return;
+			const ground = pet.mode === "ground";
+			if (dropItem) dropItem.hidden = ground;
+			if (riseItem) riseItem.hidden = !ground;
+			menuW = 0;
+			menuH = 0;
+		}
+
+		/**
+		 * 菜单矩形内的抽样点：**中心 + 四角内缩**（R-PET-08）
+		 * 内缩量取 `MENU_SAMPLE_INSET` 与矩形的 1/4 中的小者，保证极小的菜单也取得到 5 个点。
+		 */
+		function menuSamplePoints(l: number, t: number): Array<[number, number]> {
+			const ix = Math.min(MENU_SAMPLE_INSET, Math.max(1, menuW / 4));
+			const iy = Math.min(MENU_SAMPLE_INSET, Math.max(1, menuH / 4));
+			return [
+				[l + menuW / 2, t + menuH / 2],
+				[l + ix, t + iy],
+				[l + menuW - ix, t + iy],
+				[l + ix, t + menuH - iy],
+				[l + menuW - ix, t + menuH - iy],
+			];
+		}
+
+		/**
+		 * 在这个位置上抽样：返回"没命中菜单自己"的点数与**遮挡方盒子**。
+		 * ⚠️ 读的是**像素真话**：`document.elementFromPoint()` 返回的是真正画在最上面的元素，
+		 * 遮挡方（壁纸 / 正文面板 / 侧栏 / 导航栏 / 任何 z-index 更高的浮层）会立刻暴露出来。
+		 * 调用前必须已经把菜单摆到 (l, t) —— 它靠的是"当前这一刻的真实布局"。
+		 */
+		function sampleAt(l: number, t: number): { miss: number; boxes: DOMRect[] } {
+			menu.style.left = `${Math.round(l)}px`;
+			menu.style.top = `${Math.round(t)}px`;
+			let miss = 0;
+			const boxes: DOMRect[] = [];
+			for (const [x, y] of menuSamplePoints(l, t)) {
+				const node = document.elementFromPoint(x, y);
+				if (node && (node === menu || menu.contains(node))) continue;
+				miss++;
+				if (node) {
+					const box = occluderBox(node, x, y);
+					if (box.width > 0 && box.height > 0) boxes.push(box);
+				}
+			}
+			return { miss, boxes };
+		}
+
+		/**
+		 * 从一个被命中的节点往上找到"真正盖住这一条"的祖先盒子。
+		 * 为什么不能直接用命中节点：`elementFromPoint` 命中的往往是**遮挡带里的小元素**
+		 * （实测是导航栏里的 `button.btn-plain`，它自己的 rect 只有按钮那么大，
+		 * 而真正压住菜单的是外层 `#navbar-wrapper`，`z-index: 80`）。按小元素的底边让位
+		 * 会落在同一条遮挡带里 —— 所以一路上溯到"仍然覆盖该点、且盒子更大"的最外层祖先。
+		 */
+		function occluderBox(node: Element, x: number, y: number): DOMRect {
+			let box = node.getBoundingClientRect();
+			let p = node.parentElement;
+			for (let i = 0; i < 6 && p && p !== document.body && p !== document.documentElement; i++) {
+				const r = p.getBoundingClientRect();
+				if (
+					r.width >= box.width &&
+					r.height >= box.height &&
+					x >= r.left &&
+					x <= r.right &&
+					y >= r.top &&
+					y <= r.bottom
+				) {
+					box = r;
+				}
+				p = p.parentElement;
+			}
+			return box;
+		}
+
+		/** 纵向夹回视口（宠物贴屏幕上下边、菜单比视口还高时都不会溢出） */
+		function clampMenuTop(t: number): number {
+			return Math.max(menuMargin, Math.min(Math.max(menuMargin, vh - menuMargin - menuH), t));
+		}
+
+		/**
+		 * 把菜单摆到宠物的**左边或右边**（R-PET-08 重写；R-PET-07 的"优先下方/翻上方"整条判据已替换）
+		 * ============================================================================
+		 * 发起人原话：「**右键出现的选择框最好是要出现在人物的左边或者右边**啊，出现判断应该是
+		 * **左边或右边区域够不够展开**，展开之后**会不会被遮挡**。」→ 四段式：
+		 *   ① **选边**：两侧可用宽度 = 宠物矩形到视口边、扣掉 `menuMargin`(8) 与 `menuGap`(10)；
+		 *      `room >= menuW` 才算"这一侧放得下"。**优先右侧**，右侧放不下才翻左侧。
+		 *      为什么默认右侧：本站是 LTR 排版，"从宠物向右读"与阅读方向一致；而且宠物的默认
+		 *      出场位在**右下角**（`startSide: "right"` + 给浮动按钮预留 64px），右侧通常本来就
+		 *      不够 —— 于是默认视觉上就是"贴在宠物左边"，也不会挡住右下角的浮动按钮列。
+		 *      两侧都放不下（视口比 `menuW + 宠物宽 + 间隙` 还窄，实测 390 宽、宠物落在正中
+		 *      那一小段会出现）→ **取空间更大的一侧**，再夹回视口；这时菜单可能压住宠物
+		 *      1~2px，属于几何上无解的兜底（`.pet-menu` 132px + 宠物 124px > 390 − 2×8 − 2×10），
+		 *      不再假装能"并排"。
+		 *   ② **纵向**：菜单**顶部对齐宠物顶部**（气泡在宠物上方，纵向对齐不会跟气泡打架），
+		 *      再夹回 `[menuMargin, vh - menuMargin - menuH]` —— 宠物贴着屏幕上下边时菜单也不溢出。
+		 *   ③ **遮挡检测**：摆好之后用 `elementFromPoint` 抽 5 个点（中心 + 四角内缩），
+		 *      命中的必须是**菜单自己**；**被挡住就换另一侧**（这是首选补救）。
+		 *   ④ **兜底（两侧都被挡住）**：先试**纵向让开遮挡物**（挪到遮挡带上/下沿之外，最多 3 轮，
+		 *      实测就是这条救回"宠物拖到最上面"的场景 —— 模板 `#navbar-wrapper` 是 `z-index: 80`，
+		 *      比菜单的 67 高，顶部对齐的菜单会有一截压在导航栏下面）；让不开才取**遮挡点更少**
+		 *      的一侧（明确兜底，不摆烂也不硬撑）。
+		 *      结果写进 DOM：`data-pet-menu-side`（`left`/`right`）、`data-pet-menu-occluded`
+		 *      （被挡住的抽样点数，0 = 干净）、`data-pet-menu-nudged`（1 = 这次为避让遮挡动过纵向位置）。
+		 * ⚠️ 层级仍然只有 `petConfig.zIndex + 1` = 67（< 导航栏 80 / 浮动控件 1000 / 移动端面板 1100）：
+		 * 这里是"换边 + 纵向让开"，**不是**靠抬高 z-index 把别人压下去（R-PET-07 的 z-index 结论不变）。
 		 */
 		function placeMenu(): void {
 			if (!menu || menu.hidden) return;
@@ -902,35 +1106,64 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			}
 			const gap = menuGap;
 			const m = menuMargin;
-			const petBottom = pet.y + h;
-			// 上下各自"扣掉边距与间隙后"能给菜单用的高度
-			const roomBelow = vh - m - (petBottom + gap);
-			const roomAbove = pet.y - gap - m;
-			let top: number;
-			let side: "below" | "above";
-			if (roomBelow >= menuH) {
-				top = petBottom + gap; // 贴下方（常规）
-				side = "below";
-			} else if (roomAbove >= menuH) {
-				top = pet.y - gap - menuH; // 下方不够 → 翻到上方
-				side = "above";
-			} else {
-				// 上下都放不下：取空间大的一侧，再靠下面的 clamp 夹进视口
-				side = roomBelow >= roomAbove ? "below" : "above";
-				top = side === "below" ? vh - m - menuH : m;
+			// ② 纵向：顶部对齐宠物顶部，再夹进视口
+			const aligned = clampMenuTop(pet.y);
+			// ① 横向：两个候选（右优先），room = 这一侧"扣掉边距与间隙后"还剩多少
+			const right = { side: "right" as const, raw: pet.x + w + gap, room: vw - m - (pet.x + w + gap) };
+			const left = { side: "left" as const, raw: pet.x - gap - menuW, room: pet.x - gap - m };
+			const fitting = [right, left].filter((c) => c.room >= menuW);
+			const pool = fitting.length
+				? fitting // 放得下的一侧（右优先），再按遮挡筛
+				: [right.room >= left.room ? right : left]; // 两侧都放不下 → 空间大的那侧兜底
+			const geo = pool.map((c) => ({
+				side: c.side,
+				left: Math.max(m, Math.min(Math.max(m, vw - m - menuW), c.raw)),
+			}));
+			let best: { side: "left" | "right"; left: number; top: number; miss: number } | null = null;
+			// ③ 第一轮：对齐宠物顶部，逐个候选侧抽样；哪一侧干净就用它（被遮挡 → 换另一侧）
+			for (const g of geo) {
+				const r = sampleAt(g.left, aligned);
+				if (best === null || r.miss < best.miss) best = { side: g.side, left: g.left, top: aligned, miss: r.miss };
+				if (r.miss === 0) break;
 			}
-			top = Math.max(m, Math.min(Math.max(m, vh - m - menuH), top));
-			let left = pet.x; // 与宠物左对齐
-			if (left + menuW > vw - m) left = pet.x + w - menuW; // 右侧空间不够 → 右对齐到宠物右边
-			left = Math.max(m, Math.min(Math.max(m, vw - m - menuW), left));
-			menu.style.left = `${Math.round(left)}px`;
-			menu.style.top = `${Math.round(top)}px`;
-			menu.dataset.petMenuSide = side;
+			// ④ 第二轮（两侧都被挡住）：纵向让开遮挡带 —— 挪到遮挡物下沿之外 / 上沿之外，最多 3 轮
+			if (best && best.miss > 0) {
+				for (const g of geo) {
+					let t = aligned;
+					let r = sampleAt(g.left, t);
+					let misses = r.miss;
+					for (let k = 0; k < 3 && r.miss > 0 && r.boxes.length; k++) {
+						const down = clampMenuTop(Math.max(...r.boxes.map((b) => b.bottom)) + 4);
+						const up = clampMenuTop(Math.min(...r.boxes.map((b) => b.top)) - 4 - menuH);
+						// 两个方向各抽一次，取更干净的那个（相同就保持不动，避免来回抖）
+						let step: { t: number; miss: number } | null = null;
+						for (const t2 of [down, up]) {
+							if (t2 === t) continue;
+							const r2 = sampleAt(g.left, t2);
+							if (r2.miss < r.miss && (step === null || r2.miss < step.miss)) step = { t: t2, miss: r2.miss };
+						}
+						if (!step) break; // 两个方向都没变好 → 这一侧让不开
+						t = step.t;
+						r = sampleAt(g.left, t);
+						misses = r.miss;
+					}
+					if (misses < best.miss) best = { side: g.side, left: g.left, top: t, miss: misses };
+					if (best.miss === 0) break;
+				}
+			}
+			// 兜底：pool 至少有一个候选，所以 best 一定有值（最坏情况就是"遮挡更少的那一侧"）
+			const chosen = best ?? { side: "right" as const, left: Math.max(m, Math.min(vw - m - menuW, pet.x + w + gap)), top: aligned, miss: -1 };
+			menu.style.left = `${Math.round(chosen.left)}px`;
+			menu.style.top = `${Math.round(chosen.top)}px`;
+			menu.dataset.petMenuSide = chosen.side;
+			menu.dataset.petMenuOccluded = String(chosen.miss);
+			menu.dataset.petMenuNudged = chosen.top === aligned ? "0" : "1";
 		}
 
-		/** 打开菜单：先显形（才量得到尺寸）再摆位 */
+		/** 打开菜单：先按档位定好「落下去」/「飘起来」，显形（才量得到尺寸）再摆位 */
 		function openMenu(): void {
 			if (!menu) return;
+			syncMenuMode();
 			menu.hidden = false;
 			placeMenu();
 		}
@@ -1070,14 +1303,11 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				pet.nextAt = performance.now() + 1300;
 			});
 
-			// 无操作超时 → 屏幕待机
+			// 无操作超时 → 屏幕待机（判定通过后交给 doze()，与调试钩子共用同一段逻辑）
 			window.setInterval(() => {
 				if (pet.asleep || pet.dragging || pet.airborne || chatOpen) return;
 				if (performance.now() - pet.lastActive < sleepAfter) return;
-				pet.walking = false;
-				pet.busyUntil = 0;
-				pet.asleep = true;
-				setState("waiting");
+				doze();
 			}, 3000);
 		}
 
@@ -1124,15 +1354,17 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			// reduced-motion 下更是压根不调它，属性就一直是空的（验收脚本读不到）
 			el?.setAttribute("data-pet-state", pet.state);
 
-			/* ── 调试钩子（`verify:ui` 的 R-PET-06 断言用）────────────────
+			/* ── 调试钩子（`verify:ui` 的 R-PET-06 / R-PET-08 断言用）────────
 			   调的是**和真实行为同一个函数**，不是旁路：
 			     · `__imissFlyNow()` → `decide()` 里那次 `startFlight()`
 			     · `__imissSetMode()` → `boot()` 里那次 `setMode()`
-			   为什么要它：飞行间隔最小 20 秒，验收脚本不可能干等；
-			   但仍要断言"飞了 / 没飞"是真的发生了，而不是改属性骗自己。 */
+			     · `__imissSleepNow()` → 45 秒无操作巡检里那次 `doze()`（R-PET-08 新增）
+			   为什么要它：飞行间隔最小 30 秒、睡着要等 45 秒，验收脚本不可能干等；
+			   但仍要断言"飞了 / 没飞""睡着了"是真的发生了，而不是改属性骗自己。 */
 			const dbg = window as Window & {
 				__imissFlyNow?: () => boolean;
 				__imissSetMode?: (m: PetMovementMode) => PetMovementMode;
+				__imissSleepNow?: () => PetStateName;
 				__imissPetDebug?: () => {
 					mode: PetMovementMode;
 					x: number;
@@ -1147,6 +1379,12 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				wake();
 				setMode(m);
 				return pet.mode;
+			};
+			// R-PET-08：「睡一会儿」菜单入口已删，`waiting` 只剩 45 秒无操作这条真实路径 ——
+			// 验收脚本不可能干等 48 秒，所以给它一个调**同一段 `doze()`** 的钩子（不绕过状态转换）。
+			dbg.__imissSleepNow = () => {
+				doze();
+				return pet.state;
 			};
 			dbg.__imissPetDebug = () => ({
 				mode: pet.mode,
@@ -1194,18 +1432,27 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 					case "jump":
 						jump();
 						break;
-					case "follow":
-						walkTo(pet.cursorX || vw / 2, performance.now());
+					// R-PET-08：「落下去」= 切到贴地档 + **真的掉下去**。
+					// `setMode(mode, smooth=true)` 不瞬移：位置不动，交给 `startFall()` 起手、
+					// 由 step() 里贴地档那段重力积分一路落到 `floorY`（与拖动松手同一条路径）。
+					case "drop":
+						setMode("ground", true);
+						say("好，我落下去。");
 						break;
-					case "sleep":
-						pet.walking = false;
-						pet.asleep = true;
-						pet.busyUntil = 0;
-						setState("waiting");
-						say("那我眯一会儿，有事晃我。");
+					// R-PET-08：「飘起来」= 反向回悬浮档，同样不瞬移 ——
+					// `setMode(mode, smooth=true)` 复用 `startFlight()` 的缓动插值竖直飘上悬浮基准线。
+					case "rise":
+						setMode("float", true);
+						say("那我飘回去啦。");
 						break;
 					case "chat":
 						openChat();
+						break;
+					// 「跟过来」（原 `walkTo(pet.cursorX …)`）与「睡一会儿」（原 `pet.asleep = true;
+					// setState("waiting")`）两个入口已按发起人要求删除（R-PET-08，原话："这两个没有鸟用"）。
+					// 两者都不是死代码，只是去掉了菜单入口：`walkTo()` 仍被键盘 ←/→ 与贴地档
+					// decide() 调用；`waiting` 仍由 hookInputs 里 45 秒无操作超时触发。
+					default:
 						break;
 				}
 			});

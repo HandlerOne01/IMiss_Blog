@@ -73,7 +73,7 @@ pnpm preview      # 另开一个终端窗口跑这个并保持运行
 pnpm verify:ui    # 再另开一个终端窗口跑这个
 ```
 
-期望输出：`功能断言 187 项：通过 187，失败 0`。
+期望输出：`功能断言 198 项：通过 198，失败 0`。
 若输出 `检测到 astro dev 服务器` 的提示，说明你对 `pnpm dev` 跑了它——
 那会把"关闭页面"等断言误判，请改成对 `pnpm preview` 跑。
 
@@ -114,7 +114,7 @@ pnpm verify:docs    # 期望输出：`文档检查 … ：通过 N，失败 0`�
 | `pnpm type-check` | `tsc --noEmit`，覆盖 `src/` 与 `scripts/` |
 | `pnpm build` | 生产构建：LQIP → VNDB 封面（未配置则跳过）→ Astro → 清理未用看板娘资源 → 字体子集 → 内联脚本压缩 → Pagefind 索引 |
 | `pnpm preview` | 预览 `dist/` |
-| `pnpm verify:ui` | 界面验收：187 项断言 + 泄漏扫描 + 对比度 A/B + 29 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
+| `pnpm verify:ui` | 界面验收：198 项断言 + 泄漏扫描 + 对比度 A/B + 32 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
 | `pnpm verify:posts` | 内容校验：frontmatter / slug / 图片存在性 / 站内链接 / 残留 Obsidian 语法 / 榜单配图（**改完文章或跑完迁移后跑一次**；有错退出码 1） |
 | `pnpm verify:docs` | 文档自检：核对三份文档与仓库事实是否一致（版本号、断言/截图数、排行页清单、导航子项、需求编号、阻塞项、阶段状态）。**改完东西收工前跑一次** |
 | `node scripts/import-posts.mjs --batch 1` | 迁移旧博客笔记（**默认 dry-run 只出报告**；加 `--write` 才落盘。详见下面「迁移旧笔记」一节） |
@@ -253,7 +253,8 @@ pnpm verify:posts                                # 落盘后校验
 | 出场靠哪边 / 台词 / 待机多久睡 | `petConfig.startSide` / `lines` / `greeting` / `idleSecondsToSleep` |
 | **运动模式**（悬浮+飞行 / 固定 / 贴地） | `petConfig.movement.mode`：`"float"`（默认，悬浮 + 每 30~90 秒朝随机方向轻轻挪 60~180px）/ `"fixed"`（不悬浮不飞行、拖放也不落地）/ `"ground"`（贴地行走、松手落地） |
 | 悬浮与飞行的手感 | `petConfig.movement` 的 `hoverAmplitude`（浮动幅度 px）/ `hoverPeriodMs`（周期 ms）/ `flyIntervalRange`（飞行间隔 ms，30~90s）/ `flyDurationRange`（单次飞行时长 ms，4~6s）；**位移/弧线/倾角**在 `src/utils/pet-utils.ts` 的 `PET_TUNING`：`flyDistanceRange`（单次位移 px，60~180）/ `flyArc`（弧线拱高 px）/ `flyTilt`（倾角 deg） |
-| 右键菜单的位置 | `AemeathPet.astro` 的 `placeMenu()`：按**宠物矩形**贴上下、四边夹进视口（间隙 `PET_TUNING.menuGap`、边距 `menuMargin`）；R-PET-07 起不再用鼠标坐标当锚点，且菜单必须带 `z-index`（= 宠物 `zIndex` + 1） |
+| 右键菜单的位置 | `AemeathPet.astro` 的 `placeMenu()`：按**宠物矩形**并排在**左边或右边**（哪边够放哪边、默认右侧；间隙 `PET_TUNING.menuGap`、边距 `menuMargin`），纵向顶部对齐宠物顶部并夹回视口；摆好后用 `elementFromPoint` 抽 5 个点（中心 + 四角）确认没被遮挡 —— 被挡就换另一侧、两侧都被挡就纵向让开遮挡带，结果写进 `data-pet-menu-side` / `data-pet-menu-occluded` / `data-pet-menu-nudged`。R-PET-07 起不再用鼠标坐标当锚点，菜单必须带 `z-index`（= 宠物 `zIndex` + 1 = 67，低于导航栏 80 / 浮动控件 1000） |
+| 右键菜单里有哪些项 | 说句话 / 跳一下 / **落下去 · 飘起来**（按档位二选一：悬浮/固定档显示「落下去」把宠物放回地面并**真的带重力掉下去**，贴地档显示「飘起来」飘回悬浮）/ 和爱弥斯聊天。「跟过来」「睡一会儿」已按发起人要求删除（R-PET-08）——能力没删：键盘 ←/→ 仍能指挥它走，45 秒无操作它仍会进「屏幕待机」 |
 | 行为（走、跳、拖、说话、对话） | `AemeathPet.astro` 里的脚本；状态表在 `src/utils/pet-utils.ts` |
 | 和它聊天 | 右键 →「和爱弥斯聊天」。**现在没有后端**，回复来自 `petConfig.mockReplies`（P5 接真 Agent） |
 
