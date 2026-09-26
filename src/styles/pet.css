@@ -212,12 +212,19 @@
 }
 
 /* ── 右键菜单 ───────────────────────────────────────────── */
+/* R-PET-07：菜单由 JS 按"宠物矩形"摆位（见 AemeathPet.astro 的 placeMenu），
+   四边都夹在视口内。这里的 max-height/overflow 是**兜底**：万一视口比菜单还矮
+   （约 220px 以下），JS 的 clamp 也变不出空间来，至少让菜单自己能滚，
+   而不是探出屏幕被裁掉一半。 */
 .pet-menu {
 	position: fixed;
 	display: grid;
 	gap: 2px;
 	padding: 6px;
 	min-width: 132px;
+	max-height: calc(100vh - 16px);
+	overflow-y: auto;
+	overscroll-behavior: contain;
 	margin: 0;
 	list-style: none;
 	background: var(--card-bg);

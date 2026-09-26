@@ -278,7 +278,19 @@ const COLLECT = `(() => {
         hasShadow: !!el.querySelector(".pet-shadow"),
         zIndex: Number.parseInt(getComputedStyle(el).zIndex || "0", 10),
         bubble: { text: (bubble?.textContent || "").trim().slice(0, 80), pop: !!bubble?.classList.contains("is-pop"), chat: !!bubble?.classList.contains("is-chat") },
-        menu: { hidden: menu?.hidden ?? null, items: [...(menu?.querySelectorAll("[data-pet-act]") || [])].map((b) => (b.textContent || "").trim()) },
+        // R-PET-07：菜单的位置事实（四边矩形 + 这次贴在宠物上方还是下方）——
+        // 菜单定位的断言全靠它，别再靠"看着对"
+        menu: {
+          hidden: menu?.hidden ?? null,
+          items: [...(menu?.querySelectorAll("[data-pet-act]") || [])].map((b) => (b.textContent || "").trim()),
+          side: menu?.dataset.petMenuSide || null,
+          rect: (() => {
+            if (!menu || menu.hidden) return null;
+            const mr = menu.getBoundingClientRect();
+            return { l: Math.round(mr.left), t: Math.round(mr.top), r: Math.round(mr.right), b: Math.round(mr.bottom), w: Math.round(mr.width), h: Math.round(mr.height) };
+          })(),
+        },
+        viewport: { w: window.innerWidth, h: window.innerHeight },
         chatInput: !!bubble?.querySelector(".pet-chat input"),
         // 与浮动按钮（返回顶部等）是否重叠：R-PET-05
         // displayNodes = 当前**真的有尺寸**的浮动控件个数：用它保证"重叠数 0"不是"没东西可压"的空过
@@ -1065,6 +1077,226 @@ async function main() {
 		await sleep(160);
 		await snap("pet-menu");
 
+		/* ── R-PET-07 右键菜单定位矩阵（发起人：「这框都在下面」+ 截图：菜单跑到屏幕底部还被裁）──
+		   断言口径（每个位置都要过）：
+		     ① `inside`：菜单四边都在视口内（各留 4px 余量），不许溢出/被裁；
+		     ② `adjacent`：与宠物**相邻不重叠** —— 纵向间隙 ≤ 26px、无面积重叠、横向有交叠；
+		     ③ `flagGap`：宠物在视口**上部**时，菜单底边距视口底 ≥ 视口高 × 0.25
+		        （这条专治"菜单被推到屏幕最下面"，宠物在下部时不适用 —— 那时菜单本来就该在下面）。
+		   位置覆盖：默认悬浮位 / 报告现场（宠物在上部）/ 宠物在下部（下方放不下应翻到上方）/ 贴右边缘。
+		   全部用**真实右键事件**（dispatchEvent("contextmenu") 带真实 clientX/clientY）驱动。 */
+		const menuProbe = async (label, x, y, isUpper) => {
+			if (x !== null) {
+				await dragPet(x, y);
+				await sleep(260);
+			}
+			const { result } = await cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					const el = document.getElementById("pet-body");
+					const menu = document.getElementById("pet-menu");
+					menu.hidden = true; // 先关上，保证这一轮是"重新打开"
+					const r = el.getBoundingClientRect();
+					el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }));
+					const pr = el.getBoundingClientRect();
+					const mr = menu.getBoundingClientRect();
+					const ovW = Math.max(0, Math.min(pr.right, mr.right) - Math.max(pr.left, mr.left));
+					const ovH = Math.max(0, Math.min(pr.bottom, mr.bottom) - Math.max(pr.top, mr.top));
+					// "画得出来吗"：菜单中心点上的 elementFromPoint 必须是菜单自己或它的子节点。
+					// 只算矩形是不够的 —— 第一版就没有 z-index，矩形完全正确但被壁纸(z=10)/
+					// 正文面板(z=30)盖住，截图里根本看不到菜单（假绿的典型）。
+					const hit = document.elementFromPoint(mr.left + mr.width / 2, mr.top + mr.height / 2);
+					const layers = {};
+					for (const [k, sel] of [["wallpaper", "#wallpaper-wrapper"], ["content", "#content-panel"], ["floats", ".floating-controls-container"]]) {
+						const n = document.querySelector(sel);
+						layers[k] = n ? Number.parseInt(getComputedStyle(n).zIndex || "0", 10) : null;
+					}
+					return {
+						pet: { l: Math.round(pr.left), t: Math.round(pr.top), r: Math.round(pr.right), b: Math.round(pr.bottom), w: Math.round(pr.width), h: Math.round(pr.height) },
+						menu: { l: Math.round(mr.left), t: Math.round(mr.top), r: Math.round(mr.right), b: Math.round(mr.bottom), w: Math.round(mr.width), h: Math.round(mr.height), side: menu.dataset.petMenuSide || null, z: Number.parseInt(getComputedStyle(menu).zIndex || "0", 10) },
+						hitTop: hit ? hit.tagName + (hit.id ? "#" + hit.id : "") : null,
+						hitIsMenu: !!(hit && (hit === menu || menu.contains(hit))),
+						layers,
+						overlapW: Math.round(ovW),
+						// 正数 = 菜单垂直方向上离宠物最近的边的间隙；0 = 两个矩形在纵向上没有分开
+						gap: Math.round(mr.top >= pr.bottom ? mr.top - pr.bottom : (pr.top >= mr.bottom ? pr.top - mr.bottom : 0)),
+						// 重叠面积（px²）：两边都取 0 才算"不重叠"
+						overlapArea: Math.round(ovW * ovH),
+						vw: window.innerWidth,
+						vh: window.innerHeight,
+						hidden: menu.hidden,
+					};
+				})()`,
+				returnByValue: true,
+			});
+			const f = result.value;
+			f.label = label;
+			// ① 四边都在视口内（留 4px 余量）
+			f.inside = f.menu.l >= 4 && f.menu.t >= 4 && f.menu.r <= f.vw - 4 && f.menu.b <= f.vh - 4;
+			// ② 相邻不重叠：间隙 ≤ 26px（贴着宠物的余量）、重叠面积 ≤ 100px²、横向有交叠。
+			//    为什么给 100px² 而不是"必须为 0"：摆位那一刻用的是 pet.x/pet.y，而断言这一刻
+			//    宠物还在做 ±6px 的悬浮呼吸（间隙 10px > 振幅 6px，所以重叠在数学上不会发生，
+			//    但留一个"明确阈值"比写死 0 更抗时序）。100px² ≈ 宠物可见面积的 0.6%。
+			f.adjacent = f.gap <= 26 && f.overlapArea <= 100 && f.overlapW > 0;
+			f.bottomGap = Math.round(f.vh - f.menu.b);
+			f.notAtBottom = !isUpper || f.bottomGap >= f.vh * 0.25;
+			return f;
+		};
+		const menuCases1440 = [];
+		{
+			// ⓪ 默认悬浮位（宠物中心在 vh×0.52，属于"视口中线略下"——菜单贴它下方是对的，
+			//    不套"底距 ≥ 25%"那条；那条专治"宠物在上部、菜单却跑到屏幕最下面"）
+			menuCases1440.push(await menuProbe("默认悬浮位", null, null, false));
+			// ① 报告现场：把宠物拖到视口上部，再右键
+			menuCases1440.push(await menuProbe("宠物在上部(700,120)", 700, 120, true));
+			// ② 宠物在下部：下方放不下 → 必须翻到上方，且整体不许探出视口底
+			menuCases1440.push(await menuProbe("宠物在下部(400,760)", 400, 760, false));
+			// ③ 贴右边缘：菜单要向左让位，不许溢出右侧
+			menuCases1440.push(await menuProbe("宠物贴右边缘(1420,400)", 1420, 400, false));
+			const mShot = await cdp.send("Page.captureScreenshot", { format: "png" });
+			await fs.writeFile(path.join(OUT_DIR, "pet-menu-1440.png"), Buffer.from(mShot.data, "base64"));
+		}
+		facts["pet-menu-1440"] = menuCases1440;
+
+		// ④ 拖动中菜单跟随宠物（不是留在原地）
+		{
+			await dragPet(700, 300);
+			await sleep(200);
+			const r1 = await menuProbe("拖动跟随(前)", null, null, false);
+			await cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					const el = document.getElementById("pet-body");
+					const r = el.getBoundingClientRect();
+					const o = { bubbles: true, pointerId: 11, button: 0 };
+					el.dispatchEvent(new PointerEvent("pointerdown", { ...o, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }));
+					el.dispatchEvent(new PointerEvent("pointermove", { ...o, clientX: r.left + r.width / 2 - 260, clientY: r.top + r.height / 2 + 180 }));
+					return "dragging";
+				})()`,
+				returnByValue: true,
+			});
+			await sleep(160);
+			const during = await cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					const el = document.getElementById("pet-body");
+					const menu = document.getElementById("pet-menu");
+					const pr = el.getBoundingClientRect();
+					const mr = menu.getBoundingClientRect();
+					const ovW = Math.max(0, Math.min(pr.right, mr.right) - Math.max(pr.left, mr.left));
+					const ovH = Math.max(0, Math.min(pr.bottom, mr.bottom) - Math.max(pr.top, mr.top));
+					return {
+						petL: Math.round(pr.left), menuL: Math.round(mr.left),
+						gap: Math.round(mr.top >= pr.bottom ? mr.top - pr.bottom : (pr.top >= mr.bottom ? pr.top - mr.bottom : 0)),
+						overlapArea: Math.round(ovW * ovH),
+						inside: mr.left >= 4 && mr.top >= 4 && mr.right <= window.innerWidth - 4 && mr.bottom <= window.innerHeight - 4,
+						tracked: Math.abs(mr.left - pr.left) < 140,
+					};
+				})()`,
+				returnByValue: true,
+			});
+			await cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					const el = document.getElementById("pet-body");
+					el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 11, button: 0, clientX: 0, clientY: 0 }));
+					return "dropped";
+				})()`,
+				returnByValue: true,
+			});
+			await sleep(200);
+			facts["pet-menu-drag"] = { before: r1, during: during.result.value };
+		}
+
+		// ⑤ 切档后菜单跟着重排（贴地档宠物落到地面，菜单必须翻到上方且仍在视口内）
+		{
+			const before = await menuProbe("切档前(float)", null, null, false);
+			await cdp.send("Runtime.evaluate", { expression: `window.__imissSetMode("ground")`, returnByValue: true });
+			await sleep(300);
+			const afterSwitch = await cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					const el = document.getElementById("pet-body");
+					const menu = document.getElementById("pet-menu");
+					const pr = el.getBoundingClientRect();
+					const mr = menu.getBoundingClientRect();
+					const ovW = Math.max(0, Math.min(pr.right, mr.right) - Math.max(pr.left, mr.left));
+					const ovH = Math.max(0, Math.min(pr.bottom, mr.bottom) - Math.max(pr.top, mr.top));
+					return {
+						mode: document.getElementById("pet").dataset.petMode,
+						petT: Math.round(pr.top), petB: Math.round(pr.bottom),
+						menuT: Math.round(mr.top), menuB: Math.round(mr.bottom), side: menu.dataset.petMenuSide || null,
+						gap: Math.round(mr.top >= pr.bottom ? mr.top - pr.bottom : (pr.top >= mr.bottom ? pr.top - mr.bottom : 0)),
+						overlapArea: Math.round(ovW * ovH),
+						inside: mr.left >= 4 && mr.top >= 4 && mr.right <= window.innerWidth - 4 && mr.bottom <= window.innerHeight - 4,
+					};
+				})()`,
+				returnByValue: true,
+			});
+			await cdp.send("Runtime.evaluate", { expression: `window.__imissSetMode("float")`, returnByValue: true });
+			await sleep(300);
+			facts["pet-menu-mode-switch"] = { before, after: afterSwitch.result.value };
+		}
+
+		// ⑥ 滚动后菜单仍贴在宠物旁边（菜单与宠物都是 fixed：若谁把菜单写成文档坐标，这条会红）
+		{
+			await menuProbe("滚动前", null, null, false);
+			await cdp.send("Runtime.evaluate", {
+				expression: `window.scrollTo({ top: 1200, behavior: "instant" }); "scrolled"`,
+				returnByValue: true,
+			});
+			await sleep(400);
+			const afterScroll = await cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					const el = document.getElementById("pet-body");
+					const menu = document.getElementById("pet-menu");
+					const pr = el.getBoundingClientRect();
+					const mr = menu.getBoundingClientRect();
+					const ovW = Math.max(0, Math.min(pr.right, mr.right) - Math.max(pr.left, mr.left));
+					const ovH = Math.max(0, Math.min(pr.bottom, mr.bottom) - Math.max(pr.top, mr.top));
+					return {
+						scrollY: Math.round(window.scrollY),
+						gap: Math.round(mr.top >= pr.bottom ? mr.top - pr.bottom : (pr.top >= mr.bottom ? pr.top - mr.bottom : 0)),
+						overlapArea: Math.round(ovW * ovH),
+						menuT: Math.round(mr.top), petB: Math.round(pr.bottom),
+						inside: mr.left >= 4 && mr.top >= 4 && mr.right <= window.innerWidth - 4 && mr.bottom <= window.innerHeight - 4,
+					};
+				})()`,
+				returnByValue: true,
+			});
+			facts["pet-menu-scroll"] = afterScroll.result.value;
+			await cdp.send("Runtime.evaluate", {
+				expression: `window.scrollTo({ top: 0, behavior: "instant" }); document.getElementById("pet-menu").hidden = true; "reset"`,
+				returnByValue: true,
+			});
+		}
+
+		// ⑦ 窄视口 390×844：先按桌面宽加载（hideOnMobile 只在**解析期**判一次，移动端冷启动本来就不显示桌宠，
+		//    见 R-PET-01 的移动端断言），再缩到 390 宽 —— 等价于"用户把窗口缩窄"，走的是组件自己的 resize 路径。
+		//    这里量的是"窄视口 + 宠物贴边时，菜单还能不能完整落在视口内、还能不能贴在宠物旁边"。
+		{
+			await cdp.send("Emulation.setDeviceMetricsOverride", {
+				width: 390,
+				height: 844,
+				deviceScaleFactor: 1,
+				mobile: false,
+			});
+			await sleep(450);
+			const p = await snap("pet-menu-narrow-boot");
+			const menuCases390 = [];
+			menuCases390.push(await menuProbe("390 上部(200,120)", 200, 120, true));
+			menuCases390.push(await menuProbe("390 下部(200,700)", 200, 700, false));
+			menuCases390.push(await menuProbe("390 贴右边缘(380,400)", 380, 400, false));
+			facts["pet-menu-390"] = menuCases390;
+			facts["pet-menu-390-pet"] = { exists: p.exists, off: p.off, display: p.display };
+			const narrowShot = await cdp.send("Page.captureScreenshot", { format: "png" });
+			await fs.writeFile(path.join(OUT_DIR, "pet-menu-390.png"), Buffer.from(narrowShot.data, "base64"));
+			// 复位到 1440×900，后面的断言（切页 / reduced-motion / 三档）都按这个尺寸写的
+			await cdp.send("Emulation.setDeviceMetricsOverride", {
+				width: 1440,
+				height: 900,
+				deviceScaleFactor: 1,
+				mobile: false,
+			});
+			await sleep(400);
+			await snap("pet-menu-restore");
+		}
+
 		// ④ 菜单动作：跳一下 / 睡一会儿 / 跟过来 / 说句话
 		await clickMenu("jump");
 		await sleep(140);
@@ -1174,28 +1406,111 @@ async function main() {
 			await sleep(200);
 
 			// ── float：强制起飞一次，记录起飞前 / 飞行中 / 落位后的坐标 ──
+			// R-PET-07 起单次飞行是 4~6 秒（原来是固定 2.6s），所以"飞行中段"取 900ms、
+			// "等落位"要等满 6.5s —— 沿用旧的 700/2400 会在半空中采样，落位断言就名存实亡了
 			const before = await snap("pet-float-before");
 			const started = await cdp.send("Runtime.evaluate", {
 				expression: `window.__imissFlyNow ? window.__imissFlyNow() : null`,
 				returnByValue: true,
 			});
-			await sleep(700); // flyDurationMs = 2600，这里取飞行中段
+			await sleep(900); // 飞行中段（4~6s 的 15%~22% 处）
 			const mid = await snap("pet-float-flying");
 			const midShot = await cdp.send("Page.captureScreenshot", { format: "png" });
 			await fs.writeFile(
 				path.join(OUT_DIR, "pet-float-1440.png"),
 				Buffer.from(midShot.data, "base64"),
 			);
-			await sleep(2400); // 等它飞完 + 落位
+			await sleep(6500); // 等它飞完 + 落位
 			const after = await snap("pet-float-after");
 			facts["pet-float-flight"] = {
 				accepted: started.result.value === true,
 				before: { x: before.rect.x, y: before.rect.y, flying: before.flying },
-				mid: { x: mid.rect.x, y: mid.rect.y, flying: mid.flying, mode: mid.mode },
+				mid: { x: mid.rect.x, y: mid.rect.y, flying: mid.flying, mode: mid.mode, state: mid.state },
 				after: { x: after.rect.x, y: after.rect.y, flying: after.flying },
 				midEdge: { right: mid.rect.x + mid.rect.w, bottom: mid.rect.y + mid.rect.h },
 				afterEdge: { right: after.rect.x + after.rect.w, bottom: after.rect.y + after.rect.h },
 			};
+
+			// ── R-PET-07：连飞 3 次，实测"位移 / 时长 / 飞行中的状态帧" ──────────
+			// 发起人原话：「你飞的太快了……自然一点就**微微挪动**就好了」。
+			// 断言口径：位移 60~180px（夹回容差到 45~200）、时长 4~6s（实测容差 3.8~6.4s）、
+			// 飞行中 `data-pet-state` 必须是图集 row4（jumping：九行里唯一"双臂张开的悬空"形状）。
+			const sampleFlight = async () => {
+				const { result } = await cdp.send("Runtime.evaluate", {
+					expression: `(() => {
+						const el = document.getElementById("pet");
+						const d = (window.__imissPetDebug ? window.__imissPetDebug() : {}) || {};
+						const sprite = document.getElementById("pet-sprite");
+						return { ...d, state: el.dataset.petState || null, spritePos: sprite ? sprite.style.backgroundPosition : null };
+					})()`,
+					returnByValue: true,
+				});
+				return result.value;
+			};
+			const measured = [];
+			for (let i = 0; i < 3; i++) {
+				await cdp.send("Runtime.evaluate", { expression: `window.__imissSetMode("float")`, returnByValue: true });
+				await sleep(300);
+				const kick = await cdp.send("Runtime.evaluate", {
+					expression: `window.__imissFlyNow ? window.__imissFlyNow() : null`,
+					returnByValue: true,
+				});
+				// 等它真的在飞（最多 1.5s）
+				let takeoff = null;
+				for (let k = 0; k < 20; k++) {
+					await sleep(75);
+					const s = await sampleFlight();
+					if (s.flying) {
+						takeoff = { ...s, at: Date.now() };
+						break;
+					}
+				}
+				// 等落位（最多 9s）
+				let landed = null;
+				for (let k = 0; k < 120; k++) {
+					await sleep(75);
+					const s = await sampleFlight();
+					if (!s.flying) {
+						landed = { ...s, at: Date.now() };
+						break;
+					}
+				}
+				measured.push({
+					accepted: kick.result.value === true,
+					x0: takeoff?.x ?? null,
+					y0: takeoff?.y ?? null,
+					x1: landed?.x ?? null,
+					y1: landed?.y ?? null,
+					dist:
+						takeoff && landed
+							? Math.round(Math.hypot(landed.x - takeoff.x, landed.y - takeoff.y))
+							: null,
+					durMs: takeoff && landed ? landed.at - takeoff.at : null,
+					midState: takeoff?.state ?? null,
+					midSpritePos: takeoff?.spritePos ?? null,
+					reduce: takeoff?.reduce ?? null,
+				});
+			}
+			facts["pet-flight-samples"] = measured;
+			{
+				const cfg = await fs.readFile(path.resolve("src/config/petConfig.ts"), "utf8");
+				const utils = await fs.readFile(path.resolve("src/utils/pet-utils.ts"), "utf8");
+				const num = (re) => {
+					const m = re.exec(utils) || re.exec(cfg);
+					return m ? Number(m[1]) : null;
+				};
+				const range = (re, text) => {
+					const m = re.exec(text);
+					return m ? [Number(m[1]), Number(m[2])] : null;
+				};
+				facts["pet-fly-params"] = {
+					distance: range(/flyDistanceRange:\s*\[(\d+),\s*(\d+)\]/, utils),
+					duration: range(/flyDurationRange:\s*\[(\d+),\s*(\d+)\]/, cfg),
+					interval: range(/flyIntervalRange:\s*\[(\d+),\s*(\d+)\]/, cfg),
+					arc: num(/flyArc:\s*(\d+)/),
+					tilt: num(/flyTilt:\s*(\d+)/),
+				};
+			}
 
 			// ── float：拖动松手**不掉落**（悬停锚在松手处）──
 			await dragPet(700, 260);
@@ -2188,6 +2503,189 @@ async function main() {
 					Math.abs(reduced1.rect.x - afterReload.x) <= 2 &&
 					reduced1.mode === "float",
 				`ground 拖动后存档=${facts["pet-ground-landed"].pet.saved}；重载后 x=${reduced1.rect.x}（存档 x=${afterReload?.x}）、mode=${reduced1.mode}（来自配置，不是存档里的 ${afterReload?.mode}）`,
+			);
+		}
+	}
+
+	// ── R-PET-07 发起人反馈的两条（右键菜单跑到屏幕底部被裁 + 飞行太快太远）──
+	{
+		const casesOf = (key) => facts[key] ?? [];
+		const failList = (cases, field) =>
+			cases
+				.filter((c) => !c[field])
+				.map((c) => c.label)
+				.join("、") || "无";
+
+		for (const [size, key] of [
+			["1440×900", "pet-menu-1440"],
+			["390×844", "pet-menu-390"],
+		]) {
+			const cases = casesOf(key);
+			// ① 四边都在视口内（这是发起人截图里最扎眼的那条：菜单探出底部被裁）
+			record(
+				"R-PET-07",
+				`右键菜单四边都在视口内（${size}·${cases.length} 个宠物位置）`,
+				cases.length >= 3 && cases.every((c) => c.hidden === false && c.inside),
+				cases.map((c) => `${c.label} ${c.inside ? "✓" : "✗"}`).join(" | ") + ` ｜ 越界位置：${failList(cases, "inside")}`,
+			);
+			// ② 与宠物相邻不重叠：纵向间隙 ≤ 26px、重叠面积 ≤ 100px²、横向有交叠
+			record(
+				"R-PET-07",
+				`右键菜单贴在宠物旁边且不重叠（${size}·间隙≤26px + 零重叠）`,
+				cases.length >= 3 && cases.every((c) => c.adjacent),
+				cases.map((c) => `${c.label} 间隙${c.gap}px/重叠${c.overlapArea}px²`).join(" | ") + ` ｜ 不合格：${failList(cases, "adjacent")}`,
+			);
+			// ③ 不许"贴在视口底部"：宠物在上部时，菜单底边距视口底 ≥ 视口高 × 0.25
+			//    （宠物在下部/悬浮基准线时不适用 —— 那时菜单本来就该在宠物下方）
+			record(
+				"R-PET-07",
+				`右键菜单没有被推到屏幕底部（${size}·宠物在上部时底距 ≥ 视口高×0.25）`,
+				cases.length >= 3 && cases.every((c) => c.notAtBottom),
+				cases.map((c) => `${c.label} 底距${c.bottomGap}px`).join(" | ") + ` ｜ 不合格：${failList(cases, "notAtBottom")}`,
+			);
+		}
+		// ④ 下方放不下要翻到上方 / 贴右边缘要向左让位（"哪边空间够就放哪边"）
+		{
+			const c1440 = casesOf("pet-menu-1440");
+			const c390 = casesOf("pet-menu-390");
+			const low1440 = c1440.find((c) => c.label.includes("下部"));
+			const low390 = c390.find((c) => c.label.includes("下部"));
+			const right1440 = c1440.find((c) => c.label.includes("右边缘"));
+			const right390 = c390.find((c) => c.label.includes("右边缘"));
+			record(
+				"R-PET-07",
+				"下方放不下时菜单自动翻到宠物上方；贴右边缘时向左让位（1440×900 + 390×844）",
+				low1440?.menu.side === "above" &&
+					low390?.menu.side === "above" &&
+					right1440?.menu.r <= right1440.vw - 4 &&
+					right390?.menu.r <= right390.vw - 4 &&
+					right1440?.inside === true &&
+					right390?.inside === true,
+				`下部→贴${low1440?.menu.side}(1440)/${low390?.menu.side}(390)；右边缘 1440 菜单右边=${right1440?.menu.r}(视口${right1440?.vw})、390 菜单右边=${right390?.menu.r}(视口${right390?.vw})`,
+			);
+		}
+		// ⑤ 拖动宠物时菜单跟着走（不是留在原地）
+		{
+			const d = facts["pet-menu-drag"];
+			const menuMoved = Math.abs((d?.before?.menu?.l ?? 0) - (d?.during?.menuL ?? 0));
+			record(
+				"R-PET-07",
+				"拖动宠物时菜单跟着走（拖动中仍相邻、不重叠、不出视口）",
+				d?.during?.inside === true &&
+					d?.during?.gap <= 26 &&
+					d?.during?.overlapArea <= 100 &&
+					d?.during?.tracked === true &&
+					menuMoved > 100,
+				`拖动前菜单左边=${d?.before?.menu?.l} → 拖动中 宠物左边=${d?.during?.petL} 菜单左边=${d?.during?.menuL}（菜单跟着挪了 ${menuMoved}px）间隙=${d?.during?.gap}px 重叠=${d?.during?.overlapArea}px² 在视口内=${d?.during?.inside}`,
+			);
+		}
+		// ⑥ 切档后菜单跟着重排（贴地档宠物落到地面 → 菜单必须翻到上方、仍不溢出）
+		{
+			const m = facts["pet-menu-mode-switch"];
+			record(
+				"R-PET-07",
+				"切档后菜单跟着重排（贴地档落到地面时翻到上方、不溢出）",
+				m?.after?.mode === "ground" &&
+					m?.after?.inside === true &&
+					m?.after?.side === "above" &&
+					m?.after?.gap <= 26 &&
+					m?.after?.overlapArea <= 100,
+				`切档前菜单 top=${m?.before?.menu.t}（宠物 top=${m?.before?.pet.t}）→ 切到 ground 后 宠物 top=${m?.after?.petT}/bottom=${m?.after?.petB}、菜单 top=${m?.after?.menuT}/bottom=${m?.after?.menuB}（贴${m?.after?.side}、间隙${m?.after?.gap}px、在视口内=${m?.after?.inside}）`,
+			);
+		}
+		// ⑦ 滚动后仍然贴在一起（挡"菜单被写成文档坐标"这类回归）
+		{
+			const s = facts["pet-menu-scroll"];
+			record(
+				"R-PET-07",
+				"滚动页面后菜单仍贴在宠物旁边（fixed 定位不被文档坐标带跑）",
+				s?.inside === true && s?.gap <= 26 && s?.overlapArea <= 100,
+				`滚动到 y=${s?.scrollY} 后：宠物底=${s?.petB} 菜单顶=${s?.menuT} 间隙=${s?.gap}px 重叠=${s?.overlapArea}px² 在视口内=${s?.inside}`,
+			);
+		}
+		// ⑧ 390×844 下桌宠**是显示的**（否则上面那批窄视口断言是空过）
+		{
+			const p = facts["pet-menu-390-pet"];
+			record(
+				"R-PET-07",
+				"窄视口断言不是空过：390 宽时桌宠确实在渲染（由桌面宽缩窄而来）",
+				p?.exists === true && p?.display !== "none",
+				`exists=${p?.exists} display=${p?.display} petOff=${p?.off}（移动端冷启动隐藏见 R-PET-01）`,
+			);
+		}
+		// ⑧b 菜单**真的画得出来**：矩形对不代表看得见 ——
+		//     第一版菜单没有 z-index（auto=0），而模板里壁纸是 z-index 10、正文面板是 30，
+		//     菜单被压在下面，只在两者都盖不到的地方露出一条（发起人看到的"被裁掉一半"）。
+		//     这条用 elementFromPoint 做"像素真话"判定，再核对层级关系。
+		{
+			const cases = [...casesOf("pet-menu-1440"), ...casesOf("pet-menu-390")];
+			record(
+				"R-PET-07",
+				"菜单真的绘制在最上层（elementFromPoint 命中菜单本身，且层级高于壁纸/正文面板、低于浮动控件）",
+				cases.length >= 5 &&
+					cases.every((c) => c.hitIsMenu === true) &&
+					cases.every((c) => c.menu.z > (c.layers?.wallpaper ?? 0) && c.menu.z > (c.layers?.content ?? 0)) &&
+					cases.every((c) => c.menu.z < (c.layers?.floats ?? 1000)),
+				`elementFromPoint 命中：${cases.map((c) => `${c.label}→${c.hitIsMenu ? "菜单" : `非菜单(${c.hitTop})`}`).join(" | ")}；菜单 z=${cases[0]?.menu?.z} vs 壁纸 z=${cases[0]?.layers?.wallpaper} / 正文 z=${cases[0]?.layers?.content} / 浮动控件 z=${cases[0]?.layers?.floats}`,
+			);
+		}
+		// ⑨ 飞行参数口径（配置源头）：位移 60~180px、时长 4~6s、间隔放宽、弧线与倾角收小
+		{
+			const fp = facts["pet-fly-params"] ?? {};
+			const dist = fp.distance ?? [0, 0];
+			const dur = fp.duration ?? [0, 0];
+			const iv = fp.interval ?? [0, 0];
+			record(
+				"R-PET-07",
+				"飞行口径改成「微微挪动」：位移 60~180px、时长 4~6s、间隔放宽到 30~90s",
+				dist[0] === 60 &&
+					dist[1] === 180 &&
+					dur[0] === 4000 &&
+					dur[1] === 6000 &&
+					iv[0] >= 20000 &&
+					iv[1] <= 120000 &&
+					iv[1] > iv[0],
+				`flyDistanceRange=${JSON.stringify(dist)}px、flyDurationRange=${JSON.stringify(dur)}ms、flyIntervalRange=${JSON.stringify(iv)}ms`,
+			);
+			record(
+				"R-PET-07",
+				"飞行弧线与倾角收小（flyArc ≤ 20px、flyTilt ≤ 4°）",
+				(fp.arc ?? 999) <= 20 && (fp.tilt ?? 999) <= 4,
+				`flyArc=${fp.arc}px（改前 44）、flyTilt=${fp.tilt}°（改前 7）`,
+			);
+		}
+		// ⑩ 3 次实飞的位移 / 时长 / 姿态帧
+		{
+			const samples = facts["pet-flight-samples"] ?? [];
+			const ok = samples.length === 3 && samples.every((s) => s.accepted && s.dist !== null && s.durMs !== null);
+			const dists = samples.map((s) => s.dist);
+			const distStr = samples.map((s) => `${s.dist}px`).join(" / ");
+			const durStr = samples.map((s) => (s.durMs === null ? "?" : (s.durMs / 1000).toFixed(1))).join(" / ");
+			record(
+				"R-PET-07",
+				"3 次实飞位移都落在 60~180px（夹回容差 ≤ 200px，改前实测 414~550px）",
+				ok && samples.every((s) => s.dist >= 45 && s.dist <= 200),
+				`3 次位移：${distStr}（改前 414~550px）；平均 ${
+					ok ? Math.round(dists.reduce((a, b) => a + b, 0) / dists.length) : "?"
+				}px`,
+			);
+			record(
+				"R-PET-07",
+				"3 次实飞时长都在 4~6 秒（实测容差 3.8~6.4s，改前固定 2.6s）",
+				ok && samples.every((s) => s.durMs >= 3800 && s.durMs <= 6400),
+				`3 次时长：${durStr} 秒；平均速度 ${
+					ok
+						? Math.round(
+								samples.reduce((a, s) => a + s.dist / (s.durMs / 1000), 0) / samples.length,
+							)
+						: "?"
+				}px/s（改前 ≈580px/s）`,
+			);
+			record(
+				"R-PET-07",
+				"飞行中用图集 row4（jumping：双臂张开的悬空姿态）循环播放",
+				ok && samples.every((s) => s.midState === "jumping") && samples.some((s) => s.midSpritePos !== null),
+				`飞行中 data-pet-state=${samples.map((s) => s.midState).join(" / ")}，background-position=${samples.map((s) => s.midSpritePos).join(" / ")}（row4 → y=50%）`,
 			);
 		}
 	}

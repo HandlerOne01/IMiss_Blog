@@ -60,8 +60,20 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				</span>
 			</div>
 
-			{/* 右键菜单用真实 DOM 渲染（不是 JS 现拼），读屏与键盘都能用 */}
-			<div class="pet-menu" id="pet-menu" role="menu" aria-label="和爱弥斯互动" hidden>
+			{/* 右键菜单用真实 DOM 渲染（不是 JS 现拼），读屏与键盘都能用。
+			    ⚠️ R-PET-07：**必须给 z-index**（宠物 zIndex + 1）。原来没有 z-index（= auto = 0），
+			    而模板里 `#wallpaper-wrapper` 是 z-index 10、`#content-panel` 是 30 —— 菜单被画在
+			    壁纸和正文面板**下面**，只在两者都盖不到的地方露出来（实测 elementFromPoint 命中的
+			    是壁纸 <img> 而不是菜单），看起来就是"菜单缺了一块/被裁掉一半"。
+			    67 仍然远低于浮动按钮（1000）与移动端菜单面板（1100），R-PET-05 的"低于浮动控件"不受影响。 */}
+			<div
+				class="pet-menu"
+				id="pet-menu"
+				role="menu"
+				aria-label="和爱弥斯互动"
+				style={`z-index:${zIndex + 1}`}
+				hidden
+			>
 				<button type="button" role="menuitem" data-pet-act="say">
 					说句话
 				</button>
@@ -86,6 +98,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 	import { petConfig } from "@/config";
 	import {
 		PET_COLS,
+		PET_FLIGHT_POSE,
 		PET_ROWS,
 		PET_STATES,
 		PET_TUNING,
@@ -129,9 +142,13 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			hoverLineRatio,
 			airMinGap,
 			glideSpeedFactor,
+			flyDistanceRange,
+			flyVerticalRatio,
 			flyArc,
 			flyTilt,
 			flyZoom,
+			menuGap,
+			menuMargin,
 		} = PET_TUNING;
 		const MV = petConfig.movement;
 		const sleepAfter = petConfig.idleSecondsToSleep * 1000;
@@ -184,6 +201,8 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			py: -1,
 			lastClick: 0,
 			userMoved: false,
+			/** 本次播放是否把 `once` 状态改成循环（R-PET-07，目前只给飞行姿态用） */
+			poseLoop: false,
 			/** 当前运动模式（R-PET-06），运行期可被 `__imissSetMode()` 改（验收脚本用） */
 			mode: MODE,
 			/** 悬浮基准线（宠物中心不摆动时的 y）；拖放 / 飞行落位 / 缩放后重新锚定 */
@@ -299,8 +318,15 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		}
 
 		/* ── 状态与帧 ───────────────────────────────────── */
-		function setState(name: PetStateName, holdMs = 0): void {
+		/**
+		 * `loop`（R-PET-07）：把"一次性动画"（`PET_STATES[name].once`）在本次播放里改成循环。
+		 * 目前只有飞行姿态用它 —— 飞行借的是 `jumping`（图集 row4，双臂张开的唯一"悬空"形状），
+		 * 而 `jumping` 本来是播完就停在末帧的一次性动画，飞行有 4~6 秒，冻帧会显得很呆。
+		 * 不传就复位成 `false`，所以"飞行结束 → setState("idle")"这条路径天然把循环关掉。
+		 */
+		function setState(name: PetStateName, holdMs = 0, loop = false): void {
 			const s = PET_STATES[name];
+			pet.poseLoop = loop;
 			if (pet.state === name) {
 				if (s.once) pet.busyUntil = performance.now() + holdMs;
 				return;
@@ -348,27 +374,53 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			pet.hoverBase = clampAirY(pet.y);
 			pet.hoverPhase = 0;
 			if (rearm) pet.nextAt = performance.now() + nextFlyDelay();
+			placeMenu(); // 飞行被打断也可能换了位置 → 菜单跟着重排（菜单没开时是空操作）
 		}
 
 		/**
 		 * 起飞一次。`force` 只给调试钩子 `__imissFlyNow()` 用（跳过"睡着"判断），
 		 * 其余判断与自动飞行完全一致 —— 验收脚本测的是**飞行函数本身**，不是绕过它。
-		 * 目标点在**视口内**随机取，并且从一开始就受 `rightLimit()` 约束：
-		 * 否则可能正好选中右下角浮动按钮那一块（R-PET-05）。
+		 *
+		 * ⚠️ R-PET-07 改了目标点的取法：原来是"在**整个视口**里随机取一个点"
+		 * （实测单次位移 414~550px，发起人反馈："你飞的太快了……自然一点就**微微挪动**就好了"）。
+		 * 现在是"**以当前位置为圆心**、朝随机方向挪 `flyDistanceRange`（60~180px）"，
+		 * 纵向再按 `flyVerticalRatio` 压扁 —— 观感是"轻轻挪了一下"，而不是"瞬移到别处"。
+		 * 目标点仍然先过 `rightLimit(y1)`（右下角浮动按钮，R-PET-05）、飞行中逐帧再 clamp
+		 * （不出视口）；夹回后位移缩水太多就重摇，摇几次都不行就这次不飞（过一会儿再试）。
 		 */
 		function startFlight(now: number, force = false): boolean {
 			if (pet.mode !== "float" || pet.dragging || chatOpen || pet.flight) return false;
 			if (flyBlocked) return false; // reduced-motion：只保留静态悬浮，不飞
 			if (pet.asleep && !force) return false;
 			if (force) wake();
-			const y1 = clampAirY(minAirY() + Math.random() * Math.max(1, maxAirY() - minAirY()));
-			const rl = rightLimit(y1);
-			const x1 = Math.max(edge, Math.min(rl, edge + Math.random() * Math.max(1, rl - edge)));
-			// 目标太近就当作"这次不飞"（不然访客只看到原地抖一下），过一会儿再试
-			if (Math.abs(x1 - pet.x) + Math.abs(y1 - pet.y) < 80) {
-				pet.nextAt = now + 1500;
+
+			const [distLo, distHi] = flyDistanceRange;
+			const minDist = Math.max(1, distLo);
+			let x1 = pet.x;
+			let y1 = pet.y;
+			let best = -1;
+			// 最多摇 6 次：随机方向可能正好指向视口外或浮动按钮区，clamp 之后位移会缩水
+			for (let i = 0; i < 6; i++) {
+				const dist = minDist + Math.random() * Math.max(0, distHi - minDist);
+				const ang = Math.random() * Math.PI * 2;
+				const ty = pet.y + Math.sin(ang) * dist * flyVerticalRatio;
+				const cx = clampX(pet.x + Math.cos(ang) * dist, ty);
+				const cy = clampAirY(ty);
+				const d = Math.hypot(cx - pet.x, cy - pet.y);
+				if (d > best) {
+					best = d;
+					x1 = cx;
+					y1 = cy;
+				}
+				if (d >= minDist) break; // 已经达到下界，够"看得出挪了"
+			}
+			// 摇了 6 次都被夹到"几乎没动"（贴边/贴按钮的极端位置）→ 这次不飞，过一会儿再试
+			if (best < minDist * 0.5) {
+				pet.nextAt = now + 3000;
 				return false;
 			}
+			const [durLo, durHi] = MV.flyDurationRange;
+			const dur = Math.max(1000, durLo + Math.random() * Math.max(0, durHi - durLo));
 			pet.walking = false;
 			pet.busyUntil = 0;
 			pet.flight = {
@@ -378,11 +430,13 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				y1,
 				arc: flyArc * (0.6 + Math.random() * 0.8), // 每次弧线高度不同，不至于像流水线
 				startAt: now,
-				dur: Math.max(600, MV.flyDurationMs),
+				dur,
 			};
 			el?.setAttribute("data-pet-flying", "1");
-			// 悬浮飞行**用 idle 帧飘过去**，不套走路动画（走路的横向位移是贴地逻辑）
-			setState("idle");
+			// 飞行姿态：图集里没有"飞"行，借最像悬空的 row4（jumping，双臂平展）并循环播放
+			setState(PET_FLIGHT_POSE.state, 0, PET_FLIGHT_POSE.loop);
+			// 姿态是"循环的飞行帧"，不能被一次性动画的收尾逻辑（step 里的 busyUntil 分支）接管
+			pet.busyUntil = 0;
 			return true;
 		}
 
@@ -390,8 +444,9 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			const f = pet.flight;
 			if (!f) return;
 			const t = Math.min(1, (now - f.startAt) / f.dur);
-			// 缓入缓出（easeInOutQuad）：起步与收尾慢、中途快 —— "渐入渐出"
-			const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+			// 缓入缓出（easeInOutSine，R-PET-07 从 easeInOutQuad 换过来）：
+			// 起步与收尾更平，几乎看不出"启动/刹车" —— 配合 60~180px 的小位移就是"轻轻飘一下"
+			const e = -(Math.cos(Math.PI * t) - 1) / 2;
 			const arc = f.arc * Math.sin(Math.PI * t); // 中途抬起一点，直线插值看起来才像"飘"
 			const x = f.x0 + (f.x1 - f.x0) * e;
 			const y = f.y0 + (f.y1 - f.y0) * e - arc;
@@ -399,6 +454,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			pet.x = clampX(x, y);
 			pet.y = clampAirY(y);
 			setFlyPose(Math.sin(Math.PI * t), f.x1 >= f.x0 ? 1 : -1);
+			if (menu && !menu.hidden) placeMenu(); // 菜单开着时跟着宠物走（没开就是空操作）
 			if (t >= 1) {
 				pet.x = clampX(f.x1, f.y1);
 				pet.y = f.y1;
@@ -414,7 +470,9 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			pet.hoverBase = clampAirY(pet.y);
 			pet.hoverPhase = 0;
 			pet.nextAt = now + nextFlyDelay();
+			setState("idle"); // 从飞行姿态回到待机（顺带把 poseLoop 复位）
 			savePos();
+			placeMenu();
 		}
 
 		/** 悬浮：绕基准线做正弦上下浮动（rAF 逐帧，理由见文件头） */
@@ -456,6 +514,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			}
 			setState("idle");
 			applyTransform();
+			placeMenu(); // 切档会整块换高度（贴地/悬浮/固定），菜单要跟着重排
 		}
 
 		/* ── 每帧 ───────────────────────────────────────── */
@@ -588,7 +647,8 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			while (pet.acc >= dur) {
 				pet.acc -= dur;
 				pet.frame++;
-				if (pet.frame >= s.frames) pet.frame = s.once ? s.frames - 1 : 0;
+				// 一次性动画停在末帧；飞行姿态（poseLoop）例外：飞行有 4~6 秒，要循环才不死板
+				if (pet.frame >= s.frames) pet.frame = s.once && !pet.poseLoop ? s.frames - 1 : 0;
 			}
 
 			applyTransform();
@@ -736,6 +796,8 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			pet.y = Math.max(0, Math.min(vh - h * 0.4, e.clientY - drag.dy));
 			pet.userMoved = true;
 			el?.style.setProperty("transform", `translate3d(${pet.x.toFixed(2)}px,${pet.y.toFixed(2)}px,0)`);
+			// 菜单开着时跟着宠物走（R-PET-07：拖动后菜单不能留在原地）
+			placeMenu();
 		}
 
 		function onPointerUp(e: PointerEvent): void {
@@ -807,12 +869,70 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		}
 
 		/* ── 右键菜单 ───────────────────────────────────── */
-		function openMenu(x: number, y: number): void {
+		/**
+		 * 菜单尺寸缓存（只为 clamp 用）：菜单是固定的五项，量一次就够。
+		 * 视口尺寸变了会清零重量（`max-height: calc(100vh - 16px)` 会改变实际高度）。
+		 */
+		let menuW = 0;
+		let menuH = 0;
+
+		/**
+		 * 把菜单摆到宠物旁边，并保证**四边都在视口内**（R-PET-07）
+		 * ============================================================================
+		 * 踩过的坑（发起人附图：「**这框都在下面**」，菜单跑到屏幕底部还被裁掉一半）：
+		 * 原来 `openMenu(clientX, clientY)` 直接拿**鼠标坐标**当 left/top，只做了
+		 * 「左边不许溢出」+「top 不小于 10」两条 clamp：
+		 *   ① 菜单根本不在宠物旁边 —— 鼠标点在哪它开在哪（也不是"宠物右键菜单"该有的样子）；
+		 *   ② **纵向没有任何下界** —— 只要锚点落在视口下半部分，高约 200px 的菜单就整块
+		 *      探出视口底部被裁掉。悬浮档的悬浮基准线是 `vh × 0.52`（宠物中心），
+		 *      再往下拖一点、或点宠物下半身，锚点就已经在"下半屏"了。
+		 * 现在按**宠物矩形**（组件自己维护的 `pet.x/pet.y/w/h`，不读布局 → 拖拽/飞行逐帧
+		 * 重排也不引发 layout thrash）摆位：
+		 *   · 纵向：优先贴宠物**下方**（气泡在宠物上方，菜单放下面不跟气泡打架），
+		 *     下方放不下就翻到**上方**；上下都放不下（超矮视口）取空间大的一侧再夹回视口；
+		 *   · 横向：优先与宠物**左对齐**，右边放不下就**右对齐到宠物右侧**，最后夹回视口；
+		 *   · 两侧都留 `menuMargin` 安全边距、与宠物之间留 `menuGap` 间隙。
+		 * `data-pet-menu-side` 记下这次贴的是上方还是下方，排查与断言用。
+		 */
+		function placeMenu(): void {
+			if (!menu || menu.hidden) return;
+			if (!menuW || !menuH) {
+				menuW = menu.offsetWidth || 132;
+				menuH = menu.offsetHeight || 200;
+			}
+			const gap = menuGap;
+			const m = menuMargin;
+			const petBottom = pet.y + h;
+			// 上下各自"扣掉边距与间隙后"能给菜单用的高度
+			const roomBelow = vh - m - (petBottom + gap);
+			const roomAbove = pet.y - gap - m;
+			let top: number;
+			let side: "below" | "above";
+			if (roomBelow >= menuH) {
+				top = petBottom + gap; // 贴下方（常规）
+				side = "below";
+			} else if (roomAbove >= menuH) {
+				top = pet.y - gap - menuH; // 下方不够 → 翻到上方
+				side = "above";
+			} else {
+				// 上下都放不下：取空间大的一侧，再靠下面的 clamp 夹进视口
+				side = roomBelow >= roomAbove ? "below" : "above";
+				top = side === "below" ? vh - m - menuH : m;
+			}
+			top = Math.max(m, Math.min(Math.max(m, vh - m - menuH), top));
+			let left = pet.x; // 与宠物左对齐
+			if (left + menuW > vw - m) left = pet.x + w - menuW; // 右侧空间不够 → 右对齐到宠物右边
+			left = Math.max(m, Math.min(Math.max(m, vw - m - menuW), left));
+			menu.style.left = `${Math.round(left)}px`;
+			menu.style.top = `${Math.round(top)}px`;
+			menu.dataset.petMenuSide = side;
+		}
+
+		/** 打开菜单：先显形（才量得到尺寸）再摆位 */
+		function openMenu(): void {
 			if (!menu) return;
 			menu.hidden = false;
-			const mw = menu.offsetWidth || 132;
-			menu.style.left = `${Math.min(x, vw - mw - 10)}px`;
-			menu.style.top = `${Math.max(10, y - 8)}px`;
+			placeMenu();
 		}
 
 		function closeMenu(): void {
@@ -1043,8 +1163,8 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			hit?.addEventListener("contextmenu", (e: Event) => {
 				e.preventDefault();
 				wake();
-				const me = e as MouseEvent;
-				openMenu(me.clientX, me.clientY);
+				// R-PET-07：不再拿鼠标坐标当锚点 —— 菜单一律贴在宠物旁边（见 placeMenu）
+				openMenu();
 			});
 			hit?.addEventListener("keydown", (e: KeyboardEvent) => {
 				if (e.key === "Enter" || e.key === " ") {
@@ -1118,9 +1238,17 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				() => {
 					measure();
 					applyTransform();
+					// 视口变了 → 菜单尺寸缓存（max-height 跟着 vh 走）与位置都要重算（R-PET-07）
+					menuW = 0;
+					menuH = 0;
+					placeMenu();
 				},
 				{ passive: true },
 			);
+
+			// 滚动时菜单跟着宠物重排（宠物是 fixed，滚动不影响它，但菜单的位置是相对视口算的，
+			// 页面滚动后若还留着旧 left/top，视觉上就会"飘"在别处 —— R-PET-07）
+			window.addEventListener("scroll", placeMenu, { passive: true, capture: true });
 
 			document.addEventListener("visibilitychange", () => {
 				if (document.hidden) {
@@ -1143,6 +1271,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				setState("waving", 1600);
 				pet.busyUntil = performance.now() + 1600;
 				pet.nextAt = performance.now() + 2000;
+				placeMenu(); // 菜单跟着宠物跨页常驻，切页后重新贴回宠物旁边（R-PET-07）
 			});
 
 			if (reduce) {

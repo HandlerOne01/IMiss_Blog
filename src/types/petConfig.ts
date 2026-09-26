@@ -23,8 +23,13 @@ export interface PetMovementConfig {
 	hoverPeriodMs: number;
 	/** 两次飞行之间的随机间隔（毫秒），`[最小, 最大]` */
 	flyIntervalRange: [number, number];
-	/** 单次飞行时长（毫秒） */
-	flyDurationMs: number;
+	/**
+	 * 单次飞行时长（毫秒），`[最短, 最长]`（R-PET-07 起改成区间）
+	 *
+	 * ⚠️ 原来是单值 `flyDurationMs: 2600` —— "一次飞 2.6 秒、位移却有好几百像素"，
+	 * 发起人反馈"飞得太快太远"。现在时长与位移都成对收紧（见 `PET_TUNING.flyDistanceRange`）。
+	 */
+	flyDurationRange: [number, number];
 	/** `prefers-reduced-motion: reduce` 时是否也禁止飞行（默认 true = 静止悬浮） */
 	flyRespectReducedMotion: boolean;
 }

@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.28 |
+| 文档版本 | v1.29 |
 | 最后更新 | 2026-09-26 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -268,7 +268,7 @@ src/
 | `RankBoard.astro` 的内联脚本 + URL 契约（`?kind=`） | R-RANK-02 | §5.4 |
 | `src/components/pages/rank/RankBoard.astro` + `src/styles/pages/rank.css` | R-RANK-03 / R-RANK-05 / R-RANK-06 | §5.5、§5.6 |
 | `src/config/rankConfig.ts` + `src/types/rankConfig.ts` | R-RANK-04 | §5.3 |
-| `src/components/features/AemeathPet.astro` + `petConfig.ts` + `Layout.astro` 一行 | R-PET-01 / R-PET-02 / R-PET-03 / R-PET-05 | §7.1~§7.5 |
+| `src/components/features/AemeathPet.astro` + `petConfig.ts` + `Layout.astro` 一行 | R-PET-01 / R-PET-02 / R-PET-03 / R-PET-05 / R-PET-06 / R-PET-07 | §7.1~§7.6 |
 | `pioConfig.ts` 保持关闭 + 互斥注释 | R-PET-04 | §7.5 |
 | `agent/src/agent/**`（含 `persona.txt`） | R-AGT-01 / R-AGT-06 | §8.3 |
 | `agent/src/gateway/**` | R-AGT-02 / R-AGT-05 | §8.4、§8.5 |
@@ -574,8 +574,8 @@ export interface PetConfig {
     mode: "float" | "fixed" | "ground";
     hoverAmplitude: number;     // 悬浮上下浮动幅度 px，默认 6
     hoverPeriodMs: number;      // 浮动周期，默认 3200
-    flyIntervalRange: [number, number]; // 飞行间隔 ms，默认 [20000, 60000]
-    flyDurationMs: number;      // 单次飞行时长，默认 2600
+    flyIntervalRange: [number, number]; // 飞行间隔 ms，默认 [30000, 90000]（R-PET-07 放宽）
+    flyDurationRange: [number, number]; // 单次飞行时长 ms，默认 [4000, 6000]（R-PET-07 由固定 2600 改区间）
     flyRespectReducedMotion: boolean;   // 默认 true
   };
   agent: {
@@ -607,7 +607,7 @@ export interface PetConfig {
 | --- | --- | --- |
 | 默认 | `idle` | 站立/悬浮时朝向跟随鼠标（用 `face` 变量，不改素材） |
 | 自由活动（`ground` 档） | `running-right` / `running-left` | 在视口底部来回走；左走用第 1 行 + `scaleX(-1)` |
-| 自由飞行（`float` 档） | `idle` | **不套走路动画**：用 idle 帧 + `--pet-tilt` / `--pet-fly-scale` 飘过去（见 §7.6） |
+| 自由飞行（`float` 档） | `jumping`（**循环播放**，R-PET-07 起） | **不套走路动画**：用图集 **row4（`jumping`：九行里唯一"双臂张开、双脚离地"的形状）**循环播 + `--pet-tilt` / `--pet-fly-scale` 飘过去（见 §7.6）；`setState(name, holdMs, loop)` 的第三个参数把 `once` 动画在本次播放里改成循环 |
 | 首次出场 / 切页 | `waving` | 台词取自 `petConfig.greeting` 或 `lines` |
 | 单击 / 落地 | `jumping` | 重力落地后若速度大则再弹一次（只有 `ground` 档会落地） |
 | 拖拽中 | `failed` | 影子随高度缩小变淡；松手后的去向**按模式分**（见 §7.6） |
@@ -624,7 +624,7 @@ export interface PetConfig {
 | 单击 | 跳一下 + 随机台词（不掉高度） |
 | 双击 | `review` + 星屑 |
 | 按住拖动 | 跟随鼠标/手指；**松手：`ground` 受重力落地 / `float` 就地悬停 / `fixed` 原地不动**（R-PET-06） |
-| 右键 | 菜单：说句话 / 跳一下 / 跟过来 / 睡一会儿 / **和爱弥斯聊天** |
+| 右键 | 菜单：说句话 / 跳一下 / 跟过来 / 睡一会儿 / **和爱弥斯聊天**。⚠️ R-PET-07 起位置由 `placeMenu()` 按**宠物矩形**算（贴宠物上下、四边夹进视口，见 §7.6），**不再用鼠标坐标当锚点**；菜单必须带 `z-index`（宠物 `zIndex` + 1 = 67），否则会被壁纸/正文面板压在下面 |
 | 键盘 | `Tab` 聚焦宠物；`Enter` 跳一下；`←` `→` 指挥它移动（`ground` 走 / `float` 飘 / `fixed` 不动）；气泡用 `aria-live="polite"` |
 | 位置记忆 | `localStorage["imiss.pet.pos"]`（R-PET-06 起存 `{x,y,mode}`，兼容 P3 的纯数字旧格式；**模式以配置为准**，见 §7.6） |
 
@@ -652,19 +652,28 @@ export interface PetConfig {
 
 | 档位 | 落点（y 怎么来） | 有没有重力 | 计时器到点什么 | 拖动松手后 |
 | --- | --- | --- | --- | --- |
-| `float`（**默认**） | 悬浮基准线 `vh × 0.52 − h/2`（`PET_TUNING.hoverLineRatio`），并在 `±hoverAmplitude` 内正弦浮动；**离地至少 `PET_TUNING.airMinGap` = 48px**（"不贴地"的硬约束，拖放/缩窗都会被它夹回） | 无 | `nextAt` 到点 → `startFlight()` 飘到视口内随机点；飞行中每帧缓动插值 | 就地悬停（不掉落），随后 8s 内再飘一次 |
+| `float`（**默认**） | 悬浮基准线 `vh × 0.52 − h/2`（`PET_TUNING.hoverLineRatio`），并在 `±hoverAmplitude` 内正弦浮动；**离地至少 `PET_TUNING.airMinGap` = 48px**（"不贴地"的硬约束，拖放/缩窗都会被它夹回） | 无 | `nextAt` 到点 → `startFlight()` 从**当前位置**朝随机方向挪 `flyDistanceRange` = 60~180px（R-PET-07）；飞行中每帧缓动插值 | 就地悬停（不掉落），随后 8s 内再飘一次 |
 | `fixed` | 当前位置（切换时只 clamp 回视口） | 无 | `nextAt = Infinity` → 什么都不做 | **原地不动**（不悬停、不漂移、不落地） |
 | `ground` | 地面 `floorY` | 有（P3 原逻辑） | 原有 `decide()`（走/招手/跳/困惑/发呆） | 受重力落地（P3 原行为） |
 
 **实现要点（三个"为什么这么做"）**
 
 1. **悬浮与位置的位移都在 `#pet` 的 `translate3d` 上，由 rAF 逐帧写**（`hoverStep()` / `advanceFlight()` → `applyTransform()`）。**没有用 CSS animation 做浮动**：CSS 动画的位移与 JS 写的 `transform` 是同一条属性，会互相覆盖 —— 一旦拖拽或"刷新后恢复位置"再写一次 `transform`，动画就会被顶掉或抖动。重心放在 `translate3d` 上还有个好处：拖拽、位置记忆、模式切换共用同一份 `(x, y)` 事实，没有第二份状态可以对不上。
-2. **飞行 = 缓动 + 弧线 + 姿态**：`easeInOutQuad` 插值（"渐入渐出"），纵向再叠 `flyArc × sin(πt)` 的抬升（看起来是"飘"不是"直线平移"），姿态用 CSS 变量 `--pet-tilt`（最大 `flyTilt` 7°）与 `--pet-fly-scale`（最大 `1 + flyZoom`）写在 `.pet-sprite` 上，与 `--pet-dy`（素材底边补偿）、`--pet-face`（朝向）拼在同一个 `transform` 里。**飞行用 idle 帧**，不套 `running-*` 的横向位移（那是贴地逻辑）。飞行期间 `.pet` 带 `data-pet-flying="1"`（验收脚本据此判"真的在飞"）。
+2. **飞行 = 缓动 + 弧线 + 姿态**（R-PET-07 收紧了全部参数）：`easeInOutSine` 插值（比原来的 `easeInOutQuad` 更柔，起步/收尾几乎看不出"启动"与"刹车"），纵向再叠 `flyArc × sin(πt)` 的抬升（**12px**，改前 44px —— 位移只有 60~180px 时 44px 的拱高会盖过位移本身，看起来像"蹦"），姿态用 CSS 变量 `--pet-tilt`（最大 `flyTilt` **3°**，改前 7°）与 `--pet-fly-scale`（最大 `1 + flyZoom` = 1.04）写在 `.pet-sprite` 上，与 `--pet-dy`（素材底边补偿）、`--pet-face`（朝向）拼在同一个 `transform` 里。**飞行用图集 row4（`jumping`，"双臂张开、双脚离地"）循环播放**（`PET_FLIGHT_POSE`；九行里没有专门的"飞"行，逐行对照图见 `reports/pet-atlas-rows.png`），不套 `running-*` 的横向位移（那是贴地逻辑）。飞行期间 `.pet` 带 `data-pet-flying="1"`（验收脚本据此判"真的在飞"）。
 3. **约束是逐帧守的，不是只挑目标点时守一次**：目标点先用 `rightLimit(y1)` 收窄，飞行每一帧再用 `clampX(x, y)` / `clampAirY(y)` 夹一次 —— 这样"飞行途中返回顶部按钮冒出来""窗口被缩小""中途被拖拽"都不会压上按钮或飞出视口。用户一 `pointerdown`（拖动或单击）就 `cancelFlight()` 立即中断本次飞行。
 4. **模式与位置记忆的关系**：`savePos()` 写 `{x, y, mode}`（兼容读 P3 的纯数字旧格式）；`boot()` 时 `mode` **只取配置**，记忆里的 `mode` 仅用于判断"那份 `y` 还作不作数"（同一模式才复用 y，否则 `float/fixed` 回落到悬浮基准线、`ground` 回落到地面）。这样"改配置就能切换"不会被浏览器里的旧记忆挡住。
 5. **验收用的调试钩子**（`window.__imissFlyNow()` / `__imissSetMode()` / `__imissPetDebug()`）调的是**和真实行为同一个函数**（`startFlight()` / `setMode()`），只多了"跳过睡着判断""允许运行期切档"两件事 —— 否则飞行间隔最小 20 秒，自动化验收只能干等或造假。`verify:ui` 的 R-PET-06 共 13 条断言覆盖三档各自的落点、飞行位移、固定不动、松手行为、三档不遮挡与 reduced-motion 静态悬浮。
 6. **自主飞行与"屏幕待机"的关系**：`waiting`（45 秒无操作）期间**不飞**（`decide()` 被 `pet.asleep` 挡住），任何交互立刻唤醒并恢复计时 —— 与 P3 贴地档的口径一致（待机就是要安静）。另外**自动飞行不写位置记忆**：`savePos()` 有 `pet.userMoved` 闸门，没被用户拖过就不落盘，免得访客刷新后被"上一次自己飞到的位置"接管。
-7. ⚠️ **一次自查出来的偏差（已修）**：一次性动画（出场招呼 1.9s）收尾时原本会把 `nextAt` 重排成 1.2~4.2s，而这个 `nextAt` 在悬浮档正是"下一次飞行"的时刻 → 页面加载 **7 秒**就飞了，与配置写的 20~60 秒不符。现在只有贴地档在动画收尾时重排 `nextAt`；独立探针 `reports/_rpet06-autoflight-probe.mjs`（不碰调试钩子、纯等真实时间）复测：**页面加载后 31.7 秒自主起飞**，落位 (766,339)、位移 519px；同一基准线上的悬停 y 峰峰值 **12px**（= 配置 ±6px）。
+7. ⚠️ **一次自查出来的偏差（已修）**：一次性动画（出场招呼 1.9s）收尾时原本会把 `nextAt` 重排成 1.2~4.2s，而这个 `nextAt` 在悬浮档正是"下一次飞行"的时刻 → 页面加载 **7 秒**就飞了，与配置写的 20~60 秒不符。现在只有贴地档在动画收尾时重排 `nextAt`；独立探针 `reports/_rpet06-autoflight-probe.mjs`（不碰调试钩子、纯等真实时间）复测：**页面加载后 31.7 秒自主起飞**、悬停 y 峰峰值 **12px**（= 配置 ±6px）。
+
+**R-PET-07（发起人 2026-09-26 反馈两条，都已修）**
+
+8. ⚠️ **右键菜单的锚点不能再假设"宠物贴地"**（发起人附图：「这框都在下面」）。改动前的 `openMenu(clientX, clientY)` 直接拿**鼠标坐标**当 `left/top`，只做了两条 clamp：左边不许溢出、`top` 不小于 10 —— **纵向完全没有下界**。P3 时代宠物只有"贴地"一种形态（`pet.y` 恒等于 `floorY`），鼠标点它必然落在视口底部附近，菜单往上一挂就没事；R-PET-06 把默认档换成 `float` 之后宠物悬在 `vh × 0.52`，位置可以是从视口顶到离地 48px 的**任意高度**，于是"点宠物下半身"这个最常见的动作就能让高约 200px 的菜单整块探出视口底。实测（`reports/_rpet07-menu-shots.mjs`，用真实几何套旧公式）：宠物在下部时旧公式给出 `top=815 → bottom=1018`，视口高 900 → **溢出 118px**（菜单高 203px 的 58%，正是发起人看到的"被裁掉一半"）。
+   另一个同时存在的坑：**菜单原来没有 `z-index`**（= `auto` = 0），而模板里 `#wallpaper-wrapper` 是 `z-index: 10`、`#content-panel` 是 `30` —— 菜单被画在它们**下面**，只在两者都盖不到的地方露出来。用 `elementFromPoint` 在菜单中心取样，命中的是壁纸 `<img>` / `#header-waves` / 侧栏组件，**根本不是菜单**（矩形算得再对也没用）。
+   修法：`placeMenu()` 改成按**宠物矩形**（组件自己维护的 `pet.x/pet.y/w/h`，不读布局，拖拽/飞行逐帧重排也不引发 layout thrash）摆位 —— 优先贴下方，下方放不下翻到上方，横向优先左对齐、右边不够就右对齐，最后四边都夹进视口（间隙 `menuGap` 10px、视口边距 `menuMargin` 8px）；`<div class="pet-menu">` 补 `style="z-index:{zIndex+1}"`（67，仍远低于浮动控件 1000 与移动端面板 1100，R-PET-05 不受影响）；拖动/飞行/切档/滚动（capture 监听）/缩窗（清尺寸缓存重量）/Swup 切页时都调一次 `placeMenu()`。**悬浮的 ±6px 呼吸故意不重排**（否则菜单会跟着一呼一吸地动，用户在菜单上点不准）—— 间隙 10px > 振幅 6px，所以也不会压到宠物。
+   断言口径（`verify:ui` 的 R-PET-07）：1440×900 与 390×844 各 3~4 个宠物位置，断言**四边在视口内**、**与宠物相邻不重叠**（间隙 ≤ 26px、重叠 ≤ 100px²）、**不许贴视口底**（宠物在上部时底距 ≥ 视口高 × 0.25；宠物在下部时菜单本来就该在下面，不套这条）、**`elementFromPoint` 命中菜单本身**。最后这条是"像素真话"：只算矩形的话，没有 z-index 的那一版**断言全绿但菜单根本看不见**（§14.3 T19/T26 那类假绿的同一个坑）。
+9. ⚠️ **飞行参数必须有上界**（发起人：「你飞的太快了…自然一点就微微挪动就好了」）。改动前的目标点是"**整个视口内随机取点**"（`edge + Math.random() × 可用宽/高`），单次位移实测 **414~550px**、时长固定 2600ms → 平均速度 ≈ 580px/s（走路是 58px/s 的一个数量级之上），看起来像瞬移。现在改成"**从当前位置出发、朝随机角挪 `flyDistanceRange`（60~180px）**"（纵向乘 `flyVerticalRatio` 0.55 压扁），时长 `flyDurationRange` **4000~6000ms**，平均速度约 18~38px/s；随机方向被视口/浮动按钮夹回后位移缩水太多就重摇（最多 6 次），实在不行这次不飞。间隔同时从 20~60s 放宽到 **30~90s**：位移小了以后 20 秒一动会像"在原地抽动"，拉长后更像"它自己有事、偶尔挪个地方"。
+   实测（`verify:ui` 连飞 3 次）：位移 **95 / 104 / 133 px**、时长 **5.0 / 5.7 / 5.7 s**、平均速度 **20px/s**（两次独立运行的样本区间：位移 68~158px、时长 4.1~5.7s）；飞行中 `data-pet-state=jumping`、`background-position` y=50%（row4）。
 
 ---
 
@@ -1000,7 +1009,7 @@ dosc/blog/**/*.md（只读）
 | `pnpm preview` | 预览构建产物 | — |
 | `pnpm format` / `pnpm lint` | Biome 格式化与检查 | — |
 | `pnpm verify:posts` | **内容校验**（`scripts/verify-posts.mjs`，阻断式）：frontmatter 完整性 / slug 唯一且 ASCII / 正文非空 / **本地图片存在且非 0 字节** / `frontmatter.image` 存在性 / 站内链接目标存在 / 残留 Obsidian 语法 / 标题重复 / `rankConfig` 的 title 与 cover。`--quarantine` 可把出错文章移进 `src/content/_quarantine/` | ✅（P4 新增） |
-| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **170 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底、**P4 内容迁移全项**：配图真实加载 / 编号顺序 / 移动端 / 不生成 figure 图注 / URL 形态 / 双链改写 / 无 Obsidian 残留 / 表格与代码块 / 无标题短笔记 / 归档与分类收录），并输出 **27 张**截图到 `reports/screenshots/`。P3 起含桌宠与壁纸全项（九状态触发 / 键盘 / 拖拽 / 菜单 / 联动 / reduced-motion / 与浮动按钮不重叠 / 移动端隐藏 / 取景与暗罩），**P3-R-PET-06 起含三档运动模式全项**：默认档为 `float` 且悬空（底部距视口底 > 120px）/ 强制起飞后坐标真的变化且飞行中带 `data-pet-flying` / 飞行全程不出视口 / 固定档 1.6s 两次采样坐标完全相同且拖放不落地 / 贴地档松手回地面高度 / 三档都不与右下角浮动按钮重叠 / reduced-motion 下 `float` 两帧 `transform` 相同（静态悬浮）/ 位置记忆仍生效且模式以配置为准。⚠️ **数字基准是"对 `pnpm preview` 的静态产物跑"**：对 `pnpm dev` 跑会少 12 条（4 条 noindex 存根 + sitemap 4 条 + llms.txt 2 条 + `/rank/` 存根 + noscript/class 兜底），那时的旧口径 145 就是这么来的，别拿它当基准 | ✅（P1 新增，P2/P3/P4/R-PET-06 四次扩容） |
+| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **187 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底、**P4 内容迁移全项**：配图真实加载 / 编号顺序 / 移动端 / 不生成 figure 图注 / URL 形态 / 双链改写 / 无 Obsidian 残留 / 表格与代码块 / 无标题短笔记 / 归档与分类收录），并输出 **27 张**截图到 `reports/screenshots/`。P3 起含桌宠与壁纸全项（九状态触发 / 键盘 / 拖拽 / 菜单 / 联动 / reduced-motion / 与浮动按钮不重叠 / 移动端隐藏 / 取景与暗罩），**P3-R-PET-06 起含三档运动模式全项**：默认档为 `float` 且悬空（底部距视口底 > 120px）/ 强制起飞后坐标真的变化且飞行中带 `data-pet-flying` / 飞行全程不出视口 / 固定档 1.6s 两次采样坐标完全相同且拖放不落地 / 贴地档松手回地面高度 / 三档都不与右下角浮动按钮重叠 / reduced-motion 下 `float` 两帧 `transform` 相同（静态悬浮）/ 位置记忆仍生效且模式以配置为准。⚠️ **数字基准是"对 `pnpm preview` 的静态产物跑"**：对 `pnpm dev` 跑会少 12 条（4 条 noindex 存根 + sitemap 4 条 + llms.txt 2 条 + `/rank/` 存根 + noscript/class 兜底），那时的旧口径 145 就是这么来的，别拿它当基准 | ✅（P1 新增，P2/P3/P4/R-PET-06 四次扩容） |
 | `node scripts/import-posts.mjs` | **旧博客迁移**（默认 dry-run）：`--write` 落盘、`--batch 1..5`、`--cat`、`--only`、`--limit`、`--src`；报告写 `reports/import-report.json` | ✅（P4 新增） |
 | `pnpm verify:docs` | **文档一致性自检**（`scripts/verify-docs.mjs`）：核对三份文档互相之间、以及文档与仓库事实是否一致——版本号与"最后更新"日期、断言/截图数与最近一次实测、排行页清单与路由文件、导航子项与 `navBarConfig.ts`、需求编号引用闭环、阻塞项条数与编号连续、§2 与 §3 阶段状态，以及**配置事实**（`displaySettingsConfig.enable`、`rankConfig.dataStatus`、"4 组数据"类说法是否漏了第 5 份）。**每次收工前跑一次**（P2 加二游排行时文档漂移了 12 处，就是没有这道关卡） | ✅（v1.12 新增） |
 | `pnpm make:logo` | 把 `src/assets/images/logo/imiss-logo.svg`（手写矢量设计源）栅格化成导航栏 Logo（webp）与 favicon 四档 PNG | ✅（P1 新增） |
@@ -1009,7 +1018,7 @@ dosc/blog/**/*.md（只读）
 > **关于 `verify:ui` 的对比度检查**：主体走"token 级"校验（`--deep-text`/`--content-meta`/`--btn-content`/`--primary` 对卡片底/页面底），不是"扫全站文字元素"。
 > 原因：这个主题里大量文字压在封面图、壁纸、半透明面板上，逐元素自动判定无法可靠取得背景色（试了三版：canvas 转色 → 逐层合成 → Node 侧解析，期间还产出过"66/71 元素低于 3:1"的假警报）。
 > P2 补了两处**具体**的对比度断言（不依赖背景取色）：① 名次数字对名次底色（`getComputedStyle` 直接读两个颜色，白字压粉底 ≥ 3:1、深字压橙底 ≥ 4.5:1）；② 缺图占位把渐变各档合成到不透明底色上取最亮值，与白字算对比度（暗/亮主题各一条）。
-> 观感部分仍然是"**可复现的数字交给脚本，观感交给截图**"：脚本每轮输出 27 张截图并人工核对；另外把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
+> 观感部分仍然是"**可复现的数字交给脚本，观感交给截图**"：脚本每轮输出 29 张截图并人工核对；另外把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
 
 ---
 
@@ -1165,7 +1174,7 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | D9 | 评论区先关闭但页面保留 | 直接删留言页 | 页面结构与导航一次到位，评论系统到位后只改一个配置 |
 | D10 | 留言/评论与 Agent 解耦 | 用 Agent 当留言后端 | 两者目标不同（留言是异步公开记录，Agent 是实时对话）；耦合会让简单需求变复杂 |
 
-### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 40 条：T1~T19 来自 P0/P1，T20~T26 来自 P2，T27~T29 来自 P3，T30~T33 来自 P3-9/P3-11，T34~T38 来自 P4，T39~T40 来自 R-PET-06）
+### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 42 条：T1~T19 来自 P0/P1，T20~T26 来自 P2，T27~T29 来自 P3，T30~T33 来自 P3-9/P3-11，T34~T38 来自 P4，T39~T40 来自 R-PET-06，T41~T42 来自 R-PET-07）
 
 实现时按这张表走，不要凭"应该没问题"假设。每条都给了文件与行号，可当场复核。
 
@@ -1214,6 +1223,8 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | T38 | **LQIP 生成器会 glob 到 `public/**` 的图片**：`generate-lqips.ts` 扫 `{src,public}/**/*.{png,jpg,…}`，只忽略几个固定目录；P4 往 `public/images/posts/` 一放图，`lqips.json` 立刻多出 9 条无用记录（全量会上百条） | 每次导入都在 `lqips.json` 里制造 diff 噪音；虽然 `<img>` 是裸标签、根本用不到 LQIP | 在 `IGNORE_DIRS` 里加 `public/images/posts/**`。注意文件被删后这些记录会由脚本自动清掉（日志里是 `Removed N stale entries`） |
 | T39 | **"悬浮/上下浮动"别用 CSS animation 做**：桌面宠物同时被三处写位置——拖拽（每帧指哪写哪）、位置记忆（刷新后恢复）、自由移动（每帧插值）。CSS animation 的位移和 JS 写的 `transform` 是**同一条属性**，谁后写谁生效：拖拽一放手就会被动画顶回去，恢复位置那一帧还会跳 | 宠物的位置在拖拽/刷新/模式切换后"莫名回弹"，且**不报任何错**（看起来像逻辑 bug，其实是样式打架） | 位置只保留**一份事实**（组件里的 `pet.x/pet.y`），所有模式（悬浮正弦、飞行插值、走路、拖拽）都算完再统一写 `translate3d`；`pet.css` 里给 `.pet-sprite` 的 `--pet-tilt`/`--pet-fly-scale` 也**不加 `transition`**（逐帧写入会一直停在过渡中间） |
 | T40 | **验收用的"调试钩子"必须是同一函数，不能是旁路**：R-PET-06 的飞行间隔最小 20 秒，脚本不可能干等一分钟，很容易顺手写成"直接给 DOM 加个 `data-pet-flying`"或"直接把坐标改掉"——那样测的是"我能不能改属性"，不是"行为对不对"（P1/P2 审查都点名过这类假绿） | 断言全绿但功能其实是坏的；以后重构行为时断言照样绿 | 钩子只做"提前调用"：`window.__imissFlyNow()` 调的就是 `decide()` 里那次 `startFlight()`，`window.__imissSetMode()` 调的就是 `boot()` 里那次 `setMode()`，只多"跳过睡着判断""允许运行期切档"。断言侧再核对**真实副作用**（`data-pet-flying` 标记 + 两次采样坐标真的变了 + 不出视口） |
+| T41 | **浮动组件的锚点会随"宠物形态"一起过期**：`openMenu(clientX, clientY)` 是 P3 贴地时代的写法（鼠标点贴地的宠物，坐标必然在视口底部附近，`top = max(10, y-8)` 往上挂就没事）。R-PET-06 把默认档改成悬浮后，宠物可以停在**从视口顶到离地 48px 的任意高度**，"点宠物下半身"就能让 200px 高的菜单整块探出视口底（实测溢出 **118px**）。同一个菜单还**没写 `z-index`**，而模板里 `#wallpaper-wrapper` 是 10、`#content-panel` 是 30 —— 菜单被画在它们下面，只在两者都盖不到的地方露出来（发起人看到的就是"框跑到下面、还被裁掉一半"） | 弹出层位置错乱 + 被壁纸/正文面板遮住；**矩形断言全绿也发现不了**（看不见不等于不在） | 弹出层一律**按目标元素矩形**定位（这里用组件自己维护的 `pet.x/pet.y/w/h`，不读布局），上下/左右各按"放不下就换边"处理，四边再夹进视口；**必须显式给 `z-index`**（本组件取 `petConfig.zIndex + 1` = 67，仍低于浮动控件 1000）。断言除了矩形，还要用 **`document.elementFromPoint(菜单中心)` 命中菜单自己**这条"像素真话"兜底（§7.6 第 8 条） |
+| T42 | **"随机到视口任意点"这类参数没有上界，手感会随视口变大而失控**：`float` 档最早的飞行目标是 `edge + Math.random() × 可用宽/高`，1440×900 下单次位移实测 **414~550px**、时长固定 2600ms → 平均 ≈580px/s，发起人一眼看出"飞得太快太远"。这类"看起来能跑"的随机位移，**只要屏幕更大就会更离谱**（1024 宽时还有 ~350px，4K 下会到 1500px 以上），而且没有任何断言会红 | 动效与"自然、轻微"的预期不符，且越是大屏越糟；调参时不知道该改哪个量 | 位移/时长都改成**有上界的区间**（`PET_TUNING.flyDistanceRange` 60~180px、`petConfig.movement.flyDurationRange` 4000~6000ms），目标点相对**当前位置**取而不是相对视口取；缓动换成更柔的 `easeInOutSine`，弧线/倾角同步收小（44→12px、7°→3°）。断言直接锁定**区间上界**与**3 次实飞实测值**（位移 ≤ 200px、时长 ≥ 3.8s），避免以后又被"随机"改回去 |
 
 ### 14.4 被移除的上游功能怎么找回来
 
