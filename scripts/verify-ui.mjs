@@ -1420,13 +1420,90 @@ async function main() {
 			await snap("pet-menu-restore");
 		}
 
-		// ⑧ 菜单动作：跳一下 / 说句话（保留项）
-		await clickMenu("jump");
-		await sleep(140);
-		await snap("pet-act-jump");
+		// ⑧ 菜单动作：说句话（保留项）
 		await clickMenu("say");
 		await sleep(160);
 		await snap("pet-act-say");
+
+		// ⑧a R-PET-09：菜单里的「跳一下」已删（左键单击就能跳）；并且**跳的时候不要动** ——
+		//     真实的左键单击（pointerdown+pointerup 落在宠物身上）→ jumping；
+		//     跳跃动画播放期间位置定住（悬浮档不上下浮动），跳完之后行为恢复（← 键仍能指挥它走）。
+		{
+			await cdp.send("Runtime.evaluate", { expression: `window.__imissSetMode("float")`, returnByValue: true });
+			await sleep(500);
+			const jumpProbe = () =>
+				cdp.send("Runtime.evaluate", {
+					expression: `(() => {
+						const el = document.getElementById("pet");
+						const body = document.getElementById("pet-body");
+						const menu = document.getElementById("pet-menu");
+						const r = el.getBoundingClientRect();
+						return {
+							state: el.dataset.petState || null,
+							mode: el.dataset.petMode,
+							x: Math.round(r.left), y: Math.round(r.top),
+							items: [...menu.querySelectorAll("[data-pet-act]")].filter((b) => !b.hidden).map((b) => b.textContent.trim()),
+							allItems: [...menu.querySelectorAll("[data-pet-act]")].map((b) => b.textContent.trim()),
+							canJump: !!body,
+						};
+					})()`,
+					returnByValue: true,
+				});
+			const before = (await jumpProbe()).result.value;
+			// 真实左键单击（和用户点宠物完全同一条路径：pointerdown → pointerup，无移动）
+			await cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					const el = document.getElementById("pet-body");
+					const r = el.getBoundingClientRect();
+					const o = { bubbles: true, cancelable: true, pointerId: 31, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, button: 0 };
+					el.dispatchEvent(new PointerEvent("pointerdown", o));
+					el.dispatchEvent(new PointerEvent("pointerup", o));
+					return "clicked";
+				})()`,
+				returnByValue: true,
+			});
+			await sleep(120);
+			const mid1 = (await jumpProbe()).result.value;
+			await sleep(170);
+			const mid2 = (await jumpProbe()).result.value;
+			const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+			await fs.writeFile(path.join(OUT_DIR, "pet-jump-1440.png"), Buffer.from(shot.data, "base64"));
+			// 等跳跃（含落地弹跳）彻底播完，再验证"冻结不是永久性的"：← 键仍能指挥它移动
+			await sleep(1400);
+			const after = (await jumpProbe()).result.value;
+			// ⚠️ 键盘事件必须**先让宠物拿到焦点**：keydown 监听挂在 `#pet-body` 上，
+			//    没聚焦时 dispatchKeyEvent 是发到 document 的，监听器根本收不到（探针第一版就这么空跑过）
+			await cdp.send("Runtime.evaluate", {
+				expression: `document.getElementById("pet-body").focus(); "focused"`,
+				returnByValue: true,
+			});
+			const moverX0 = (await jumpProbe()).result.value.x;
+			for (const type of ["rawKeyDown", "keyUp"]) {
+				await cdp.send("Input.dispatchKeyEvent", {
+					type,
+					key: "ArrowLeft",
+					code: "ArrowLeft",
+					windowsVirtualKeyCode: 37,
+					nativeVirtualKeyCode: 37,
+				});
+			}
+			await sleep(420);
+			const moverX1 = (await jumpProbe()).result.value.x;
+			// 键盘 Enter：仍是 `role="button"` 的无障碍激活路径（发起人说的"按键"指菜单按钮，
+			// 那个已删；这条保留，且与左键单击完全等价）
+			for (const type of ["rawKeyDown", "keyUp"]) {
+				await cdp.send("Input.dispatchKeyEvent", {
+					type,
+					key: "Enter",
+					code: "Enter",
+					windowsVirtualKeyCode: 13,
+					nativeVirtualKeyCode: 13,
+				});
+			}
+			await sleep(120);
+			const keyState = (await jumpProbe()).result.value;
+			facts["pet-jump"] = { before, mid1, mid2, after, movedX: moverX1 - moverX0, keyState };
+		}
 
 		// ⑧b R-PET-08「落下去」：悬浮档右键 → 菜单里是「落下去」→ 点它 → **真的带重力掉下去**
 		//     （复用拖动松手那条 `startFall()` + `step()` 里的贴地档重力积分）
@@ -2484,7 +2561,14 @@ async function main() {
 			st("pet-dblclick") === "review",
 			`state=${st("pet-dblclick")}`,
 		);
-		record("R-PET-02", "菜单「跳一下」→ jumping", st("pet-act-jump") === "jumping", `state=${st("pet-act-jump")}`);
+		// R-PET-09：菜单里的「跳一下」已按发起人要求删除（"左键点击就能跳所以按键没有必要"），
+		// 所以这里改成验**左键单击**这条真实路径（⑧a 里用 pointerdown/pointerup 触发）。
+		record(
+			"R-PET-02",
+			"左键单击宠物 → 跳一下（jumping；菜单里那个「跳一下」已删）",
+			facts["pet-jump"]?.mid1?.state === "jumping" && facts["pet-jump"]?.before?.canJump === true,
+			`单击后 data-pet-state=${facts["pet-jump"]?.mid1?.state}（跳前 ${facts["pet-jump"]?.before?.state}）；菜单实显=${JSON.stringify(facts["pet-jump"]?.mid1?.items)}`,
+		);
 		// R-PET-08：「睡一会儿」的菜单入口已按发起人要求删除，`waiting` 只剩"45 秒无操作"这条
 		// 真实路径（hookInputs 的 3 秒巡检 → doze()）。验收脚本改调 `__imissSleepNow()`，
 		// 它执行的是**同一段 doze()**（同 __imissFlyNow 的惯例），不干等 48 秒也不改属性骗自己。
@@ -2514,8 +2598,8 @@ async function main() {
 		record(
 			"R-PET-02",
 			"右键菜单项齐全且**已删掉「跟过来」「睡一会儿」**（含「和爱弥斯聊天」）",
-			same(facts["pet-menu"].pet.menu.items, ["说句话", "跳一下", "落下去", "飘起来", "和爱弥斯聊天"]) &&
-				same(facts["pet-menu"].pet.menu.itemsVisible, ["说句话", "跳一下", "落下去", "和爱弥斯聊天"]) &&
+			same(facts["pet-menu"].pet.menu.items, ["说句话", "落下去", "飘起来", "和爱弥斯聊天"]) &&
+				same(facts["pet-menu"].pet.menu.itemsVisible, ["说句话", "落下去", "和爱弥斯聊天"]) &&
 				facts["pet-menu"].pet.menu.hidden === false,
 			`DOM 全部项=${JSON.stringify(facts["pet-menu"].pet.menu.items)}（悬浮档实显=${JSON.stringify(facts["pet-menu"].pet.menu.itemsVisible)}）`,
 		);
@@ -2972,9 +3056,9 @@ async function main() {
 		record(
 			"R-PET-08",
 			"「落下去」/「飘起来」按档位二选一显示（悬浮档→落下去，贴地档→飘起来）",
-			same(drop?.openItems, ["说句话", "跳一下", "落下去", "和爱弥斯聊天"]) &&
-				same(drop?.before?.itemsVisible, ["说句话", "跳一下", "落下去", "和爱弥斯聊天"]) &&
-				same(rise?.openItems, ["说句话", "跳一下", "飘起来", "和爱弥斯聊天"]) &&
+			same(drop?.openItems, ["说句话", "落下去", "和爱弥斯聊天"]) &&
+				same(drop?.before?.itemsVisible, ["说句话", "落下去", "和爱弥斯聊天"]) &&
+				same(rise?.openItems, ["说句话", "飘起来", "和爱弥斯聊天"]) &&
 				drop?.menuWasHidden === true &&
 				rise?.menuWasHidden === true,
 			`悬浮档实显=${JSON.stringify(drop?.before?.itemsVisible)}（打开时=${JSON.stringify(drop?.openItems)}）；落下去之后实显=${JSON.stringify(rise?.openItems)}（menu.hidden 打开前后=${drop?.menuWasHidden}/${rise?.menuWasHidden}）`,
@@ -3076,8 +3160,55 @@ async function main() {
 		record(
 			"R-PET-08",
 			"菜单项字面与发起人反馈一致：已删「跟过来」「睡一会儿」，新增「落下去」「飘起来」",
-			same(facts["pet-menu"]?.pet?.menu?.items, ["说句话", "跳一下", "落下去", "飘起来", "和爱弥斯聊天"]),
+			same(facts["pet-menu"]?.pet?.menu?.items, ["说句话", "落下去", "飘起来", "和爱弥斯聊天"]),
 			`右键菜单 DOM 全部项=${JSON.stringify(facts["pet-menu"]?.pet?.menu?.items)}（悬浮档实显 ${JSON.stringify(facts["pet-menu"]?.pet?.menu?.itemsVisible)}）`,
+		);
+	}
+
+	// ── R-PET-09 发起人第三轮反馈（删「跳一下」入口 + 跳的时候不要动）──
+	{
+		const j = facts["pet-jump"];
+		// ① 菜单里已经没有「跳一下」（整个 DOM 里都不该有；替换的是左键单击这条真实路径）
+		record(
+			"R-PET-09",
+			"右键菜单里的「跳一下」已删除（左键单击宠物就能跳）",
+			Array.isArray(j?.mid1?.allItems) &&
+				!j.mid1.allItems.includes("跳一下") &&
+				same(j.mid1.allItems, ["说句话", "落下去", "飘起来", "和爱弥斯聊天"]) &&
+				same(j?.mid1?.items, ["说句话", "落下去", "和爱弥斯聊天"]),
+			`菜单 DOM 全部项=${JSON.stringify(j?.mid1?.allItems)}（跳前 ${JSON.stringify(j?.before?.allItems)}）；悬浮档实显=${JSON.stringify(j?.mid1?.items)}`,
+		);
+		// ② 左键单击 → 跳（真实 pointerdown/pointerup；这是"左键点击就能跳"的证据）
+		record(
+			"R-PET-09",
+			"左键单击宠物仍然会跳（jumping，替代被删掉的菜单入口）",
+			j?.before?.state !== "jumping" && j?.mid1?.state === "jumping",
+			`单击前 state=${j?.before?.state} → 单击后 state=${j?.mid1?.state}`,
+		);
+		// ③ 「跳的时候就不要动了」：跳跃动画播放期间位置**定住**（悬浮档不上下浮动）
+		record(
+			"R-PET-09",
+			"跳的时候位置定住（跳跃动画期间两次采样 x/y 完全相同，悬浮档不再上下浮动）",
+			j?.mid1?.x === j?.mid2?.x && j?.mid1?.y === j?.mid2?.y && j?.mid1?.state === "jumping" && j?.mid2?.state === "jumping",
+			`跳跃中 (${j?.mid1?.x},${j?.mid1?.y}) → 170ms 后 (${j?.mid2?.x},${j?.mid2?.y})（跳前 (${j?.before?.x},${j?.before?.y})），两次都在 jumping`,
+		);
+		// ④ 冻结不是永久性的：跳完（含落地弹跳）之后 ← 键仍能指挥它移动。
+		//    ⚠️ 不能顺手断言"跳完 state 不是 jumping"：悬浮档跳完可能立刻赶上一次自动飞行，
+		//    而飞行的姿态**就是** `jumping`（图集 row4），那样会假红（实测踩到过）。
+		//    位移本身才是"冻结已结束"的证据。
+		record(
+			"R-PET-09",
+			"跳跃结束后行为恢复（跳完按 ← 键宠物仍会移动，冻结不是永久性的）",
+			Math.abs(j?.movedX ?? 0) >= 20 && j?.after?.mode === "float",
+			`跳完 mode=${j?.after?.mode}（state=${j?.after?.state}，悬浮档跳完可能正好在自动飞行，姿态同样是 jumping）；按 ← 键 420ms 后 x 移动 ${j?.movedX}px`,
+		);
+		// ⑤ 键盘 Enter 保留（`role="button"` 的无障碍激活路径，与左键单击完全等价）——
+		//    发起人说的"按键"指菜单里那个按钮（已删）；这条锁定"键盘没有被误解成一起删掉"。
+		record(
+			"R-PET-09",
+			"键盘 Enter 保留且与左键单击等价（role=button 的无障碍激活路径，未被一起删掉）",
+			j?.keyState?.state === "jumping",
+			`按 Enter 后 data-pet-state=${j?.keyState?.state}（与左键单击得到的状态一致）`,
 		);
 	}
 

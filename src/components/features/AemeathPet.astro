@@ -1,6 +1,6 @@
 ---
 /**
- * 桌宠「爱弥斯」（R-PET-01 ~ R-PET-08）
+ * 桌宠「爱弥斯」（R-PET-01 ~ R-PET-09）
  * ============================================================================
  * 素材：`src/assets/images/pet/pet-aemeath.webp`（8 列 × 9 行，单格 144×156）
  *   Codex 自定义宠物图集（MIT），九行 = 九个状态。
@@ -70,10 +70,13 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			    摆位的最后一关是 `placeMenu()` 里的 `elementFromPoint` 抽样（见该函数注释）；
 			    这里是"换边躲开遮挡"，不是"抬高 z-index 压过去"。
 
-			    菜单项（R-PET-08）：说句话 / 跳一下 / 「落下去」·「飘起来」（**按当前档位二选一显示**）
-			    / 和爱弥斯聊天。发起人原话：「（跟过来、睡一会儿）**这两个没有鸟用啊**」→
-			    两个入口已删除：`walkTo()` 与 `waiting` 状态**本体都还在用**（键盘 ←/→ 走 `walkTo()`；
-			    45 秒无操作超时进 `waiting`），只是不再有菜单入口 —— 所以只删入口、不删能力。
+			    菜单项（R-PET-08 / R-PET-09）：说句话 / 「落下去」·「飘起来」（**按当前档位二选一显示**）
+			    / 和爱弥斯聊天。发起人两轮反馈各删了两项：
+			      · R-PET-08：「（跟过来、睡一会儿）**这两个没有鸟用啊**」→ 两个入口删除，
+			        `walkTo()` 与 `waiting` **本体都还在用**（键盘 ←/→ 走 `walkTo()`；
+			        45 秒无操作超时进 `waiting`），所以只删入口、不删能力。
+			      · R-PET-09：「**还有跳一跳的功能也删了，左键点击就能跳所以按键没有必要**」→
+			        「跳一下」入口删除（`jump()` 本体还在：左键单击与键盘 Enter 都调它）。
 			    「落下去」/「飘起来」**两个按钮都渲染**（不是条件渲染）：切档时只翻 `hidden`，
 			    不用重建节点；谁显示谁隐藏由 `syncMenuMode()` 按 `pet.mode` 决定。 */}
 			<div
@@ -87,9 +90,9 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				<button type="button" role="menuitem" data-pet-act="say">
 					说句话
 				</button>
-				<button type="button" role="menuitem" data-pet-act="jump">
-					跳一下
-				</button>
+				{/* R-PET-09：「跳一下」菜单项已按发起人要求删除（左键单击宠物就能跳）。
+				    ⚠️ `jump()` 不是死代码：左键单击（onPointerUp）与键盘 Enter 都在调它，
+				    键盘那条是为 `role="button"` 留的无障碍激活路径（与左键单击完全等价）。 */}
 				{/* 落下去 = 切到贴地档，但**不瞬移**：复用拖动松手那条重力路径落到底（startFall）；
 				    飘起来 = 反向回到悬浮档，复用 startFlight 的缓动插值竖直飘上悬浮基准线。
 				    悬浮/固定档显示「落下去」，贴地档显示「飘起来」——否则落下去就回不来了。 */}
@@ -635,7 +638,12 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			}
 
 			// ② 位移：贴地是"走"，悬浮是"飘"（悬浮时同时继续上下浮动）
-			if (pet.mode !== "fixed" && pet.walking) {
+			// R-PET-09「跳的时候就不要动了」：一次性跳跃（含落地弹跳）动画播放期间 `frozen` 为真，
+			// 走路位移与悬浮浮动**都停住** —— 位置定住，只有图集在动；动画播完（busyUntil 到期）
+			// 自动恢复原来的档位行为（`frozen` 只看 `state === "jumping"` + busyUntil 未到，
+			// 所以"落下去"的自由落体不受影响：那条路径 busyUntil 是 0，且有专门的重力分支）。
+			const frozen = pet.state === "jumping" && pet.busyUntil > now;
+			if (pet.mode !== "fixed" && pet.walking && !frozen) {
 				const dir = pet.targetX > pet.x ? 1 : -1;
 				const speed = walkSpeed * (pet.mode === "float" ? glideSpeedFactor : 1);
 				const nx = pet.x + dir * speed * dt;
@@ -649,8 +657,8 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				return;
 			}
 
-			// ③ 悬浮飞行 + 上下浮动
-			if (pet.mode === "float") {
+			// ③ 悬浮飞行 + 上下浮动（跳跃动画期间同样停住）
+			if (pet.mode === "float" && !frozen) {
 				if (pet.flight) {
 					advanceFlight(now);
 					return;
@@ -658,7 +666,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				hoverStep(dt);
 			}
 
-			if (!pet.asleep && !pet.busyUntil && now >= pet.nextAt) decide(now);
+			if (!frozen && !pet.asleep && !pet.busyUntil && now >= pet.nextAt) decide(now);
 		}
 
 		function decide(now: number): void {
@@ -833,8 +841,20 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			}
 		}
 
+		/**
+		 * 跳一下（**原地**动画）
+		 * ============================================================================
+		 * 两个入口：左键单击宠物（`onPointerUp`）与键盘 `Enter`（`role="button"` 的无障碍激活路径）。
+		 * R-PET-09：菜单里的「跳一下」入口已按发起人要求删除（"左键点击就能跳所以按键没有必要"），
+		 * 但**函数本体仍在使用**，所以留着。
+		 * 发起人同一条反馈的前半句是"跳的时候就不要动了"：所以跳之前先把飞行与走路停掉
+		 * （`cancelFlight()` + `pet.walking = false`），动画播放期间再由 `step()` 冻结位移
+		 * （悬浮档不上下浮动、走路档不位移），跳完（`busyUntil` 到期）自动恢复原档位行为。
+		 */
 		function jump(): void {
 			wake();
+			cancelFlight(); // 中断正在进行的飞行（否则会"边飞边跳"）
+			pet.walking = false; // 中断走路（否则会"边走边跳"）
 			setState("jumping", 700);
 			pet.nextAt = performance.now() + 900;
 		}
@@ -1404,6 +1424,12 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				// R-PET-07：不再拿鼠标坐标当锚点 —— 菜单一律贴在宠物旁边（见 placeMenu）
 				openMenu();
 			});
+			// 键盘可达（R-PET-02；R-PET-09 保留，**没有**跟着菜单入口一起删）：
+			//   发起人说"左键点击就能跳所以按键没有必要" —— 那个"按键"指的是右键菜单里的
+			//   「跳一下」按钮，已经删了。键盘这条**故意保留**：宠物是 `role="button" tabindex="0"`，
+			//   去掉 Enter 之后它会变成"Tab 能聚焦、按下去却毫无反应"的假按钮（WCAG 2.1.1 键盘可达），
+			//   而 Enter 做的事和左键单击**完全一样**（跳 + 说一句），不构成第二套功能。
+			//   若发起人坚持连键盘一起删，正确做法是同时去掉 tabindex/role（别留假按钮），要另行确认。
 			hit?.addEventListener("keydown", (e: KeyboardEvent) => {
 				if (e.key === "Enter" || e.key === " ") {
 					e.preventDefault();
@@ -1428,9 +1454,6 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				switch (btn.dataset.petAct) {
 					case "say":
 						say();
-						break;
-					case "jump":
-						jump();
 						break;
 					// R-PET-08：「落下去」= 切到贴地档 + **真的掉下去**。
 					// `setMode(mode, smooth=true)` 不瞬移：位置不动，交给 `startFall()` 起手、
