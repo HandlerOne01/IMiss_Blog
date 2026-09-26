@@ -1,12 +1,16 @@
 ---
 /**
- * 桌宠「爱弥斯」（R-PET-01 ~ R-PET-05）
+ * 桌宠「爱弥斯」（R-PET-01 ~ R-PET-06）
  * ============================================================================
  * 素材：`src/assets/images/pet/pet-aemeath.webp`（8 列 × 9 行，单格 144×156）
  *   Codex 自定义宠物图集（MIT），九行 = 九个状态。
  * 行为：从原型 `my_-blog/blog_test` 的 `assets/js/pet.js` 移植（那份是验证过的实现），
  *   按本站的钩子重接：主题切换用模板的 `theme-change` 事件、切页用 Swup 的
  *   `astro:page-load`、阅读页安静模式按 pathname 判断。
+ * 运动（R-PET-06）：三档 `petConfig.movement.mode` ——
+ *   `float`（默认）悬浮 + 偶尔飞行 · `fixed` 固定不动 · `ground` 贴地行走。
+ *   悬浮的上下浮动**由 rAF 逐帧写 transform**（不用 CSS animation：CSS 动画的
+ *   位移优先级和 JS 写的 `translate3d` 会互相覆盖，拖拽与位置记忆会打架）。
  * 样式：`src/styles/pet.css`（**不是**组件的 scoped style —— JS 动态创建的星屑节点
  *   拿不到 Astro 的 scope 属性，样式会静默失效，见该文件头注释）。
  *
@@ -17,7 +21,8 @@
 import { petConfig } from "@/config";
 import "@/styles/pet.css";
 
-const { enable, hideOnMobile, mobileBreakpoint, scale, zIndex } = petConfig;
+const { enable, hideOnMobile, mobileBreakpoint, scale, zIndex, movement } =
+	petConfig;
 
 /**
  * 解析期的"这台设备要不要桌宠"判断（R-PET-01）。
@@ -39,6 +44,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				class="pet"
 				id="pet"
 				data-pet
+				data-pet-mode={movement.mode}
 				style={`--pet-scale:${scale};z-index:${zIndex}`}
 			>
 				<p class="pet-bubble" id="pet-bubble" role="status" aria-live="polite"></p>
@@ -85,6 +91,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		PET_TUNING,
 		type PetStateName,
 	} from "@/utils/pet-utils";
+	import type { PetMovementMode } from "@/types/petConfig";
 
 	(function () {
 		const root = document.documentElement;
@@ -112,8 +119,27 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		const PET_KEY = "imiss.pet.pos";
 		const COLS = PET_COLS;
 		const ROWS = PET_ROWS;
-		const { gravity, walkSpeed, floorGap, edge, workLinger, safeRight } = PET_TUNING;
+		const {
+			gravity,
+			walkSpeed,
+			floorGap,
+			edge,
+			workLinger,
+			safeRight,
+			hoverLineRatio,
+			airMinGap,
+			glideSpeedFactor,
+			flyArc,
+			flyTilt,
+			flyZoom,
+		} = PET_TUNING;
+		const MV = petConfig.movement;
 		const sleepAfter = petConfig.idleSecondsToSleep * 1000;
+
+		/** 本次会话的运动模式：**只认配置**（位置记忆里存的模式不覆盖它，见 ARCH.md §7.6） */
+		const MODE: PetMovementMode = MV.mode;
+		/** 悬浮/飞行时是否要停（reduced-motion 且配置要求尊重它时） */
+		const flyBlocked = reduce && MV.flyRespectReducedMotion;
 
 		let vw = 0;
 		let vh = 0;
@@ -158,6 +184,22 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			py: -1,
 			lastClick: 0,
 			userMoved: false,
+			/** 当前运动模式（R-PET-06），运行期可被 `__imissSetMode()` 改（验收脚本用） */
+			mode: MODE,
+			/** 悬浮基准线（宠物中心不摆动时的 y）；拖放 / 飞行落位 / 缩放后重新锚定 */
+			hoverBase: 0,
+			/** 悬浮相位（弧度，逐帧累加）：重新锚定时归零，正弦正好为 0 → 不跳变 */
+			hoverPhase: 0,
+			/** 正在进行的飞行（null = 没在飞）：起点 → 终点 + 弧线 + 时长 */
+			flight: null as null | {
+				x0: number;
+				y0: number;
+				x1: number;
+				y1: number;
+				arc: number;
+				startAt: number;
+				dur: number;
+			},
 		};
 
 		/* ── 量尺寸 ─────────────────────────────────────── */
@@ -167,24 +209,61 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		 * 第一版就是这么写的：出场时按钮还没显示（宽 0 → 跳过），
 		 * 等滚到下面按钮冒出来，宠物正好压在它上面（实测 1416 > 1409）。
 		 * 现在按固定预留算，按钮真可见时再用它的实际位置收窄一次。
+		 *
+		 * ⚠️ R-PET-06：收窄的判据从"地面高度"改成**传进来的纵向位置**——
+		 * 悬浮模式下宠物可能停在视口任意高度，继续拿 `floorY` 判断的话，
+		 * 它在半空中飞到按钮正上方就不会被收窄了。
 		 */
 		const FLOAT_RESERVE = 64;
 
-		function rightLimit(): number {
+		function rightLimit(yTop: number = pet.y): number {
 			let limit = vw - w - safeRight - FLOAT_RESERVE;
+			// 纵向留一层自身高度的余量：飞行途中的中间帧也不许压上按钮
+			const pad = h;
 			for (const node of document.querySelectorAll<HTMLElement>(
 				"#back-to-top-btn, .floating-controls-container",
 			)) {
 				const r = node.getBoundingClientRect();
 				if (r.width === 0 || r.height === 0) continue;
-				if (r.bottom < floorY - h || r.top > floorY + h) continue;
+				if (r.bottom < yTop - pad || r.top > yTop + h + pad) continue;
 				limit = Math.min(limit, r.left - w - 12);
 			}
 			return Math.max(edge, limit);
 		}
 
-		function clampX(x: number): number {
-			return Math.max(edge, Math.min(rightLimit(), x));
+		function clampX(x: number, yTop: number = pet.y): number {
+			return Math.max(edge, Math.min(rightLimit(yTop), x));
+		}
+
+		/** 悬浮 / 飞行时的纵向范围：不出视口顶部，且**离地至少 `airMinGap`**（"不贴地"的硬约束） */
+		function minAirY(): number {
+			return edge;
+		}
+
+		function maxAirY(): number {
+			return Math.max(minAirY(), floorY - airMinGap);
+		}
+
+		function clampAirY(y: number): number {
+			return Math.max(minAirY(), Math.min(maxAirY(), y));
+		}
+
+		/** 拖动 / 固定模式的纵向范围：只要整体留在视口内 */
+		function clampY(y: number): number {
+			return Math.max(0, Math.min(Math.max(0, vh - h), y));
+		}
+
+		/** 悬浮基准线：视口 `hoverLineRatio` 处（宠物中心），并夹到"不贴地、不出屏"的范围里 */
+		function floatBaseY(): number {
+			return clampAirY(vh * hoverLineRatio - h / 2);
+		}
+
+		/** 两次飞行之间的随机间隔（毫秒）；阅读页拉长 2.5 倍——安静模式仍然会飘，只是很少 */
+		function nextFlyDelay(): number {
+			const lo = Math.max(1000, MV.flyIntervalRange[0]);
+			const hi = Math.max(lo, MV.flyIntervalRange[1]);
+			const base = lo + Math.random() * (hi - lo);
+			return root.dataset.petRoute === "post" ? base * 2.5 : base;
 		}
 
 		function measure(): void {
@@ -195,9 +274,20 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			footPx = h * (152 / 156);
 			floorY = vh - floorGap - footPx;
 			if (pet.airborne) return;
-			pet.y = floorY;
 			pet.x = clampX(pet.x);
 			pet.targetX = clampX(pet.targetX);
+			// 各模式收到尺寸变化后的"落点"不同：贴地 → 地面；悬浮 → 重新锚定基准线；固定 → 只夹回视口
+			if (pet.mode === "ground") {
+				pet.y = floorY;
+			} else if (pet.mode === "float") {
+				if (!pet.flight) {
+					pet.hoverBase = clampAirY(pet.hoverBase || pet.y);
+					pet.hoverPhase = 0;
+					pet.y = pet.hoverBase;
+				}
+			} else {
+				pet.y = clampY(pet.y);
+			}
 		}
 
 		/** 默认出场位置：贴着自己那一侧，但**永远避开右下角的浮动按钮区**（R-PET-05） */
@@ -231,18 +321,160 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			sprite?.style.setProperty("--pet-face", String(f));
 		}
 
+		/* ── 运动模式（R-PET-06）─────────────────────────────
+		   float：悬浮（正弦上下浮动）+ 偶尔飞行；fixed：一动不动；ground：贴地行走。
+		   三种模式的差别只落在三件事上：y 怎么来、有没有重力、计时器到点做什么。 */
+		function applyTransform(): void {
+			el?.style.setProperty("transform", `translate3d(${pet.x.toFixed(2)}px,${pet.y.toFixed(2)}px,0)`);
+		}
+
+		/** 飞行姿态：倾斜 + 轻微放大（`k = sin(πt)`，两端为 0 = 中性姿态，不突变） */
+		function setFlyPose(k: number, dir: 1 | -1): void {
+			sprite?.style.setProperty("--pet-tilt", `${(dir * flyTilt * k).toFixed(2)}deg`);
+			sprite?.style.setProperty("--pet-fly-scale", (1 + flyZoom * k).toFixed(4));
+		}
+
+		function clearFlyPose(): void {
+			sprite?.style.setProperty("--pet-tilt", "0deg");
+			sprite?.style.setProperty("--pet-fly-scale", "1");
+		}
+
+		/** 中断本次飞行（用户一动手就停，R-PET-06），并把悬浮基准线锚到当前位置 */
+		function cancelFlight(rearm = true): void {
+			if (!pet.flight) return;
+			pet.flight = null;
+			el?.removeAttribute("data-pet-flying");
+			clearFlyPose();
+			pet.hoverBase = clampAirY(pet.y);
+			pet.hoverPhase = 0;
+			if (rearm) pet.nextAt = performance.now() + nextFlyDelay();
+		}
+
+		/**
+		 * 起飞一次。`force` 只给调试钩子 `__imissFlyNow()` 用（跳过"睡着"判断），
+		 * 其余判断与自动飞行完全一致 —— 验收脚本测的是**飞行函数本身**，不是绕过它。
+		 * 目标点在**视口内**随机取，并且从一开始就受 `rightLimit()` 约束：
+		 * 否则可能正好选中右下角浮动按钮那一块（R-PET-05）。
+		 */
+		function startFlight(now: number, force = false): boolean {
+			if (pet.mode !== "float" || pet.dragging || chatOpen || pet.flight) return false;
+			if (flyBlocked) return false; // reduced-motion：只保留静态悬浮，不飞
+			if (pet.asleep && !force) return false;
+			if (force) wake();
+			const y1 = clampAirY(minAirY() + Math.random() * Math.max(1, maxAirY() - minAirY()));
+			const rl = rightLimit(y1);
+			const x1 = Math.max(edge, Math.min(rl, edge + Math.random() * Math.max(1, rl - edge)));
+			// 目标太近就当作"这次不飞"（不然访客只看到原地抖一下），过一会儿再试
+			if (Math.abs(x1 - pet.x) + Math.abs(y1 - pet.y) < 80) {
+				pet.nextAt = now + 1500;
+				return false;
+			}
+			pet.walking = false;
+			pet.busyUntil = 0;
+			pet.flight = {
+				x0: pet.x,
+				y0: pet.y,
+				x1,
+				y1,
+				arc: flyArc * (0.6 + Math.random() * 0.8), // 每次弧线高度不同，不至于像流水线
+				startAt: now,
+				dur: Math.max(600, MV.flyDurationMs),
+			};
+			el?.setAttribute("data-pet-flying", "1");
+			// 悬浮飞行**用 idle 帧飘过去**，不套走路动画（走路的横向位移是贴地逻辑）
+			setState("idle");
+			return true;
+		}
+
+		function advanceFlight(now: number): void {
+			const f = pet.flight;
+			if (!f) return;
+			const t = Math.min(1, (now - f.startAt) / f.dur);
+			// 缓入缓出（easeInOutQuad）：起步与收尾慢、中途快 —— "渐入渐出"
+			const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+			const arc = f.arc * Math.sin(Math.PI * t); // 中途抬起一点，直线插值看起来才像"飘"
+			const x = f.x0 + (f.x1 - f.x0) * e;
+			const y = f.y0 + (f.y1 - f.y0) * e - arc;
+			// 逐帧也守约束：飞行途中按钮冒出来 / 窗口缩小，都不会压上按钮或飞出视口
+			pet.x = clampX(x, y);
+			pet.y = clampAirY(y);
+			setFlyPose(Math.sin(Math.PI * t), f.x1 >= f.x0 ? 1 : -1);
+			if (t >= 1) {
+				pet.x = clampX(f.x1, f.y1);
+				pet.y = f.y1;
+				endFlight(now);
+			}
+		}
+
+		function endFlight(now: number): void {
+			pet.flight = null;
+			el?.removeAttribute("data-pet-flying");
+			clearFlyPose();
+			// 落位后**就在落点继续悬浮**（不弹回原来的高度），再排下一次飞行
+			pet.hoverBase = clampAirY(pet.y);
+			pet.hoverPhase = 0;
+			pet.nextAt = now + nextFlyDelay();
+			savePos();
+		}
+
+		/** 悬浮：绕基准线做正弦上下浮动（rAF 逐帧，理由见文件头） */
+		function hoverStep(dt: number): void {
+			const period = Math.max(400, MV.hoverPeriodMs);
+			pet.hoverPhase += (dt * 1000 * Math.PI * 2) / period;
+			if (pet.hoverPhase > Math.PI * 2) pet.hoverPhase -= Math.PI * 2;
+			pet.y = clampAirY(pet.hoverBase + Math.sin(pet.hoverPhase) * MV.hoverAmplitude);
+		}
+
+		/**
+		 * 切模式：启动时按配置调一次；验收脚本的 `__imissSetMode()` 也走这里（不是旁路）。
+		 * 切完位置一律 clamp 回视口 —— 贴地 → 落回地面；悬浮 → 抬到悬浮基准线；
+		 * 固定 → 就地停在当前高度（不悬浮、不掉落）。
+		 */
+		function setMode(next: PetMovementMode): void {
+			pet.mode = next;
+			el?.setAttribute("data-pet-mode", next);
+			cancelFlight(false);
+			pet.walking = false;
+			pet.busyUntil = 0;
+			pet.airborne = false;
+			pet.vy = 0;
+			pet.asleep = false;
+			pet.x = clampX(pet.x);
+			const now = performance.now();
+			if (next === "ground") {
+				pet.y = floorY;
+				pet.nextAt = now + 1800;
+			} else if (next === "float") {
+				// 从地面切过来时 y 贴着地（离地不足）→ 抬到悬浮基准线；本来就在半空 → 就地悬停
+				pet.hoverBase = pet.y <= maxAirY() - 8 ? clampAirY(pet.y) : floatBaseY();
+				pet.hoverPhase = 0;
+				pet.y = pet.hoverBase;
+				pet.nextAt = now + nextFlyDelay();
+			} else {
+				pet.y = clampY(pet.y);
+				pet.nextAt = Number.POSITIVE_INFINITY; // 固定：不再安排任何自动动作
+			}
+			setState("idle");
+			applyTransform();
+		}
+
 		/* ── 每帧 ───────────────────────────────────────── */
 		function step(dt: number, now: number): void {
 			if (pet.busyUntil && now >= pet.busyUntil) {
 				pet.busyUntil = 0;
 				pet.walking = false;
 				setState("idle");
-				pet.nextAt = now + 1200 + Math.random() * 3000;
+				// ⚠️ `nextAt` 的含义按模式不同：贴地档是"下一次自由活动"，悬浮档是"下一次飞行"，
+				// 固定档是 Infinity（永不）。所以**只有贴地档**能在一次性动画收尾时重排它：
+				// 改过一版三种模式都重排，结果出场招呼 2.8s 一结束就把飞行提前到 1.2~4.2s 后，
+				// 页面加载 7 秒就飞了 —— 配置写的是 20~60 秒（独立探针 reports/_rpet06-autoflight-probe.mjs 实测到的偏差）。
+				if (pet.mode === "ground") pet.nextAt = now + 1200 + Math.random() * 3000;
 			}
 
 			if (pet.dragging || chatOpen) return;
 
-			if (pet.airborne) {
+			// ① 自由落体：**只有贴地模式有重力**（悬浮/固定松手不落地，R-PET-06）
+			if (pet.mode === "ground" && pet.airborne) {
 				pet.vy += gravity * dt;
 				pet.y += pet.vy * dt;
 				if (pet.y >= floorY && pet.vy >= 0) {
@@ -259,22 +491,45 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				return;
 			}
 
-			if (pet.walking) {
+			// ② 位移：贴地是"走"，悬浮是"飘"（悬浮时同时继续上下浮动）
+			if (pet.mode !== "fixed" && pet.walking) {
 				const dir = pet.targetX > pet.x ? 1 : -1;
-				const nx = pet.x + dir * walkSpeed * dt;
+				const speed = walkSpeed * (pet.mode === "float" ? glideSpeedFactor : 1);
+				const nx = pet.x + dir * speed * dt;
 				if ((dir > 0 && nx >= pet.targetX) || (dir < 0 && nx <= pet.targetX)) {
 					pet.x = pet.targetX;
 					stopWalking(now);
 				} else {
 					pet.x = nx;
 				}
+				if (pet.mode === "float") hoverStep(dt);
 				return;
+			}
+
+			// ③ 悬浮飞行 + 上下浮动
+			if (pet.mode === "float") {
+				if (pet.flight) {
+					advanceFlight(now);
+					return;
+				}
+				hoverStep(dt);
 			}
 
 			if (!pet.asleep && !pet.busyUntil && now >= pet.nextAt) decide(now);
 		}
 
 		function decide(now: number): void {
+			// 固定模式：不自动做任何事（发起人要的就是"固定、不给飞"）
+			if (pet.mode === "fixed") {
+				pet.nextAt = Number.POSITIVE_INFINITY;
+				return;
+			}
+			// 悬浮模式：不走路，到点就飘到下一个随机点（阅读页的间隔在 nextFlyDelay() 里已拉长）
+			if (pet.mode === "float") {
+				startFlight(now); // 起不来（睡着/目标太近）时它自己安排了重试
+				return;
+			}
+			// 贴地模式：原有行为，一行没改
 			// 阅读页安静一点：站着就好，别在正文下面来回走
 			if (root.dataset.petRoute === "post") {
 				pet.nextAt = now + 9000;
@@ -298,6 +553,8 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		}
 
 		function walkTo(x: number, now: number): void {
+			if (pet.mode === "fixed") return; // 固定模式：不位移（键盘 ←→ 与「跟过来」都不动）
+			cancelFlight(); // 手动指挥优先：立刻中断正在进行的飞行
 			pet.targetX = clampX(x);
 			if (Math.abs(pet.targetX - pet.x) < 6) {
 				pet.nextAt = now + 2000;
@@ -314,7 +571,14 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		function stopWalking(now: number): void {
 			pet.walking = false;
 			setState("idle");
-			pet.nextAt = now + 2500 + Math.random() * 6000;
+			if (pet.mode === "float") {
+				// 飘到位之后就在这儿继续悬着，接着排下一次飞行
+				pet.hoverBase = clampAirY(pet.y);
+				pet.hoverPhase = 0;
+				pet.nextAt = now + nextFlyDelay();
+			} else {
+				pet.nextAt = now + 2500 + Math.random() * 6000;
+			}
 		}
 
 		function draw(dt: number): void {
@@ -327,7 +591,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				if (pet.frame >= s.frames) pet.frame = s.once ? s.frames - 1 : 0;
 			}
 
-			el?.style.setProperty("transform", `translate3d(${pet.x.toFixed(2)}px,${pet.y.toFixed(2)}px,0)`);
+			applyTransform();
 
 			const col = pet.frame % COLS;
 			const px = (col / (COLS - 1)) * 100;
@@ -338,8 +602,10 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				if (sprite) sprite.style.backgroundPosition = `${px}% ${py}%`;
 			}
 
+			// 脚下的影子：离地越高越小越淡。悬浮/固定模式常驻半空，最淡档再压一档，
+			// 免得半空中悬着一团明显的黑影（R-PET-06）
 			const air = Math.max(0, floorY - pet.y);
-			const k = Math.max(0.35, 1 - air / 320);
+			const k = Math.max(pet.mode === "ground" ? 0.35 : 0.22, 1 - air / 320);
 			el?.style.setProperty("--pet-shadow", k.toFixed(3));
 		}
 
@@ -425,6 +691,8 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 
 		function onPointerDown(e: PointerEvent): void {
 			if (e.button !== 0 && e.pointerType === "mouse") return;
+			// 用户一动手（拖动或单击）就中断本次飞行（R-PET-06）
+			cancelFlight();
 			const r = hit?.getBoundingClientRect();
 			if (!r) return;
 			drag = {
@@ -484,11 +752,30 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			if (wasDrag) {
 				pet.dragging = false;
 				hit?.classList.remove("is-drag");
-				pet.airborne = pet.y < floorY - 2;
-				pet.vy = pet.airborne ? 60 : 0;
-				if (!pet.airborne) {
+				if (pet.mode === "ground") {
+					// 贴地：松手受重力落地（P3 原行为）
+					pet.airborne = pet.y < floorY - 2;
+					pet.vy = pet.airborne ? 60 : 0;
+					if (!pet.airborne) {
+						setState("idle");
+						pet.nextAt = performance.now() + 900;
+					}
+				} else if (pet.mode === "float") {
+					// 悬浮：松手**就地悬停**，不掉落；很快再飘一次（刚被拖过，让它自己找找位置）
+					pet.airborne = false;
+					pet.vy = 0;
+					pet.hoverBase = clampAirY(pet.y);
+					pet.hoverPhase = 0;
 					setState("idle");
-					pet.nextAt = performance.now() + 900;
+					pet.nextAt = performance.now() + Math.min(8000, nextFlyDelay());
+				} else {
+					// 固定：松手停在原地，不下落也不漂移（R-PET-06）
+					pet.airborne = false;
+					pet.vy = 0;
+					pet.y = clampY(pet.y);
+					setState("idle");
+					pet.busyUntil = 0;
+					pet.nextAt = Number.POSITIVE_INFINITY;
 				}
 				savePos();
 				return;
@@ -583,20 +870,42 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			pet.nextAt = performance.now() + 1200;
 		}
 
-		/* ── 位置记忆（只存 x：站着时 y 由地面决定）────────── */
+		/* ── 位置记忆（R-PET-06 起连 y 一起存）──────────────
+		   P3 只存 x（站着时 y 由地面决定）。悬浮 / 固定模式下 y 是有意义的，
+		   不存的话刷新一次就跳回默认高度。所以改成 JSON `{x, y, mode}`；
+		   旧格式（纯数字）仍能读。⚠️ `mode` 只是**记着**，
+		   启动时模式一律以 `petConfig.movement.mode` 为准（配置优先级高于记忆）。 */
 		function savePos(): void {
 			if (!pet.userMoved) return;
 			try {
-				localStorage.setItem(PET_KEY, String(Math.round(pet.x)));
+				localStorage.setItem(
+					PET_KEY,
+					JSON.stringify({ x: Math.round(pet.x), y: Math.round(pet.y), mode: pet.mode }),
+				);
 			} catch {
 				/* 隐私模式下 localStorage 会抛，忽略 */
 			}
 		}
 
-		function loadPos(): number | null {
+		function loadPos(): { x: number; y: number | null; mode: PetMovementMode | null } | null {
 			try {
-				const v = Number.parseInt(localStorage.getItem(PET_KEY) ?? "", 10);
-				return Number.isNaN(v) ? null : v;
+				const raw = localStorage.getItem(PET_KEY);
+				if (!raw) return null;
+				if (raw.trim().startsWith("{")) {
+					const o = JSON.parse(raw) as { x?: unknown; y?: unknown; mode?: unknown };
+					const x = Number(o.x);
+					if (!Number.isFinite(x)) return null;
+					const y = Number(o.y);
+					const m = o.mode;
+					return {
+						x,
+						y: Number.isFinite(y) ? y : null,
+						mode: m === "float" || m === "fixed" || m === "ground" ? m : null,
+					};
+				}
+				// P3 的旧格式：一个整数 = 只有 x
+				const v = Number.parseInt(raw, 10);
+				return Number.isNaN(v) ? null : { x: v, y: null, mode: null };
 			} catch {
 				return null;
 			}
@@ -657,23 +966,75 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			measure();
 			markRoute();
 
-			const savedX = loadPos();
-			if (savedX === null) {
+			// 模式：**配置优先**（R-PET-06）。位置记忆里的 mode 只用来判断"那份 y 还作不作数"，
+			// 绝不用它覆盖 petConfig.movement.mode —— 否则改了配置却看不到变化。
+			const saved = loadPos();
+			pet.mode = MODE;
+			el?.setAttribute("data-pet-mode", MODE);
+			if (saved === null) {
 				pet.x = defaultX();
 			} else {
-				pet.x = clampX(savedX);
+				pet.x = clampX(saved.x);
 				pet.userMoved = true;
 			}
-			pet.y = floorY;
+			// y 的来路按模式分：贴地 → 地面；悬浮/固定 → 同一模式存下来的 y，否则用悬浮基准线
+			if (MODE === "ground") {
+				pet.y = floorY;
+			} else if (saved && saved.mode === MODE && saved.y !== null) {
+				pet.y = MODE === "float" ? clampAirY(saved.y) : clampY(saved.y);
+			} else {
+				pet.y = floatBaseY();
+			}
+			if (MODE === "float") {
+				pet.hoverBase = pet.y;
+				pet.hoverPhase = 0;
+			}
 			pet.lastActive = performance.now();
-			pet.nextAt = performance.now() + 1800;
+			pet.nextAt =
+				MODE === "fixed"
+					? Number.POSITIVE_INFINITY
+					: performance.now() + (MODE === "float" ? nextFlyDelay() : 1800);
 
 			sprite?.style.setProperty("--pet-face", "1");
 			sprite?.style.setProperty("--pet-dy", "0px");
+			sprite?.style.setProperty("--pet-tilt", "0deg");
+			sprite?.style.setProperty("--pet-fly-scale", "1");
 			setState("idle");
 			// 把初始状态也写进 DOM：setState 在"状态没变"时会提前返回，
 			// reduced-motion 下更是压根不调它，属性就一直是空的（验收脚本读不到）
 			el?.setAttribute("data-pet-state", pet.state);
+
+			/* ── 调试钩子（`verify:ui` 的 R-PET-06 断言用）────────────────
+			   调的是**和真实行为同一个函数**，不是旁路：
+			     · `__imissFlyNow()` → `decide()` 里那次 `startFlight()`
+			     · `__imissSetMode()` → `boot()` 里那次 `setMode()`
+			   为什么要它：飞行间隔最小 20 秒，验收脚本不可能干等；
+			   但仍要断言"飞了 / 没飞"是真的发生了，而不是改属性骗自己。 */
+			const dbg = window as Window & {
+				__imissFlyNow?: () => boolean;
+				__imissSetMode?: (m: PetMovementMode) => PetMovementMode;
+				__imissPetDebug?: () => {
+					mode: PetMovementMode;
+					x: number;
+					y: number;
+					flying: boolean;
+					reduce: boolean;
+				};
+			};
+			dbg.__imissFlyNow = () => startFlight(performance.now(), true);
+			dbg.__imissSetMode = (m) => {
+				if (m !== "float" && m !== "fixed" && m !== "ground") return pet.mode;
+				wake();
+				setMode(m);
+				return pet.mode;
+			};
+			dbg.__imissPetDebug = () => ({
+				mode: pet.mode,
+				x: Math.round(pet.x),
+				y: Math.round(pet.y),
+				flying: pet.flight !== null,
+				reduce,
+			});
 
 			hit?.addEventListener("pointerdown", onPointerDown);
 			hit?.addEventListener("pointermove", onPointerMove);
@@ -756,7 +1117,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				"resize",
 				() => {
 					measure();
-					el?.style.setProperty("transform", `translate3d(${pet.x.toFixed(2)}px,${pet.y.toFixed(2)}px,0)`);
+					applyTransform();
 				},
 				{ passive: true },
 			);
@@ -785,10 +1146,17 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			});
 
 			if (reduce) {
-				// 减少动态：不跑循环，停在待机首帧；点击、菜单、对话仍然可用
+				// 减少动态：不跑循环，停在待机首帧；点击、菜单、对话仍然可用。
+				// R-PET-06：悬浮模式在这一档退化成"**静态悬浮**"——停在悬浮基准线上，
+				// 不上下浮动、也不飞行（flyBlocked），但依然不贴地。
 				pet.frame = 0;
 				if (sprite) sprite.style.backgroundPosition = "0% 0%";
-				el?.style.setProperty("transform", `translate3d(${pet.x.toFixed(2)}px,${pet.y.toFixed(2)}px,0)`);
+				if (MODE === "float") {
+					pet.hoverPhase = 0;
+					pet.hoverBase = clampAirY(pet.y);
+					pet.y = pet.hoverBase;
+				}
+				applyTransform();
 			} else {
 				start();
 				// 出场：先打个招呼，再交给 decide()

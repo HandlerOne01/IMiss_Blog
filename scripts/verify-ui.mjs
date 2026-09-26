@@ -263,6 +263,14 @@ const COLLECT = `(() => {
         display: getComputedStyle(el).display,
         hidden: getComputedStyle(el).display === "none" || getComputedStyle(el).visibility === "hidden",
         state: el.dataset.petState || null,
+        // R-PET-06：三档运动模式（float / fixed / ground）与"正在飞"标记，都由组件写进 DOM
+        mode: el.dataset.petMode || null,
+        flying: el.dataset.petFlying === "1",
+        // 位置事实：transform 用来判"有没有动/有没有在悬浮"，bottomGap 用来判"离地多高"
+        transform: getComputedStyle(el).transform,
+        bottomGap: Math.round(window.innerHeight - r.bottom),
+        // 位置记忆原文（R-PET-06 起是 JSON {x,y,mode}，P3 的旧格式是纯数字）
+        saved: (() => { try { return localStorage.getItem("imiss.pet.pos"); } catch { return null; } })(),
         route: document.documentElement.dataset.petRoute || null,
         path: location.pathname,
         rect: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) },
@@ -273,6 +281,11 @@ const COLLECT = `(() => {
         menu: { hidden: menu?.hidden ?? null, items: [...(menu?.querySelectorAll("[data-pet-act]") || [])].map((b) => (b.textContent || "").trim()) },
         chatInput: !!bubble?.querySelector(".pet-chat input"),
         // 与浮动按钮（返回顶部等）是否重叠：R-PET-05
+        // displayNodes = 当前**真的有尺寸**的浮动控件个数：用它保证"重叠数 0"不是"没东西可压"的空过
+        displayNodes: [...document.querySelectorAll("#back-to-top-btn, .floating-controls-container")].filter((n) => {
+          const nr = n.getBoundingClientRect();
+          return nr.width > 0 && nr.height > 0;
+        }).length,
         floatOverlap: (() => {
           const nodes = [...document.querySelectorAll("#back-to-top-btn, .floating-controls-container")];
           return nodes.filter((n) => {
@@ -987,6 +1000,25 @@ async function main() {
 				})()`,
 				returnByValue: true,
 			});
+		/**
+		 * 把宠物拖到 (x, y) 并松手（走真实的 pointerdown/move/up）。
+		 * R-PET-06 的三档模式都要用"拖到半空再松手"来区分：
+		 * 悬浮 → 停在半空、固定 → 停住不动、贴地 → 掉回地面。
+		 */
+		const dragPet = (x, y) =>
+			cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					const el = document.getElementById("pet-body");
+					const r = el.getBoundingClientRect();
+					const sx = r.left + r.width / 2, sy = r.top + r.height / 2;
+					const o = { bubbles: true, pointerId: 9, button: 0 };
+					el.dispatchEvent(new PointerEvent("pointerdown", { ...o, clientX: sx, clientY: sy }));
+					el.dispatchEvent(new PointerEvent("pointermove", { ...o, clientX: ${x}, clientY: ${y} }));
+					el.dispatchEvent(new PointerEvent("pointerup", { ...o, clientX: ${x}, clientY: ${y} }));
+					return "ok";
+				})()`,
+				returnByValue: true,
+			});
 
 		await snap("pet-boot");
 
@@ -1121,6 +1153,116 @@ async function main() {
 		});
 		await sleep(900);
 		await snap("pet-float");
+
+		// ⑨b R-PET-06 三档运动模式（发起人 2026-09-26 提的"悬浮/固定/下落"）
+		// ------------------------------------------------------------------
+		// 为什么要调试钩子：飞行间隔最小 20 秒，脚本不可能干等一分钟。
+		// `__imissFlyNow()` 调的**就是**组件里决定"该不该飞"的那个 `startFlight()`
+		// （与自动飞行同一函数，只有"跳过睡着判断"这一点不同），`__imissSetMode()`
+		// 调的也就是 `boot()` 里那次 `setMode()` —— 测的是飞行/切模式函数本身，不是绕过行为。
+		// 三档依次真跑一遍：默认 float 悬空 → fixed 一动不动 → ground 松手落地。
+		{
+			const petCfg = await fs.readFile(path.resolve("src/config/petConfig.ts"), "utf8");
+			facts["pet-mode-config"] = {
+				mode: /movement:\s*\{[\s\S]{0,240}?mode:\s*"(\w+)"/.exec(petCfg)?.[1] ?? null,
+			};
+
+			// 先把状态复位成"干净的 float"：`setMode()` 会中断可能正在进行的自动飞行，
+			// 并把下一次飞行排到 20~60 秒之后 —— 否则上一步拖拽后宠物可能刚好自己飞起来，
+			// 强制起飞会被"已经在飞"挡掉（第一版就这么假红过一次）
+			await cdp.send("Runtime.evaluate", { expression: `window.__imissSetMode("float")`, returnByValue: true });
+			await sleep(200);
+
+			// ── float：强制起飞一次，记录起飞前 / 飞行中 / 落位后的坐标 ──
+			const before = await snap("pet-float-before");
+			const started = await cdp.send("Runtime.evaluate", {
+				expression: `window.__imissFlyNow ? window.__imissFlyNow() : null`,
+				returnByValue: true,
+			});
+			await sleep(700); // flyDurationMs = 2600，这里取飞行中段
+			const mid = await snap("pet-float-flying");
+			const midShot = await cdp.send("Page.captureScreenshot", { format: "png" });
+			await fs.writeFile(
+				path.join(OUT_DIR, "pet-float-1440.png"),
+				Buffer.from(midShot.data, "base64"),
+			);
+			await sleep(2400); // 等它飞完 + 落位
+			const after = await snap("pet-float-after");
+			facts["pet-float-flight"] = {
+				accepted: started.result.value === true,
+				before: { x: before.rect.x, y: before.rect.y, flying: before.flying },
+				mid: { x: mid.rect.x, y: mid.rect.y, flying: mid.flying, mode: mid.mode },
+				after: { x: after.rect.x, y: after.rect.y, flying: after.flying },
+				midEdge: { right: mid.rect.x + mid.rect.w, bottom: mid.rect.y + mid.rect.h },
+				afterEdge: { right: after.rect.x + after.rect.w, bottom: after.rect.y + after.rect.h },
+			};
+
+			// ── float：拖动松手**不掉落**（悬停锚在松手处）──
+			await dragPet(700, 260);
+			await sleep(400);
+			const drop1 = await snap("pet-float-drop");
+			await sleep(1200);
+			const drop2 = await snap("pet-float-drop2");
+			facts["pet-float-drop"] = {
+				y1: drop1.rect.y,
+				y2: drop2.rect.y,
+				bottom1: drop1.bottomGap,
+				bottom2: drop2.bottomGap,
+			};
+
+			// ── fixed：切过去，两次采样必须**完全一样**（不悬浮不漂移）──
+			await cdp.send("Runtime.evaluate", { expression: `window.__imissSetMode("fixed")`, returnByValue: true });
+			await sleep(400);
+			const fx1 = await snap("pet-fixed-1");
+			await sleep(1600);
+			const fx2 = await snap("pet-fixed-2");
+			facts["pet-fixed-still"] = { x1: fx1.rect.x, y1: fx1.rect.y, x2: fx2.rect.x, y2: fx2.rect.y };
+
+			// ── fixed：拖到半空松手 → 停在原地，不下落 ──
+			await dragPet(560, 250);
+			await sleep(300);
+			const fx3 = await snap("pet-fixed-drop");
+			await sleep(1400);
+			const fx4 = await snap("pet-fixed-drop2");
+			facts["pet-fixed-drop"] = {
+				y1: fx3.rect.y,
+				y2: fx4.rect.y,
+				bottomGap: fx4.bottomGap,
+				mode: fx4.mode,
+			};
+			const fixedShot = await cdp.send("Page.captureScreenshot", { format: "png" });
+			await fs.writeFile(
+				path.join(OUT_DIR, "pet-fixed-1440.png"),
+				Buffer.from(fixedShot.data, "base64"),
+			);
+
+			// ── ground：切过去 → 落回地面；再拖到半空松手 → 受重力落地（P3 原行为）──
+			await cdp.send("Runtime.evaluate", { expression: `window.__imissSetMode("ground")`, returnByValue: true });
+			await sleep(500);
+			const g1 = await snap("pet-ground-1");
+			await dragPet(520, 220);
+			await sleep(120);
+			const g2 = await snap("pet-ground-air"); // 刚松手：还在半空
+			await sleep(1400);
+			const g3 = await snap("pet-ground-landed"); // 落地后
+			facts["pet-ground"] = {
+				modeSwitchGap: g1.bottomGap,
+				airY: g2.rect.y,
+				airGap: g2.bottomGap,
+				landedY: g3.rect.y,
+				landedGap: g3.bottomGap,
+				mode: g3.mode,
+			};
+			const groundShot = await cdp.send("Page.captureScreenshot", { format: "png" });
+			await fs.writeFile(
+				path.join(OUT_DIR, "pet-ground-1440.png"),
+				Buffer.from(groundShot.data, "base64"),
+			);
+
+			// 切回配置里的默认模式，让后续步骤（Swup/reduced-motion）回到出厂状态
+			await cdp.send("Runtime.evaluate", { expression: `window.__imissSetMode("float")`, returnByValue: true });
+			await sleep(200);
+		}
 
 		// ⑩ 切页（Swup）→ 招呼：点导航里的「关于我」，等 astro:page-load
 		await cdp.send("Runtime.evaluate", {
@@ -1899,6 +2041,155 @@ async function main() {
 			(facts["pet-boot"].pet.zIndex ?? 999) < 100,
 			`z-index=${facts["pet-boot"].pet.zIndex}`,
 		);
+	}
+
+	// ── R-PET-06 三档运动模式（float 悬浮+飞行 / fixed 固定 / ground 贴地）──
+	{
+		const floatBefore = facts["pet-float-before"].pet;
+		const flight = facts["pet-float-flight"];
+		const boot = facts["pet-boot"].pet;
+		const floatDrop = facts["pet-float-drop"];
+		const fixedStill = facts["pet-fixed-still"];
+		const fixedDrop = facts["pet-fixed-drop"];
+		const ground = facts["pet-ground"];
+		const reduced1 = facts["pet-reduced-1"].pet;
+		const reduced2 = facts["pet-reduced-2"].pet;
+
+		// ① 默认模式 = float（配置里写的就是它，运行时 DOM 也要是它）
+		record(
+			"R-PET-06",
+			'默认运动模式是 "float"（配置与运行时 DOM 一致）',
+			facts["pet-mode-config"].mode === "float" && boot?.mode === "float",
+			`petConfig.movement.mode=${facts["pet-mode-config"].mode}，运行时 data-pet-mode=${boot?.mode}`,
+		);
+
+		// ② 悬浮 = 不贴地：底部距视口底明显大于地面模式
+		record(
+			"R-PET-06",
+			"float 悬在半空（底部距视口底 > 120px，且比 ground 高 100px 以上）",
+			(boot?.bottomGap ?? 0) > 120 && (boot?.bottomGap ?? 0) - (ground?.landedGap ?? 0) > 100,
+			`float 出场 bottomGap=${boot?.bottomGap}px（rect.y=${boot?.rect?.y}）vs ground 落地 bottomGap=${ground?.landedGap}px`,
+		);
+
+		// ③ 悬浮会"真的移动"：起飞 → 飞行中带 data-pet-flying → 落位后坐标确实变了
+		{
+			const moved =
+				Math.abs(flight.after.x - flight.before.x) + Math.abs(flight.after.y - flight.before.y);
+			record(
+				"R-PET-06",
+				"float 会真的飞：起飞中被标记 flying，落位后坐标发生变化",
+				flight.accepted === true &&
+					flight.mid.flying === true &&
+					flight.before.flying !== true &&
+					moved >= 40,
+				`起飞前 (${flight.before.x},${flight.before.y}) → 飞行中 (${flight.mid.x},${flight.mid.y}) flying=${flight.mid.flying} → 落位 (${flight.after.x},${flight.after.y})，位移 ${moved}px`,
+			);
+		}
+
+		// ④ 飞行不出视口（左/上不越界，右/下不越界）
+		record(
+			"R-PET-06",
+			"飞行全程留在视口内（四边都不越界）",
+			flight.after.x >= 0 &&
+				flight.after.y >= 0 &&
+				flight.midEdge.right <= 1440 &&
+				flight.midEdge.bottom <= 900 &&
+				flight.afterEdge.right <= 1440 &&
+				flight.afterEdge.bottom <= 900,
+			`飞行中右下角 (${flight.midEdge.right},${flight.midEdge.bottom})、落位右下角 (${flight.afterEdge.right},${flight.afterEdge.bottom})，视口 1440×900`,
+		);
+
+		// ⑤ float：拖动松手不掉落（悬停锚在松手处，只在 ±幅度 内浮动）
+		record(
+			"R-PET-06",
+			"float 拖动松手后不掉落（仍在半空悬停）",
+			Math.abs(floatDrop.y2 - floatDrop.y1) <= 14 &&
+				floatDrop.bottom1 > 120 &&
+				floatDrop.bottom2 > 120,
+			`松手后 y=${floatDrop.y1} → 1.2s 后 y=${floatDrop.y2}（离地 ${floatDrop.bottom1}→${floatDrop.bottom2}px，均远高于地面）`,
+		);
+
+		// ⑥ fixed：长时间不动（两次采样坐标完全一致）
+		record(
+			"R-PET-06",
+			"fixed 长时间不动（1.6 秒两次采样坐标完全相同）",
+			fixedStill.x1 === fixedStill.x2 && fixedStill.y1 === fixedStill.y2,
+			`(${fixedStill.x1},${fixedStill.y1}) → 1.6s 后 (${fixedStill.x2},${fixedStill.y2})`,
+		);
+
+		// ⑦ fixed：拖动松手不落地（不施加重力）
+		record(
+			"R-PET-06",
+			"fixed 拖动松手后停在原地、不下落",
+			fixedDrop.mode === "fixed" && fixedDrop.y1 === fixedDrop.y2 && fixedDrop.bottomGap > 120,
+			`松手后 y=${fixedDrop.y1} → 1.4s 后 y=${fixedDrop.y2}，离地仍有 ${fixedDrop.bottomGap}px（模式=${fixedDrop.mode}）`,
+		);
+
+		// ⑧ ground：切换即落回地面；拖动松手受重力落地（与 P3 旧行为一致）
+		record(
+			"R-PET-06",
+			"ground 切换与拖动松手都回到地面高度（与旧断言一致）",
+			ground.mode === "ground" &&
+				ground.modeSwitchGap <= 20 &&
+				ground.airGap > 120 &&
+				ground.landedGap <= 20,
+			`切模式后 bottomGap=${ground.modeSwitchGap}px；拖动松手瞬间 y=${ground.airY}（离地 ${ground.airGap}px）→ 1.4s 后 y=${ground.landedY}（离地 ${ground.landedGap}px）`,
+		);
+
+		// ⑨ 三档都不与右下角浮动按钮重叠（displayNodes > 0 保证不是"没按钮可压"的空过）
+		{
+			const cases = [
+				["float", facts["pet-float-after"].pet],
+				["fixed", facts["pet-fixed-drop2"].pet],
+				["ground", facts["pet-ground-landed"].pet],
+			];
+			for (const [mode, snapPet] of cases) {
+				record(
+					"R-PET-06",
+					`${mode} 模式不与右下角浮动按钮重叠`,
+					(snapPet.displayNodes ?? 0) > 0 && (snapPet.floatOverlap ?? 99) === 0,
+					`可见浮动控件 ${snapPet.displayNodes} 个，重叠 ${snapPet.floatOverlap} 个；宠物右下角 (${snapPet.rect.x + snapPet.rect.w},${snapPet.rect.y + snapPet.rect.h})`,
+				);
+			}
+		}
+
+		// ⑩ reduced-motion：float 退化为"静态悬浮"——不浮动、不飞行（两帧 transform 完全相同）
+		record(
+			"R-PET-06",
+			"reduced-motion 下 float 只保留静态悬浮（两帧 transform 相同、不在飞）",
+			reduced1.mode === "float" &&
+				reduced1.transform === reduced2.transform &&
+				reduced1.rect.y === reduced2.rect.y &&
+				reduced1.flying === false &&
+				reduced2.flying === false &&
+				reduced1.bottomGap > 120,
+			`mode=${reduced1.mode} transform ${reduced1.transform} → ${reduced2.transform}（900ms 后），y ${reduced1.rect.y} → ${reduced2.rect.y}，离地 ${reduced1.bottomGap}px`,
+		);
+
+		// ⑪ 位置记忆仍生效：拖过的位置写进 localStorage（新格式 {x,y,mode}），
+		//    刷新后 x 被恢复；而**模式仍以配置为准**（记忆里存的是 ground，重载后仍是配置的 float）
+		{
+			const parseSaved = (raw) => {
+				try {
+					return JSON.parse(raw ?? "null");
+				} catch {
+					return null;
+				}
+			};
+			const afterGround = parseSaved(facts["pet-ground-landed"].pet.saved);
+			const afterReload = parseSaved(reduced1.saved);
+			record(
+				"R-PET-06",
+				"位置记忆仍生效（存 {x,y,mode}、刷新后恢复 x，模式仍以配置为准）",
+				afterGround !== null &&
+					typeof afterGround.x === "number" &&
+					afterGround.mode === "ground" &&
+					afterReload !== null &&
+					Math.abs(reduced1.rect.x - afterReload.x) <= 2 &&
+					reduced1.mode === "float",
+				`ground 拖动后存档=${facts["pet-ground-landed"].pet.saved}；重载后 x=${reduced1.rect.x}（存档 x=${afterReload?.x}）、mode=${reduced1.mode}（来自配置，不是存档里的 ${afterReload?.mode}）`,
+			);
+		}
 	}
 
 	// ── P3 壁纸（R-BG-01 / R-BG-04）──

@@ -4,8 +4,8 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.27 |
-| 最后更新 | **2026-09-24** |
+| 文档版本 | v1.28 |
+| 最后更新 | **2026-09-26** |
 | 当前阶段 | **P4 完成（133 篇在站）· P5 前置（Agent 数据链路）已完成，待开工 P5**；P3-8 视频壁纸仍等你确认素材 |
 | 整体进度 | **80%**（口径：文档与共识 10% + P0 5% + P1 20% + P2 10% + P3 主体 15% + P4 20%；各阶段权重见第 2 章） |
 | 关联文档 | `prd.md`（需求编号 R-xxx）、`ARCH.md`（改动落点） |
@@ -28,7 +28,7 @@
 5. **⏰ 上游示例页先留着、以后替换（发起人 2026-09-24 决定，并要求"记得提醒"）**：`/projects/`（2 个示例项目）、`/dynamic/`（4 条上游演示动态）、`/gallery/`（两个示例相册）、`/booknav/`（Firefly/CuteLeaf 卡片）、`/about/`（上游模板介绍）**暂时保留原样**，等你以后给真实内容再换。**我每次开工都会主动提这件事**。
 6. **⏰ 拿到域名后要回来重建（发起人 2026-09-24："我要分享块啊，只是后面提醒我添加域名而已"）**：**分享块是开着的**（`siteConfig.post.share: true`）——但海报二维码与「复制链接」取 `Astro.url.href`，而 `site_url` 还是占位域名 `imiss.example.com`（**B-01**），所以**上线前**扫出来/复制到的是假域名。**拿到域名时**：① `siteConfig.site_url` 填真域名 ② 重建 ③ 把 `verify:ui` 里"站点 URL 用的是本站占位域名"那条断言翻成真值断言。**我会主动提醒你**。
 
-> **当前口径（数字只认这一行）**：`pnpm verify:ui` **145 项断言**全绿 · 截图 **24 张** · `pnpm verify:posts` **18 篇 0 错误** · 三份文档 v1.24 · 阶段 P4 **全量迁移完成**（131 篇在站 + 120 张配图）
+> **当前口径（数字只认这一行）**：`pnpm verify:ui` **170 项断言**全绿（对 `pnpm preview` 静态产物跑；对 `pnpm dev` 跑会少 12 条，见 `ARCH.md` §11） · 截图 **27 张** · `pnpm verify:posts` **18 篇 0 错误** · 三份文档 v1.28 · 阶段 P4 **全量迁移完成**（131 篇在站 + 120 张配图）
 
 **最近变更**：2026-09-24 v1.23 —— **纠正上一版的一个误判（发起人澄清）**：v1.22 我把"二维码扫了没啥用"理解成"不要分享块"，把 `siteConfig.post.share` 关掉了；发起人澄清"**我要分享块啊**，只是后面提醒我添加域名而已" → **分享块已改回开启**（`share: true`），配置注释里写清"域名到位前二维码/复制链接指向占位域名（B-01）"，`verify:ui` 里那条断言也**反过来锁成"分享块必须在"**（防止以后被误删）。**域名为占位值时的表现是临时状态，不是功能坏了**；拿到域名后填 `site_url` + 重建即可（§1 第 6 条，我会主动提醒）。R-ID-08（关闭许可协议）不受影响，仍是关的。
 
@@ -132,6 +132,7 @@
 - [x] P3-9 横幅两侧隐藏换图键（R-BG-05，发起人 2026-09-24 提的需求）—— **桌面端两侧各一个真 `<button>` 交互区**（默认 `opacity: 0`，hover / Tab 聚焦才淡出箭头 + 边缘暗角），点击切上一张/下一张、**循环**；**鼠标与触屏都可以按住横向拖动换图**（同一套 pointer 手势，阈值 60px，先判"横向意图"避免抢掉链接点击与文字选择）；**手机端不显示交互区、只用手势**（发起人明确）。实现上**复用模板现成的 `changeToSlide()`**（循环 / 懒实例化 / 1000ms 过渡 / 防连点都在那边），轮播脚本把它挂到 `window.__imissChangeToSlide` 供另一个人脚本调用；交互区放在 Swup 容器**之外**（否则切页会被换掉、监听全失效），`z-index: 30` 高于暗罩。配置在 `backgroundWallpaper.banner.manualSwitch`（enable / zones / drag / dragThreshold）。`verify:ui` 新增 **9 条断言**（点右 / 点左 / 连点一圈回原点 / 键盘 Enter / 鼠标拖拽 / 手机端不显示 / 手机滑动 / 默认不可见且 hover 才显形 / aria-label + 可聚焦）
 - [ ] P3-10 按北京时间决定首屏默认素材（R-BG-06）—— **发起人预告的功能，细节待补充**（分几个时段、各对应哪张素材）。当前实现是「每次刷新在 4 张里随机一张」（`WallpaperSection.astro` 的 `startIdx`），改成按时间选择时替换这一段即可，**不需要动别的**
 - [x] P3-11 修正画质与裁切（发起人 2026-09-24 反馈「你似乎进行了图片裁剪或压缩，导致图片模糊或有些地方看不见，这是不可以的」）—— **两个问题都定位到具体数字并修掉**：① **发糊 = 同一条图被压了两代**：我先把原 JPG 转 webp q82（201KB → 143KB，尺寸没变、掉的全是细节），Astro 又按 `imageQuality`(85) 压一遍 → `convert-wallpaper.mjs` 改成**只复制改名不重编码**（原图 1916×821 / 181~251KB 直接入库），壁纸 quality 单独提到 **95**（`WALLPAPER_QUALITY`），满档变体现在 **1916×821 / 303KB**，只经过构建管线一代压缩；② **看不见 = 横幅太矮**：65vh 的框装 2.33:1 的原图，`cover` 只保留 76% 高度 → `BANNER_HEIGHT` 65 → **80vh**（必须改常量，它同时驱动内容起始位置与滚动视差），并把 `banner.position` 从 `0% 20%`（只从右侧裁）改成 **`50% 35%`**（居中偏上）。实测 1918×966 下**可见高 76% → 95%、宽 100%**；1440×900 可见宽 85%；2560×1440 可见宽 95%。新增探针 `reports/wallpaper-probe.mjs` 量这三个尺寸的可见比例，登记陷阱 **T32**（同图压两代）、**T33**（`object-position` 百分比是"对齐点"不是"偏移量"）
+- [x] P3-12 桌宠三档运动模式（R-PET-06，发起人 2026-09-26 新需求：「这个小人是可以**悬浮**的、偶尔可以**到处飞**的，**且默认是这样**；可以给个**固定（不给飞）**和**下落（在下面）**的选项」）—— **三档做成配置 `petConfig.movement.mode`（默认 `float`），改一行即可切换**：`float` 不贴地、悬在悬浮基准线（`vh×0.52`）上按 `±6px / 3.2s` 正弦浮动（rAF 逐帧写 `translate3d`，**不用 CSS animation**——会和拖拽/位置记忆抢同一属性），每 `20~60s` 随机飘到视口内另一个点（`easeInOutQuad` + `sin(πt)` 弧线 + `--pet-tilt` 7°/`--pet-fly-scale` 姿态，**用 idle 帧不套走路动画**），飞行逐帧 `clampX/clampY` 保证不压右下角浮动按钮、不出视口，用户一 `pointerdown` 立即中断；`fixed` 不悬浮/不飞行/拖动松手不落地；`ground` 保持 P3 原行为。配套：`rightLimit(yTop)` 的收窄判据从"地面高度"改成传入的纵向位置（悬浮时才算得对）、位置记忆升级为 `{x,y,mode}` 且**模式以配置为准**、`reduced-motion` 下 `float` 退化为静态悬浮、调试钩子 `__imissFlyNow()` / `__imissSetMode()` 供验收使用。**验收**：`verify:ui` 新增 R-PET-06 共 **13 条断言**（默认档 float + 悬空 bottomGap 371px / 强制起飞坐标变化 414px 且飞行中 `data-pet-flying=true` / 飞行全程不出视口 / 固定档 1.6s 两次采样坐标完全相同 (638,193) + 拖放不落地 / 贴地档松手回地面（离地 6px）/ 三档都不与浮动按钮重叠（可见控件 2 个、重叠 0）/ reduced-motion 两帧 transform 完全相同 / 位置记忆仍生效），截图 24 → **27 张**（新增 `pet-float-1440` / `pet-fixed-1440` / `pet-ground-1440`）；**断言总数 157 → 170**（**基准修正**：此前文档里的 145 是"对 `pnpm dev` 跑"的数，本轮按 README 要求对 `pnpm preview` 静态产物跑，同一基准下多了 12 条 dev 下被跳过的断言——4 条 noindex 存根 + 4 条 sitemap + 2 条 llms.txt + `/rank/` 存根 + noscript/class 兜底；170 项全绿、exit=0）。**自查修掉一个真偏差**：一次性动画收尾会重排 `nextAt`，而它在悬浮档正是"下一次飞行" → 实测页面加载 **7 秒**就飞（配置是 20~60 秒）；改成只有贴地档重排后，独立探针 `reports/_rpet06-autoflight-probe.mjs`（纯等真实时间、不碰调试钩子）复测 **31.7 秒**自主起飞、位移 519px，同一基准线悬停 y 峰峰值 **12px**（= 配置 ±6px）
 - [ ] P3-8 视频期壁纸（R-BG-02）—— **素材其实已经在原型里做好了**：`blog_test/blog_test/assets/video/hero-loop.mp4`（1280×720 / 5.088s / 15.4Mbps / **9.23MB 原片直出**）+ `hero-loop.webm`（1280×640 / 10.05s / VP9 / **11.57MB 正放倒放回文**，循环点帧级无缝）+ `assets/img/hero-loop-poster.webp`（1280×720 封面帧 209KB），两个版本都在 `prd.md` §6.1 的 ≤12MB 预算内。**等你确认要不要现在接**：接的话要①拷素材到 `public/assets/videos/` ②打开 `playerUrl` + `playerEnable` ③给模板的 `BackgroundPlayer.astro` 补三种降级（它现在**完全没有** reduced-motion / saveData / visibilitychange 处理，见 T11）**
 
 ### P4 内容迁移（R-CNT）
@@ -299,6 +300,7 @@
 
 | 日期 | 版本 | 变更 | 影响文档 |
 | --- | --- | --- | --- |
+| 2026-09-26 | v1.28 | **R-PET-06 桌宠三档运动模式**（发起人：「这个小人应该是可以悬浮的、偶尔可以到处飞的，且默认是这样；可以给个固定（不给飞）和下落（在下面）的选项」）：新增配置 `petConfig.movement`（`mode` 默认 `"float"` / 悬浮幅度 6px / 周期 3200ms / 飞行间隔 `[20000,60000]` / 飞行时长 2600ms / 尊重 reduced-motion），**改配置一行即可切档，不用改代码**。`float` = 悬浮（rAF 逐帧正弦，不用 CSS animation）+ 偶尔飞行（缓动 + 弧线 + 轻微倾斜缩放，idle 帧飘；逐帧守 `rightLimit()` 与视口，拖动/点击即中断）；`fixed` = 不悬浮不飞行、拖放不落地；`ground` = P3 原行为不变。配套改动：`rightLimit(yTop)` 支持按纵向位置收窄、位置记忆升级 `{x,y,mode}` 且模式以配置为准、reduced-motion 下 `float` 静态悬浮、`pet.css` 新增 `--pet-tilt`/`--pet-fly-scale`。`verify:ui` 新增 R-PET-06 **13 条**断言（157 → **170 项**，对 `pnpm preview` 静态产物跑全绿、exit=0；文档此前的 145 是 dev 基准，已按 preview 重算）、截图 24 → **27 张**。**自查修掉一个真偏差**：动画收尾重排了飞行时刻 → 页面加载 7 秒就飞（配置 20~60 秒），修正后独立探针复测 **31.7 秒**首次自主起飞、悬停峰峰值 12px（= 配置 ±6px） | `prd.md` R-PET-06 / §2.2、`ARCH.md` §7.3/§7.4/§7.5/§7.6/§11、`PROJECT_STATUS.md` §1/§3/§8、`README.md`、`src/config/petConfig.ts`、`src/types/petConfig.ts`、`src/utils/pet-utils.ts`、`src/components/features/AemeathPet.astro`、`src/styles/pet.css`、`scripts/verify-ui.mjs` |
 | 2026-09-24 | v1.23 | **纠正 v1.22 的误判（发起人澄清"我要分享块啊，只是后面提醒我添加域名而已"）**：分享块改回开启（`siteConfig.post.share: true`），`verify:ui` 那条断言**反转成"分享块必须在"**；配置注释与 §1 第 6 条写清"域名到位前二维码/复制链接指向占位域名（B-01），拿到域名后填 `site_url` + 重建"。R-ID-08（关闭许可协议）保持关闭 | `prd.md` R-ID-09、`ARCH.md` §4、`PROJECT_STATUS.md` §1/§3/§8、`src/config/siteConfig.ts`、`scripts/verify-ui.mjs` |
 | 2026-09-24 | v1.22 | **发起人评审先导文章的两条意见**：① **R-ID-08 关闭文章许可协议**（`licenseConfig.enable: false` + 侧栏那一项改成条件展开，不留 `None` 空行）；② **R-ID-09** 分享块的二维码指向占位域名（`Astro.url.href` 取 `site_url` = `imiss.example.com`，见 B-01）→ 已加 3 条断言；新增需求编号 R-ID-08 / R-ID-09 | `prd.md` §3.1、`ARCH.md` §4、`PROJECT_STATUS.md` §1/§3/§8、`src/config/licenseConfig.ts`、`src/components/widget/SiteInfo.astro`、`scripts/verify-ui.mjs` |
 | 2026-09-24 | v1.21 | **发起人两条决定入档**：① 全量导入**暂停**，等发起人审完先导 18 篇再一次性跑；② 剩余上游示例页（`/projects/`、`/dynamic/`、`/gallery/`、`/booknav/`、`/about/`）**先留着、将来替换**（发起人："记得提醒"）→ 写进 §1 第 5 条与 `prd.md` §7 第 13 条，执行方每次开工主动提醒 | `prd.md` §7、`PROJECT_STATUS.md` §1/§3/§8 |

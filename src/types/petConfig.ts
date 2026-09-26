@@ -1,9 +1,33 @@
 /**
- * 桌宠配置类型（需求见 prd.md R-PET-01 ~ R-PET-05，设计见 ARCH.md §7）
+ * 桌宠配置类型（需求见 prd.md R-PET-01 ~ R-PET-06，设计见 ARCH.md §7）
  *
  * 注意：这个文件是**类型真身**，`src/types/config.ts` 只是 re-export barrel
  * （和 `sidebarConfig` 一样，见 ARCH.md §14.3 T1 —— 改错文件不生效）。
  */
+
+/** 桌宠的运动模式（R-PET-06） */
+export type PetMovementMode = "float" | "fixed" | "ground";
+
+/** 运动模式与手感参数（R-PET-06；改 `petConfig.movement.mode` 即可切换，不用改代码） */
+export interface PetMovementConfig {
+	/**
+	 * 三档运动模式（默认 `"float"`）：
+	 * - `"float"`：悬浮 + 偶尔飞到视口内的随机位置（发起人要的默认形态）
+	 * - `"fixed"`：固定——不悬浮、不飞行、拖动松手也不落地
+	 * - `"ground"`：贴地——在地面行走、松手受重力落地（P3 的原始行为）
+	 */
+	mode: PetMovementMode;
+	/** 悬浮上下浮动幅度（px），围绕悬浮基准线正弦摆动 */
+	hoverAmplitude: number;
+	/** 悬浮浮动周期（毫秒） */
+	hoverPeriodMs: number;
+	/** 两次飞行之间的随机间隔（毫秒），`[最小, 最大]` */
+	flyIntervalRange: [number, number];
+	/** 单次飞行时长（毫秒） */
+	flyDurationMs: number;
+	/** `prefers-reduced-motion: reduce` 时是否也禁止飞行（默认 true = 静止悬浮） */
+	flyRespectReducedMotion: boolean;
+}
 
 /** 宠物与 Agent 的对接参数（R-AGT-03） */
 export interface PetAgentConfig {
@@ -38,5 +62,7 @@ export interface PetConfig {
 	lines: string[];
 	/** 本地 mock 回复（没有后端时的兜底，R-AGT-03） */
 	mockReplies: string[];
+	/** 运动模式与手感参数（R-PET-06，默认悬浮 + 偶尔飞行） */
+	movement: PetMovementConfig;
 	agent: PetAgentConfig;
 }

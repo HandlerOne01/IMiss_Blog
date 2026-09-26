@@ -1,5 +1,5 @@
 /* ============================================================================
- * 桌宠「爱弥斯」样式（R-PET-01 ~ R-PET-05）
+ * 桌宠「爱弥斯」样式（R-PET-01 ~ R-PET-06）
  *
  * 素材：8 列 × 9 行、单格 144×156 的图集（`src/assets/images/pet/pet-aemeath.webp`）。
  * 一帧 = 一个格子，**只靠 background-position 定位**：
@@ -7,8 +7,8 @@
  *   百分比定位的分母是"图宽 − 容器宽" = 7 格，所以第 c 列写 `c/7 × 100%`。
  * 好处：缩放只改 `--pet-scale`，JS 里一个像素数字都不用知道。
  *
- * `--pet-face` / `--pet-dy` 由 JS 写（扭头 / 素材底边补偿），与 `.pet` 的 transform
- * 分开，免得每帧拼字符串时互相覆盖。
+ * `--pet-face` / `--pet-dy` / `--pet-tilt`（飞行倾角）/ `--pet-fly-scale`（飞行放大）
+ * 都由 JS 写，与 `.pet` 的 `translate3d` 分开，免得每帧拼字符串时互相覆盖。
  *
  * 为什么放在全局样式文件而不是组件的 <style>：JS 会动态创建 `.spark` 节点，
  * Astro 的 scoped 样式只作用于模板里的元素，动态节点拿不到 data-astro-cid，
@@ -53,7 +53,11 @@
 	background-image: url("../assets/images/pet/pet-aemeath.webp");
 	background-repeat: no-repeat;
 	background-size: 800% 900%;
-	transform: translateY(var(--pet-dy, 0px)) scaleX(var(--pet-face, 1));
+	/* 飞行姿态（R-PET-06）：JS 逐帧写 --pet-tilt / --pet-fly-scale，
+	   和 --pet-dy（素材底边补偿）、--pet-face（左右朝向）拼在同一个 transform 上。
+	   ⚠️ 这里**不能加 transition**：逐帧写入会一直落在过渡中间，飞行反而变糊变慢。 */
+	transform: translateY(var(--pet-dy, 0px)) scaleX(var(--pet-face, 1)) rotate(var(--pet-tilt, 0deg))
+		scale(var(--pet-fly-scale, 1));
 	filter: drop-shadow(0 12px 16px rgb(10 6 24 / 0.42));
 }
 

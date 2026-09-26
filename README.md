@@ -73,7 +73,7 @@ pnpm preview      # 另开一个终端窗口跑这个并保持运行
 pnpm verify:ui    # 再另开一个终端窗口跑这个
 ```
 
-期望输出：`功能断言 145 项：通过 145，失败 0`。
+期望输出：`功能断言 170 项：通过 170，失败 0`。
 若输出 `检测到 astro dev 服务器` 的提示，说明你对 `pnpm dev` 跑了它——
 那会把"关闭页面"等断言误判，请改成对 `pnpm preview` 跑。
 
@@ -114,7 +114,7 @@ pnpm verify:docs    # 期望输出：`文档检查 … ：通过 N，失败 0`�
 | `pnpm type-check` | `tsc --noEmit`，覆盖 `src/` 与 `scripts/` |
 | `pnpm build` | 生产构建：LQIP → VNDB 封面（未配置则跳过）→ Astro → 清理未用看板娘资源 → 字体子集 → 内联脚本压缩 → Pagefind 索引 |
 | `pnpm preview` | 预览 `dist/` |
-| `pnpm verify:ui` | 界面验收：145 项断言 + 泄漏扫描 + 对比度 A/B + 24 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
+| `pnpm verify:ui` | 界面验收：170 项断言 + 泄漏扫描 + 对比度 A/B + 27 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
 | `pnpm verify:posts` | 内容校验：frontmatter / slug / 图片存在性 / 站内链接 / 残留 Obsidian 语法 / 榜单配图（**改完文章或跑完迁移后跑一次**；有错退出码 1） |
 | `pnpm verify:docs` | 文档自检：核对三份文档与仓库事实是否一致（版本号、断言/截图数、排行页清单、导航子项、需求编号、阻塞项、阶段状态）。**改完东西收工前跑一次** |
 | `node scripts/import-posts.mjs --batch 1` | 迁移旧博客笔记（**默认 dry-run 只出报告**；加 `--write` 才落盘。详见下面「迁移旧笔记」一节） |
@@ -251,8 +251,14 @@ pnpm verify:posts                                # 落盘后校验
 | 手机上要不要 | `petConfig.hideOnMobile`（现在 `true` = 手机不显示） |
 | 大小 | `petConfig.scale`（1 = 单格 144×156 原始像素） |
 | 出场靠哪边 / 台词 / 待机多久睡 | `petConfig.startSide` / `lines` / `greeting` / `idleSecondsToSleep` |
+| **运动模式**（悬浮+飞行 / 固定 / 贴地） | `petConfig.movement.mode`：`"float"`（默认，悬浮 + 每 20~60 秒随机飘一次）/ `"fixed"`（不悬浮不飞行、拖放也不落地）/ `"ground"`（贴地行走、松手落地） |
+| 悬浮与飞行的手感 | `petConfig.movement` 的 `hoverAmplitude`（浮动幅度 px）/ `hoverPeriodMs`（周期 ms）/ `flyIntervalRange`（飞行间隔 ms）/ `flyDurationMs`（单次飞行时长 ms） |
 | 行为（走、跳、拖、说话、对话） | `AemeathPet.astro` 里的脚本；状态表在 `src/utils/pet-utils.ts` |
 | 和它聊天 | 右键 →「和爱弥斯聊天」。**现在没有后端**，回复来自 `petConfig.mockReplies`（P5 接真 Agent） |
+
+> **怎么改运动模式（R-PET-06）**：打开 `src/config/petConfig.ts`，把 `movement.mode` 改成 `"float"`（默认：悬浮 + 偶尔到处飞）/ `"fixed"`（固定：不悬浮不飞行、拖放也不落地）/ `"ground"`（贴地走、松手落地）三者之一，**不用改任何代码**；
+> 飞行间隔 / 单次时长 / 浮动幅度与周期都在同一段 `movement` 里（默认 20~60 秒飞一次、单次 2.6 秒、上下浮动 ±6px）；`pnpm dev` 下改完自动生效，生产要重新 `pnpm build`。
+> 浏览器里存的旧位置记忆（`localStorage["imiss.pet.pos"]`）**不会**盖掉配置里的模式——只有"同一模式存下的坐标"才会被复用。
 
 > 素材是 Codex 自定义宠物图集（8 列 × 9 行、单格 144×156，MIT）。第 2 行与第 1 行逐像素相同，
 > 所以左走用第 1 行 + `scaleX(-1)`。**不要同时开模板自带的 Live2D / Spine 看板娘**（R-PET-04）。

@@ -2,8 +2,8 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.27 |
-| 最后更新 | 2026-09-24 |
+| 文档版本 | v1.28 |
+| 最后更新 | 2026-09-26 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
 
@@ -570,6 +570,14 @@ export interface PetConfig {
   idleMinutesToSleep: number;   // 无操作多久进入屏幕待机，默认 45（秒×60）
   lines: string[];              // 随机台词池
   greeting: string;             // 首次出场台词
+  movement: {                   // R-PET-06 运动模式（默认 float，改一行即可切换）
+    mode: "float" | "fixed" | "ground";
+    hoverAmplitude: number;     // 悬浮上下浮动幅度 px，默认 6
+    hoverPeriodMs: number;      // 浮动周期，默认 3200
+    flyIntervalRange: [number, number]; // 飞行间隔 ms，默认 [20000, 60000]
+    flyDurationMs: number;      // 单次飞行时长，默认 2600
+    flyRespectReducedMotion: boolean;   // 默认 true
+  };
   agent: {
     enable: boolean;            // false = 纯本地 mock，不发任何请求
     apiBase: string;            // 空 = 同源（"/api"）
@@ -597,11 +605,12 @@ export interface PetConfig {
 
 | 事件 | 状态 | 说明 |
 | --- | --- | --- |
-| 默认 | `idle` | 站立时朝向跟随鼠标（用 `face` 变量，不改素材） |
-| 自由活动 | `running-right` / `running-left` | 在视口底部来回走；左走用第 1 行 + `scaleX(-1)` |
+| 默认 | `idle` | 站立/悬浮时朝向跟随鼠标（用 `face` 变量，不改素材） |
+| 自由活动（`ground` 档） | `running-right` / `running-left` | 在视口底部来回走；左走用第 1 行 + `scaleX(-1)` |
+| 自由飞行（`float` 档） | `idle` | **不套走路动画**：用 idle 帧 + `--pet-tilt` / `--pet-fly-scale` 飘过去（见 §7.6） |
 | 首次出场 / 切页 | `waving` | 台词取自 `petConfig.greeting` 或 `lines` |
-| 单击 / 落地 | `jumping` | 重力落地后若速度大则再弹一次 |
-| 拖拽中 | `failed` | 影子随高度缩小变淡；松手下落 |
+| 单击 / 落地 | `jumping` | 重力落地后若速度大则再弹一次（只有 `ground` 档会落地） |
+| 拖拽中 | `failed` | 影子随高度缩小变淡；松手后的去向**按模式分**（见 §7.6） |
 | 无操作超时 | `waiting` | 进入"屏幕待机"；有任何交互立刻回 `idle` |
 | 搜索框 / 命令面板打字 | `running` | 停止输入 `1.4s` 后回 `idle` |
 | 对话完成 / 切主题 | `review` | 触发一次庆祝动效。**注意：模板没有"星屑爆发"能力**（那是 `blog_test` 原型 `anime.js` 里的），所以庆祝动效用组件内部的纯 CSS 小动效实现，不引第三方库；若以后想要星屑，单独开一个小任务 |
@@ -612,12 +621,12 @@ export interface PetConfig {
 
 | 操作 | 行为 |
 | --- | --- |
-| 单击 | 跳一下 + 随机台词 |
+| 单击 | 跳一下 + 随机台词（不掉高度） |
 | 双击 | `review` + 星屑 |
-| 按住拖动 | 跟随鼠标/手指，松手受重力落地 |
+| 按住拖动 | 跟随鼠标/手指；**松手：`ground` 受重力落地 / `float` 就地悬停 / `fixed` 原地不动**（R-PET-06） |
 | 右键 | 菜单：说句话 / 跳一下 / 跟过来 / 睡一会儿 / **和爱弥斯聊天** |
-| 键盘 | `Tab` 聚焦宠物；`Enter` 跳一下；`←` `→` 指挥它走；气泡用 `aria-live="polite"` |
-| 位置记忆 | `localStorage["imiss.pet.pos"]`（只存 x，y 由地面决定） |
+| 键盘 | `Tab` 聚焦宠物；`Enter` 跳一下；`←` `→` 指挥它移动（`ground` 走 / `float` 飘 / `fixed` 不动）；气泡用 `aria-live="polite"` |
+| 位置记忆 | `localStorage["imiss.pet.pos"]`（R-PET-06 起存 `{x,y,mode}`，兼容 P3 的纯数字旧格式；**模式以配置为准**，见 §7.6） |
 
 **对话 UI**
 
@@ -627,15 +636,35 @@ export interface PetConfig {
 
 | 条件 | 行为 |
 | --- | --- |
-| `prefers-reduced-motion: reduce` | 退化为静止的 `idle` 单帧；点击/对话仍然可用 |
-| 页面切到后台 | 停止 `requestAnimationFrame`（省电），回来恢复 |
+| `prefers-reduced-motion: reduce` | 退化为静止的 `idle` 单帧：`ground` 档贴地站着、`float` 档**静态悬浮**（停在悬浮基准线上，不浮动也不飞行，`movement.flyRespectReducedMotion` 控制是否禁飞）；点击/对话仍然可用 |
+| 页面切到后台 | 停止 `requestAnimationFrame`（省电），回来恢复（悬浮/飞行都靠这条循环，因此也随之暂停） |
 | 移动端（`hideOnMobile: true` 时） | 不渲染宠物节点 |
 | `petConfig.agent.enable: false` 或请求失败 | 走本地 mock 台词，并在气泡里明确说"我还没连上大脑" |
 | 关闭樱花/特效 | 宠物不受影响；宠物自身有独立开关（`petConfig.enable`） |
 
 **与看板娘的互斥（R-PET-04）**：`pioConfig.ts` 的 `spineModelConfig.enable` 与 `live2dWidgetConfig.enable` 一律保持 `false`；若将来要开，必须先关掉桌宠。此约定写进 `petConfig.ts` 的注释。
 
-**避免遮挡（R-PET-05）**：默认出场在**右下角、但预留安全区**（距右 ≥ 24px、距底 = 地面 10px，且 x 不进入浮动按钮的 96px 半径内）；`zIndex` 低于浮动控件层。
+**避免遮挡（R-PET-05）**：默认出场在**右下角、但预留安全区**（距右 ≥ 24px、距底 = 地面 10px，且 x 不进入浮动按钮的 96px 半径内）；`zIndex` 低于浮动控件层。⚠️ R-PET-06 起这条规则要**跟着宠物当前高度走**：`rightLimit(yTop)` 的收窄判据从"地面高度"改成了传入的纵向位置（默认 `pet.y`），否则悬浮/飞行中的宠物在按钮正上方时不会收窄（贴地档的判据与改前等价）。
+
+### 7.6 运动模式（R-PET-06）
+
+发起人原话：「这个小人应该是可以**悬浮**的、偶尔可以**到处飞**的，**且默认是这样**；可以给个**固定（不给飞）**和**下落（在下面）**的选项。」→ 三档做成配置 `petConfig.movement.mode`，**改一行即可切换**（组件启动读它；`localStorage` 里的模式只是"记着"，永远不覆盖配置）。
+
+| 档位 | 落点（y 怎么来） | 有没有重力 | 计时器到点什么 | 拖动松手后 |
+| --- | --- | --- | --- | --- |
+| `float`（**默认**） | 悬浮基准线 `vh × 0.52 − h/2`（`PET_TUNING.hoverLineRatio`），并在 `±hoverAmplitude` 内正弦浮动；**离地至少 `PET_TUNING.airMinGap` = 48px**（"不贴地"的硬约束，拖放/缩窗都会被它夹回） | 无 | `nextAt` 到点 → `startFlight()` 飘到视口内随机点；飞行中每帧缓动插值 | 就地悬停（不掉落），随后 8s 内再飘一次 |
+| `fixed` | 当前位置（切换时只 clamp 回视口） | 无 | `nextAt = Infinity` → 什么都不做 | **原地不动**（不悬停、不漂移、不落地） |
+| `ground` | 地面 `floorY` | 有（P3 原逻辑） | 原有 `decide()`（走/招手/跳/困惑/发呆） | 受重力落地（P3 原行为） |
+
+**实现要点（三个"为什么这么做"）**
+
+1. **悬浮与位置的位移都在 `#pet` 的 `translate3d` 上，由 rAF 逐帧写**（`hoverStep()` / `advanceFlight()` → `applyTransform()`）。**没有用 CSS animation 做浮动**：CSS 动画的位移与 JS 写的 `transform` 是同一条属性，会互相覆盖 —— 一旦拖拽或"刷新后恢复位置"再写一次 `transform`，动画就会被顶掉或抖动。重心放在 `translate3d` 上还有个好处：拖拽、位置记忆、模式切换共用同一份 `(x, y)` 事实，没有第二份状态可以对不上。
+2. **飞行 = 缓动 + 弧线 + 姿态**：`easeInOutQuad` 插值（"渐入渐出"），纵向再叠 `flyArc × sin(πt)` 的抬升（看起来是"飘"不是"直线平移"），姿态用 CSS 变量 `--pet-tilt`（最大 `flyTilt` 7°）与 `--pet-fly-scale`（最大 `1 + flyZoom`）写在 `.pet-sprite` 上，与 `--pet-dy`（素材底边补偿）、`--pet-face`（朝向）拼在同一个 `transform` 里。**飞行用 idle 帧**，不套 `running-*` 的横向位移（那是贴地逻辑）。飞行期间 `.pet` 带 `data-pet-flying="1"`（验收脚本据此判"真的在飞"）。
+3. **约束是逐帧守的，不是只挑目标点时守一次**：目标点先用 `rightLimit(y1)` 收窄，飞行每一帧再用 `clampX(x, y)` / `clampAirY(y)` 夹一次 —— 这样"飞行途中返回顶部按钮冒出来""窗口被缩小""中途被拖拽"都不会压上按钮或飞出视口。用户一 `pointerdown`（拖动或单击）就 `cancelFlight()` 立即中断本次飞行。
+4. **模式与位置记忆的关系**：`savePos()` 写 `{x, y, mode}`（兼容读 P3 的纯数字旧格式）；`boot()` 时 `mode` **只取配置**，记忆里的 `mode` 仅用于判断"那份 `y` 还作不作数"（同一模式才复用 y，否则 `float/fixed` 回落到悬浮基准线、`ground` 回落到地面）。这样"改配置就能切换"不会被浏览器里的旧记忆挡住。
+5. **验收用的调试钩子**（`window.__imissFlyNow()` / `__imissSetMode()` / `__imissPetDebug()`）调的是**和真实行为同一个函数**（`startFlight()` / `setMode()`），只多了"跳过睡着判断""允许运行期切档"两件事 —— 否则飞行间隔最小 20 秒，自动化验收只能干等或造假。`verify:ui` 的 R-PET-06 共 13 条断言覆盖三档各自的落点、飞行位移、固定不动、松手行为、三档不遮挡与 reduced-motion 静态悬浮。
+6. **自主飞行与"屏幕待机"的关系**：`waiting`（45 秒无操作）期间**不飞**（`decide()` 被 `pet.asleep` 挡住），任何交互立刻唤醒并恢复计时 —— 与 P3 贴地档的口径一致（待机就是要安静）。另外**自动飞行不写位置记忆**：`savePos()` 有 `pet.userMoved` 闸门，没被用户拖过就不落盘，免得访客刷新后被"上一次自己飞到的位置"接管。
+7. ⚠️ **一次自查出来的偏差（已修）**：一次性动画（出场招呼 1.9s）收尾时原本会把 `nextAt` 重排成 1.2~4.2s，而这个 `nextAt` 在悬浮档正是"下一次飞行"的时刻 → 页面加载 **7 秒**就飞了，与配置写的 20~60 秒不符。现在只有贴地档在动画收尾时重排 `nextAt`；独立探针 `reports/_rpet06-autoflight-probe.mjs`（不碰调试钩子、纯等真实时间）复测：**页面加载后 31.7 秒自主起飞**，落位 (766,339)、位移 519px；同一基准线上的悬停 y 峰峰值 **12px**（= 配置 ±6px）。
 
 ---
 
@@ -971,7 +1000,7 @@ dosc/blog/**/*.md（只读）
 | `pnpm preview` | 预览构建产物 | — |
 | `pnpm format` / `pnpm lint` | Biome 格式化与检查 | — |
 | `pnpm verify:posts` | **内容校验**（`scripts/verify-posts.mjs`，阻断式）：frontmatter 完整性 / slug 唯一且 ASCII / 正文非空 / **本地图片存在且非 0 字节** / `frontmatter.image` 存在性 / 站内链接目标存在 / 残留 Obsidian 语法 / 标题重复 / `rankConfig` 的 title 与 cover。`--quarantine` 可把出错文章移进 `src/content/_quarantine/` | ✅（P4 新增） |
-| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **145 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底、**P4 内容迁移全项**：配图真实加载 / 编号顺序 / 移动端 / 不生成 figure 图注 / URL 形态 / 双链改写 / 无 Obsidian 残留 / 表格与代码块 / 无标题短笔记 / 归档与分类收录），并输出 **24 张**截图到 `reports/screenshots/`。P3 起含桌宠与壁纸全项（九状态触发 / 键盘 / 拖拽 / 菜单 / 联动 / reduced-motion / 与浮动按钮不重叠 / 移动端隐藏 / 取景与暗罩）| ✅（P1 新增，P2/P3/P4 三次扩容） |
+| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **170 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底、**P4 内容迁移全项**：配图真实加载 / 编号顺序 / 移动端 / 不生成 figure 图注 / URL 形态 / 双链改写 / 无 Obsidian 残留 / 表格与代码块 / 无标题短笔记 / 归档与分类收录），并输出 **27 张**截图到 `reports/screenshots/`。P3 起含桌宠与壁纸全项（九状态触发 / 键盘 / 拖拽 / 菜单 / 联动 / reduced-motion / 与浮动按钮不重叠 / 移动端隐藏 / 取景与暗罩），**P3-R-PET-06 起含三档运动模式全项**：默认档为 `float` 且悬空（底部距视口底 > 120px）/ 强制起飞后坐标真的变化且飞行中带 `data-pet-flying` / 飞行全程不出视口 / 固定档 1.6s 两次采样坐标完全相同且拖放不落地 / 贴地档松手回地面高度 / 三档都不与右下角浮动按钮重叠 / reduced-motion 下 `float` 两帧 `transform` 相同（静态悬浮）/ 位置记忆仍生效且模式以配置为准。⚠️ **数字基准是"对 `pnpm preview` 的静态产物跑"**：对 `pnpm dev` 跑会少 12 条（4 条 noindex 存根 + sitemap 4 条 + llms.txt 2 条 + `/rank/` 存根 + noscript/class 兜底），那时的旧口径 145 就是这么来的，别拿它当基准 | ✅（P1 新增，P2/P3/P4/R-PET-06 四次扩容） |
 | `node scripts/import-posts.mjs` | **旧博客迁移**（默认 dry-run）：`--write` 落盘、`--batch 1..5`、`--cat`、`--only`、`--limit`、`--src`；报告写 `reports/import-report.json` | ✅（P4 新增） |
 | `pnpm verify:docs` | **文档一致性自检**（`scripts/verify-docs.mjs`）：核对三份文档互相之间、以及文档与仓库事实是否一致——版本号与"最后更新"日期、断言/截图数与最近一次实测、排行页清单与路由文件、导航子项与 `navBarConfig.ts`、需求编号引用闭环、阻塞项条数与编号连续、§2 与 §3 阶段状态，以及**配置事实**（`displaySettingsConfig.enable`、`rankConfig.dataStatus`、"4 组数据"类说法是否漏了第 5 份）。**每次收工前跑一次**（P2 加二游排行时文档漂移了 12 处，就是没有这道关卡） | ✅（v1.12 新增） |
 | `pnpm make:logo` | 把 `src/assets/images/logo/imiss-logo.svg`（手写矢量设计源）栅格化成导航栏 Logo（webp）与 favicon 四档 PNG | ✅（P1 新增） |
@@ -980,7 +1009,7 @@ dosc/blog/**/*.md（只读）
 > **关于 `verify:ui` 的对比度检查**：主体走"token 级"校验（`--deep-text`/`--content-meta`/`--btn-content`/`--primary` 对卡片底/页面底），不是"扫全站文字元素"。
 > 原因：这个主题里大量文字压在封面图、壁纸、半透明面板上，逐元素自动判定无法可靠取得背景色（试了三版：canvas 转色 → 逐层合成 → Node 侧解析，期间还产出过"66/71 元素低于 3:1"的假警报）。
 > P2 补了两处**具体**的对比度断言（不依赖背景取色）：① 名次数字对名次底色（`getComputedStyle` 直接读两个颜色，白字压粉底 ≥ 3:1、深字压橙底 ≥ 4.5:1）；② 缺图占位把渐变各档合成到不透明底色上取最亮值，与白字算对比度（暗/亮主题各一条）。
-> 观感部分仍然是"**可复现的数字交给脚本，观感交给截图**"：脚本每轮输出 24 张截图并人工核对；另外把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
+> 观感部分仍然是"**可复现的数字交给脚本，观感交给截图**"：脚本每轮输出 27 张截图并人工核对；另外把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
 
 ---
 
@@ -1136,7 +1165,7 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | D9 | 评论区先关闭但页面保留 | 直接删留言页 | 页面结构与导航一次到位，评论系统到位后只改一个配置 |
 | D10 | 留言/评论与 Agent 解耦 | 用 Agent 当留言后端 | 两者目标不同（留言是异步公开记录，Agent 是实时对话）；耦合会让简单需求变复杂 |
 
-### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 26 条：T1~T19 来自 P0/P1，T20~T26 来自 P2）
+### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 40 条：T1~T19 来自 P0/P1，T20~T26 来自 P2，T27~T29 来自 P3，T30~T33 来自 P3-9/P3-11，T34~T38 来自 P4，T39~T40 来自 R-PET-06）
 
 实现时按这张表走，不要凭"应该没问题"假设。每条都给了文件与行号，可当场复核。
 
@@ -1183,6 +1212,8 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | T36 | **文件名归一化不能顺手把"空格+数字"都剥掉**：为兼容 Obsidian 的 `图 1.png` 重名后缀，第一版写了 `/\s+\d+(?=\.[a-z]+$)/` → `Pasted image 20260509141005.png` 的时间戳被当成后缀吃掉，全篇 6 张图归一化成同一个键，**6 张只复制了 1 张**（映射看起来"成功"，其实是同一张） | 图片静默丢一半、正文重复指向同一张 | 归一化只做 NFKC + trim + 小写；重名后缀**作为退路单独试**，且**只吃 1~2 位数字**（`\s+\d{1,2}`）。判断有没有踩：看报告的 `images.copied` 是否等于 `images.resolved` |
 | T37 | **全库性的空白整理会改坏代码块**：`body.replace(/[ \t]+$/gm, "")` + `.replace(/\n{3,}/g, "\n\n")` 把 5 篇里 **100 处代码块内部**的行尾空白与空行改掉了（独立子 agent 逐块比对时抓到：`"    "` → `""`） | 代码块内容与源文件不再逐字节一致，"迁移保真"这条承诺就破了（对 C++ 语义通常无影响，但不可接受） | 任何全局空白/换行整理都要**围栏感知**：逐行扫、围栏内原样输出、围栏外才整理（`tidyWhitespace()` / `separateAdjacentImages()` 都是这么写的）。验证手段：`reports/check-code-fidelity.mjs` 逐块比对 |
 | T38 | **LQIP 生成器会 glob 到 `public/**` 的图片**：`generate-lqips.ts` 扫 `{src,public}/**/*.{png,jpg,…}`，只忽略几个固定目录；P4 往 `public/images/posts/` 一放图，`lqips.json` 立刻多出 9 条无用记录（全量会上百条） | 每次导入都在 `lqips.json` 里制造 diff 噪音；虽然 `<img>` 是裸标签、根本用不到 LQIP | 在 `IGNORE_DIRS` 里加 `public/images/posts/**`。注意文件被删后这些记录会由脚本自动清掉（日志里是 `Removed N stale entries`） |
+| T39 | **"悬浮/上下浮动"别用 CSS animation 做**：桌面宠物同时被三处写位置——拖拽（每帧指哪写哪）、位置记忆（刷新后恢复）、自由移动（每帧插值）。CSS animation 的位移和 JS 写的 `transform` 是**同一条属性**，谁后写谁生效：拖拽一放手就会被动画顶回去，恢复位置那一帧还会跳 | 宠物的位置在拖拽/刷新/模式切换后"莫名回弹"，且**不报任何错**（看起来像逻辑 bug，其实是样式打架） | 位置只保留**一份事实**（组件里的 `pet.x/pet.y`），所有模式（悬浮正弦、飞行插值、走路、拖拽）都算完再统一写 `translate3d`；`pet.css` 里给 `.pet-sprite` 的 `--pet-tilt`/`--pet-fly-scale` 也**不加 `transition`**（逐帧写入会一直停在过渡中间） |
+| T40 | **验收用的"调试钩子"必须是同一函数，不能是旁路**：R-PET-06 的飞行间隔最小 20 秒，脚本不可能干等一分钟，很容易顺手写成"直接给 DOM 加个 `data-pet-flying`"或"直接把坐标改掉"——那样测的是"我能不能改属性"，不是"行为对不对"（P1/P2 审查都点名过这类假绿） | 断言全绿但功能其实是坏的；以后重构行为时断言照样绿 | 钩子只做"提前调用"：`window.__imissFlyNow()` 调的就是 `decide()` 里那次 `startFlight()`，`window.__imissSetMode()` 调的就是 `boot()` 里那次 `setMode()`，只多"跳过睡着判断""允许运行期切档"。断言侧再核对**真实副作用**（`data-pet-flying` 标记 + 两次采样坐标真的变了 + 不出视口） |
 
 ### 14.4 被移除的上游功能怎么找回来
 
