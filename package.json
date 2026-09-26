@@ -25,6 +25,7 @@
     "verify:ui": "node scripts/verify-ui.mjs",
     "verify:docs": "node scripts/verify-docs.mjs",
     "verify:posts": "node scripts/verify-posts.mjs",
+    "verify:agent": "node scripts/verify-agent.mjs",
     "make:logo": "node scripts/make-logo.mjs"
   },
   "dependencies": {

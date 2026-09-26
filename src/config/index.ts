@@ -56,6 +56,8 @@ export type {
 	FontSelectionConfig,
 } from "../types/fontConfig"; // 字体类型定义
 export type { RankBoardConfig, RankConfig, RankEntry, RankKind } from "../types/rankConfig"; // 排行榜类型（本站新增）
+export type { AgentConfig, AgentResumeWord } from "../types/agentConfig"; // Agent 接口契约类型（R-AGT-07，本站新增，P5-0）
+export { agentConfig } from "./agentConfig"; // Agent 接口契约配置（R-AGT-02 / R-AGT-07，本站新增，P5-0）
 export { analyticsConfig } from "./analyticsConfig"; // 统计分析配置
 export { announcementConfig } from "./announcementConfig"; // 公告配置
 // 样式配置

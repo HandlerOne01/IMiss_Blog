@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.32 |
+| 文档版本 | v1.33 |
 | 最后更新 | 2026-09-26 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -185,6 +185,7 @@ src/
 | R-RANK-01 ~ R-RANK-07 | 见 §5.2 文件清单 | 新增为主 | 复用 `ImageWrapper.astro` 解析配图（组件里另做一次存在性判定，见 §5.6），不新造图片机制 |
 | R-PET-01 ~ R-PET-05 | `src/components/features/AemeathPet.astro`（新增）+ `petConfig.ts`（新增）+ `Layout.astro` 插一行 | 新增 + 插一行 | 见 §7；`Layout.astro` 只在 `<WavesEffect />` 之后插 `<AemeathPet />` |
 | R-AGT-01 ~ R-AGT-06 | `agent/**`（新增）+ `src/utils/pet-agent-client.ts`（新增） | 新增 | 见 §8 |
+| **R-AGT-07**（P5-0） | `src/config/agentConfig.ts`（新增）+ `src/types/agentConfig.ts`（新增）+ `scripts/verify-agent.mjs`（新增）+ `src/config/index.ts`（挂 barrel） | **新增配置与契约测试，不写业务逻辑** | 见 **§8.9**。`enable` 保持 `false`（P5-0 阶段桌宠仍走 `petConfig.mockReplies`，一个请求都不发）；`baseUrl`/`graphId`/`timeoutMs`/`resumeWords`/`fallbackToMock`/`debug` 六个字段只放"能被改的值"。契约测试零依赖、服务没起时 SKIP 且**退出码 0**、契约不符**退出码 1** |
 | R-CNT-01 ~ R-CNT-08 | `scripts/import-posts.mjs`、`scripts/verify-posts.mjs`（新增）+ `src/content/posts/**`、`public/images/posts/**` | 新增 | 见 §9 |
 | R-CMT-01 R-CMT-02 | `src/config/commentConfig.ts`（不动）+ `src/content/spec/guestbook.md`（改文案） | 改内容 | 评论系统保持 `type: "none"`，留言页自动落到 `commentNotConfigured` 分支，显示"评论未配置"占位卡片；留言页说明文案在 `guestbook.md` 里重写 |
 | R-DEP-01 ~ R-DEP-04 | `deploy/nginx.conf`（新增）；R-DEP-04 另需 `src/config/fontConfig.ts`（改 provider）+ `package.json`（加 `@fontsource/*` 依赖） | 新增 + 改配置 | 见 §12、§14.3 T16 |
@@ -827,15 +828,21 @@ data: {"state":"done"}
 
 ### 8.5 安全与限额（R-AGT-05）
 
-| 项 | 取值 | 实现位置 |
-| --- | --- | --- |
-| CORS 白名单 | 线上域名 + `http://localhost:4321`（dev） | `limits.py`，来自 `PET_ALLOWED_ORIGINS` 环境变量 |
-| 限流 | 20 次/分钟/IP，内存令牌桶 | `limits.py`（首期单机内存即可，不做 Redis） |
-| 消息长度 | ≤ 1000 字 | 网关校验 + 前端 `maxlength` |
-| 输出上限 | `max_tokens` ≤ 800 | LLM 调用参数 |
-| 线程数上限 | 同 IP 同时活跃线程 ≤ 3 | `limits.py` |
-| 日志 | 只记 `threadId`/耗时/状态，不记消息原文 | `main.py` |
-| 密钥 | 只在 `.env`（不入库）；前端零密钥 | `.env.example` 只放占位 |
+> ⚠️ **下表是"网关侧的目标口径"，不是现状**（2026-09-26 澄清）。
+> 网关（`src/gateway/`）**还没实现**，`langgraph dev` 是**裸跑**的：实测它返回 `access-control-allow-origin: *`，
+> 且没有任何鉴权、限流、长度校验、线程数上限。**现状与目标的差距逐条列在 §8.9.7 的未决项里，
+> 对应的上线前必修项是 `PROJECT_STATUS.md` 的 B-14。** 别把下表当成"已经配好了"。
+
+| 项 | 目标取值 | 实现位置（规划） | 现状 |
+| --- | --- | --- | --- |
+| CORS 白名单 | 线上域名 + `http://localhost:4321`（dev） | `limits.py`，来自 `PET_ALLOWED_ORIGINS` 环境变量 | ⛔ **未实现**：`langgraph dev` 实测 `ACAO: *` |
+| 限流 | 20 次/分钟/IP，内存令牌桶 | `limits.py`（首期单机内存即可，不做 Redis） | ⛔ 未实现 |
+| 消息长度 | ≤ 1000 字 | 网关校验 + 前端 `maxlength` | ⛔ 未实现（前端的 `maxlength` 是体验，不是安全） |
+| 输出上限 | `max_tokens` ≤ 800 | LLM 调用参数 | 后端图侧可配（未在契约里锁） |
+| 线程数上限 | 同 IP 同时活跃线程 ≤ 3 | `limits.py` | ⛔ 未实现 |
+| 日志 | 只记 `threadId`/耗时/状态，不记消息原文 | `main.py` | ⛔ 未实现 |
+| 密钥 | 只在 `.env`（不入库）；前端零密钥 | `.env.example` 只放占位 | ✅ 前端确实零密钥；后端 `.env` 已存在且不入库 |
+| 鉴权 | （未定） | — | ⛔ **为零**：拿到 `assistant_id` 即可调用 |
 
 ### 8.6 前端适配层（`src/utils/pet-agent-client.ts`）
 
@@ -887,6 +894,226 @@ uvicorn src.gateway.main:app --host 127.0.0.1 --port 8000
 | `src/config/rankConfig.ts` | `agent/data/rank.json` | 5 份榜单（日漫/国漫各 2 组维度 + 二游单一榜；标题、原名、短评、名次） |
 
 **单向依赖**：Agent 只读导出产物，不读前端源码；前端不 import Agent 的任何东西。这样两边可以独立演进。
+
+### 8.9 Agent 接口契约（P5-0 冻结）
+
+> **这一节是"前端唯一依赖的东西"。** 冻结的含义是：**只要这一节不变，`agent_-for_-blog` 那边的图、节点、人设、prompt 怎么改，前端都不用动**；反过来，前端要改这一节的任何一条，都属于契约变更，必须连带改 `src/config/agentConfig.ts` 与 `scripts/verify-agent.mjs`。
+>
+> **本节全部内容都是 2026-09-26 对 `http://127.0.0.1:2024`（`langgraph dev`）的实测结果**，不是设计推演。逐条都能用 `pnpm verify:agent` 复现（输出见 `reports/verify-agent.log`）。
+>
+> ⚠️ 本节**只定义接口，不含任何前端业务实现**。接线（`src/utils/pet-agent-client.ts`）、气泡渲染、桌宠状态联动是 P5-1 起的活。
+
+#### 8.9.1 端点与调用序列
+
+| # | 调用 | 用途 | 实测 |
+| --- | --- | --- | --- |
+| 0 | `GET /ok` | 可用性探测（**降级判定的唯一入口**） | `200 {"ok":true}` |
+| 1 | `POST /assistants/search`，body `{"limit":50}` | 查 `assistant_id`。**`assistant_id` 不是固定值**，每次部署都可能变，绝不能硬编码 | `200`，返回 **5 个 assistant / 4 张图** |
+| 2 | `POST /threads`，body `{}` | 建线程。一个会话一个线程，`thread_id` 由前端持有（`localStorage`） | `200`，取 `thread_id` |
+| 3 | `POST /threads/{thread_id}/runs/stream` | 发消息 / 续跑，SSE 流式返回 | `200`，`text/event-stream` |
+
+**4 张图**（`graph_id` 去重后的值，与 `agent_-for_-blog/langgraph.json` 一致）：
+
+| `graph_id` | 用途 | 备注 |
+| --- | --- | --- |
+| `blog_agent` | **默认入口**。按意图自己路由（闲聊 / 检索 / 排行 / 推荐 / 扩展） | 实测**有两个 assistant 实例**，所以 `search` 返回 5 条 |
+| `recommended_agent` | 专门的推荐链路，**会 `interrupt()` 问字数** | 见 §8.9.5 |
+| `collect_agent` | 收集/登记类 | 首期前端不用 |
+| `extend_agent` | 扩展类（`blog_agent` 闲聊意图会路由到它的节点） | 首期前端不用 |
+
+> ⚠️ **断言口径**：契约测试**必须去重后按"4 张图"断言**（`new Set(list.map(a => a.graph_id))`），**不能按返回条数断言**——返回 5 条里有 2 条是同一个 `blog_agent`。返回条数会随后端部署变化，去重后的图名清单才是契约。
+
+**两条备用端点**（不是主路径，但前端要知道它们存在）：
+
+- `POST /threads/{thread_id}/runs/wait` —— 非流式，一次返回最终 state（`{messages, user_preferences, user_intent}`）。实测闲聊可用，**但拿不到流式增量，且推荐链路拿不到 `interrupt` 的时机**，所以前端主路径用 `runs/stream`。
+- `GET /threads/{thread_id}/state` —— 取线程最终状态。**这是"契约测试的自检工具"**：用来核对"最后一个 `values` 事件 == 线程真实状态"。
+
+**超时与重试**
+
+| 项 | 取值 | 依据 |
+| --- | --- | --- |
+| 可用性探测超时 | 1.5~2 秒 | 本机 `ECONNREFUSED` 是**立刻**返回的；给 2 秒是为了兼容"端口开着但不响应" |
+| 闲聊轮超时 | 60 秒（`agentConfig.timeoutMs`） | 实测 3~8 秒 |
+| 检索 / 推荐轮超时 | 90~180 秒 | 实测 30~120 秒（要跑 RAG + 多轮 LLM），**推荐链路两轮各自计时** |
+| 重试 | **连接层错误重试 1 次**（间隔 ~500ms）；`4xx` **不重试** | `4xx` 是契约不符/参数错，重试只会把错误放大；`5xx` 与网络错误重试 1 次即止 |
+
+**生命周期**：`thread_id` 跟着"一次会话"走，不跟着"一条消息"走。要开新会话就新建线程（旧线程留在服务端，前端只管自己的 `localStorage`）。**前端不做线程回收**——服务端是内存 checkpoint，重启即清空（见 §8.9.7 的风险）。
+
+#### 8.9.2 请求形状与必须/禁止字段
+
+```jsonc
+// POST /threads/{thread_id}/runs/stream
+{
+  "assistant_id": "446b73ee-9199-57c8-9238-d4ac2d89b200",  // 必须：来自 /assistants/search
+  "input": { "messages": [{ "type": "human", "content": "在吗" }] },  // 首轮必须
+  "stream_mode": ["messages", "values", "updates"]          // 必须：三个都要（少一个就取不到最终状态或 interrupt）
+  // 续跑轮用 "command" 替代 "input"：{ "command": { "resume": "不提供" } }
+}
+```
+
+| 字段 | 规矩 | 为什么 |
+| --- | --- | --- |
+| `assistant_id` | **必须**，且**每次会话都要现查** | 不是固定值 |
+| `input.messages[].type` | **必须** `"human"` | 实测传别的形态会被当普通内容处理 |
+| `stream_mode` | **必须**同时含 `messages`、`values`、`updates` | `values` 是最终状态的唯一载体；`updates` 是 `interrupt` 的第二来源 |
+| `config.configurable` 与 `context` | ⛔ **绝对不能同时传** | 实测 **HTTP 400**：`Cannot specify both configurable and context. Prefer setting context alone.`（LangGraph 0.6.0 起 `context` 是 `configurable` 的长期替代）。**二选一，首期推荐都不传**（本机没配鉴权，传了也没用） |
+| `input` 与 `command` | ⛔ **不能同时传** | 首轮用 `input`、续跑轮用 `command`，语义互斥 |
+
+#### 8.9.3 SSE 事件契约
+
+**事件名白名单**（出现白名单外的名字 = 上游改了协议，要显形）：
+
+| 事件名 | 事件体 | 含义 |
+| --- | --- | --- |
+| `metadata` | `{"run_id":…,"attempt":1}` | run 起手帧。**只有走 `extend_graph` 这类子图路径时才出现** |
+| `values` | 线程**完整状态快照** | **最后一个 `values` 就是最终状态**——前端只认它 |
+| `updates` | 本步各节点的增量 | `interrupt` 的第二来源；前端**不用**它渲染 |
+| `messages/metadata` | `{"lc_run--…":{metadata:{…}}}` | 某条消息的元信息（模型名、节点名等）。**纯内部信息** |
+| `messages/partial` | `[部分消息]` | 流式增量（token 级）。`content` 常为空、`tool_calls` 会半成品 |
+| `messages/complete` | `[完整消息]` | 某条消息完成 |
+| `error` / `end` | — | 异常/结束（本机实测未出现，保留在白名单里） |
+
+**顺序保证（只锁这三条，别锁死顺序）**
+
+1. 事件流**非空**，且事件名**都在白名单内**。
+2. **最后一个事件必须是 `values`**。
+3. `metadata` **若出现**，必须在**任何 `messages/*` 事件之前**（它是 run 起手帧）。
+
+> **为什么不能锁死事件名序列**（后来人看到"测试只查白名单"容易以为是偷懒，所以写清楚）：
+> **同一句「在吗」，走哪条节点是不确定的，事件集就跟着变。**实测两种都出现过——
+> · 直接答复路径：**整个流只有 1 个 `values` 事件**（没有 `metadata`、没有 `messages/complete`，消息数 2：`human,ai`）；
+> · 经 `extend_graph` 路径：`metadata → values → updates → values → messages/metadata → messages/partial ×N → messages/complete → updates → values`（消息数 10：`human,human,ai,tool,ai,ai,tool,ai,tool,ai`）。
+> 两者**都符合契约**。所以契约只能锁"事件名集合 + `values` 收尾 + 与 `GET /threads/{id}/state` 一致"，
+> **锁顺序就会变成一个随机失败的假红灯**。第三层保险是：契约测试会拿**最后一个 `values` 的消息数与 `GET /threads/{id}/state` 对比**，确保"前端拿到的最终状态"确实等于线程真实状态。
+
+**「最终答复」怎么取（唯一正确做法）**
+
+```js
+// 从最后一个 values 事件的状态里，取【最后一条 content 非空的 ai 消息】
+const state = lastValuesEvent;                      // 最后一个 values 的 data
+const ai = (state.messages ?? [])
+  .filter(m => m.type === "ai" && typeof m.content === "string" && m.content.trim())
+  .pop();
+const reply = ai?.content ?? "";                    // ← 只有它进气泡
+```
+
+> ⛔ **明确禁止：把工具消息 / 中间步骤渲染给用户。**
+> 实测检索意图（如「帮我找几篇讲 C++ 的文章」）的消息流是
+> `human,human,ai,tool,ai,ai,tool,ai,tool,ai`，其中包含**数据库内部输出**：
+> `可用的表:blog, blog_content`（纯 `ai` 消息，`content` 就是这行字）与
+> `CREATE TABLE blog ( id BIGINT UNSIGNED NOT NULL COMMENT '文章ID' … )`（`tool` 消息）。
+> **这两条是 schema DDL，不是爱弥斯的话。** P5-0 的契约测试专门锁了这一条：
+> 同一条流里工具输出确实进了消息流，而按上面的取法拿到的答复**命中禁词 0 个**（`reports/verify-agent.log`「检索轮 · 只渲染最后一条」）。
+> 禁词表（`scripts/verify-agent.mjs` 的 `leakMarkers`）：`可用的表`、`CREATE TABLE`、`word_count_min`、`user_preferences`、`user_intent`。
+> 同理**不要**渲染 `messages/metadata`（含模型名、节点名、线程 id）、`messages/partial`（半成品 tool_calls）。
+
+#### 8.9.4 人设与代码改动必须重启进程
+
+`agent_-for_-blog` 的**人设文件与图代码是在 `langgraph dev` 启动时加载**的：改了 `persona`、prompt、节点代码、`langgraph.json` 的图注册，**必须重启进程**才生效（热重载不可依赖）。前端侧的对应规矩：**不要在请求参数里试图覆盖人设**（没有这个能力），人设问题一律回后端改 + 重启。
+
+#### 8.9.5 `interrupt` 与人机交互约定
+
+**这是整条契约里最容易写错的一环**：`interrupt` **不是事件名**，前端不能去 `event: interrupt` 上等它。
+
+**怎么判"需要续跑"**（三层信号，按代价从低到高；至少命中一层）：
+
+| 层 | 信号 | 实测 |
+| --- | --- | --- |
+| ① | `values` 事件的状态对象里有 `__interrupt__` 数组 | 命中。`[{"value":"…","id":"1ecfed…"}]` |
+| ② | `updates` 事件的事件体里有 `{"__interrupt__":[…]}` | 命中（**但同一轮不一定发 `updates`**，见 §8.9.3，所以不能只靠它） |
+| ③ | `GET /threads/{id}/state` 的 `interrupts[]`（或 `next:["collect_user_info"]`、`tasks[].interrupts[]`） | 命中，**最可靠**，适合做兜底与排障 |
+
+**判定规则**：一轮 `runs/stream` 结束后，若拿到任何 `__interrupt__` 的值 →
+**本轮没有最终答复，必须续跑**；此时 `values.messages` 里**不会**有新的人类可读答复（实测 `messages` 只有用户那句）。
+
+**resume 载荷**：
+
+```jsonc
+{ "assistant_id": "…", "command": { "resume": "不提供" }, "stream_mode": ["messages","values","updates"] }
+```
+
+- **用 `command` 而不是 `input`**（两者互斥）。
+- `resume` 的值是一个**字符串**，直接就是用户那句话本身；约定词**必须原样匹配**（见下）。
+
+**约定词**（`agentConfig.resumeWords`；后端 `collect_user_info` 节点的 prompt 与这三个词是对好的暗号）：
+
+| 约定词 | 什么时候用 |
+| --- | --- |
+| `不提供`（**默认**） | 用户没明说字数/时长 → 让后端按站内常用范围自己挑 |
+| `需要` | 用户明确给了字数或时长要求 |
+| `不需要` | 用户明确表示不要后端代挑 |
+
+> ⚠️ 改这三个词**必须同时改后端 prompt 与本节**。暗号不匹配**不会报错**，后端会把它当普通回答处理（推荐结果跑偏，最难查的一类问题）。
+> 实测的询问原文（`recommended_agent` 第一轮）：`行，我去翻。不过你还没说清：篇幅（大概多少字、能看多久）。\n不想说也行，回我「不提供」——我按站里的常用范围替你挑，挑完你再嫌。`
+> 实测续跑：`resume:"不提供"` → `HTTP 200` → 拿到 463~495 字的最终推荐答复，**且不再出现第二次 `interrupt`**（契约要求一轮收口）。
+> **前端展示询问原文**：`__interrupt__[0].value` 就是**可以直接放进气泡的用户可读文本**（人设已经写好了），不要自己另编一句。
+
+#### 8.9.6 降级规则（R-AGT-03：**没有后端也不许报错**）
+
+**触发条件**（命中任意一条即视为"Agent 不可用"）：
+
+| # | 条件 | 判定方式 |
+| --- | --- | --- |
+| 1 | `agentConfig.enable === false` | 读配置，**一个请求都不发** |
+| 2 | 连不上 | `GET /ok` 抛 `ECONNREFUSED` 等网络错误 |
+| 3 | 超时 | 超过 `timeoutMs` 未拿到首字节 |
+| 4 | 契约不符 | 事件名在白名单外 / 末事件不是 `values` / 取不到非空 `ai` 消息 |
+| 5 | 返回空 | `200` 但最终答复是空串或全空白 |
+| 6 | 服务端错误 | `5xx`（含重试后仍失败） |
+
+**降级行为（硬要求）**：
+
+1. **走 mock**：从 `petConfig.mockReplies` 取一句（或按"降级 + 用户输入"轻量挑选），**不抛异常、不弹技术报错、气泡不显示"错误"字样**。
+2. **必须符合爱弥斯人设**，口径取自 `agent/persona-aemeath-v5.txt` 的红线段落（第七节「红线：拒绝要短，然后马上换路」）——**短、平、然后给出口**：
+   - 模板：`不行。` + 换行 + `……<原因，一句话>。` + `<换点别的/换个说法>`。
+   - 原句示范：`不行。\n……里面的东西不归我管。换点别的吧，文章我挺在行的。`
+   - 同类可用：「我这边断了」这种**直说**的说法是官方口径（人设第十节明确写着：**宁可说"我这边断了"，也不要说"星轨紊乱了"**）。
+3. ⛔ **不得暴露任何内部信息**：不许出现 `langgraph` / `LangGraph` / `assistant_id` / `thread_id` / `run_id` / `127.0.0.1` / `2024` / `8000` / `ECONNREFUSED` / `HTTP 4xx|5xx` / `timeout` / 端口号 / 栈信息 / 模型名（`deepseek-chat` / `deepseek-flash`）/ 节点名 / 表名。**"Agent 未连接"这类运维字样也不给访客看**（那是给日志的，不是给气泡的）。
+4. **仍然可用**：降级后输入框照常能用、能连续降级、能重试（下次请求会重新探活）。
+
+> 这条规则的**可执行形态**已经在测试里：`scripts/verify-agent.mjs` 用一个最小探测函数（`probeAvailability`）对
+> **死端口 `http://127.0.0.1:2099`** 断言"被识别为不可用"，并**对照**断言同一个函数对活服务返回可用
+> （防止写成一个恒 `false` 的假探测）。实测：死端口 → `TypeError: fetch failed (ECONNREFUSED)`；活服务 → `ok`。
+
+#### 8.9.7 未决项与风险
+
+| # | 未决项 | 现状（实测） | 上线前必须做什么 |
+| --- | --- | --- | --- |
+| 1 | **CORS 是 `*`，不是白名单** | `langgraph dev` 的预检与实际响应都返回 `access-control-allow-origin: *`（**任何网站都能在访客浏览器里直连这个服务**）。⚠️ 这与 §8.5 写的「仅同源 + 白名单跨域」**不符——那段是网关侧的规划口径，不是现在的现状**（网关还没实现）。 | 生产必须收紧到本站域名白名单。见 `PROJECT_STATUS.md` **B-14** |
+| 2 | **直连 2024 还是走网关** | 契约按**直连 `langgraph dev`（127.0.0.1:2024）**冻结，与 `prd.md` R-AGT-02 写的"对外只暴露一个网关 `POST /api/pet/chat`"**是两条路线**。直连的好处是不用先做网关就能联调；坏处是鉴权/限流/密钥边界没有落点 | 二选一：① 上线前补网关，契约里的端点序列挪到网关后面（前端只需改 `baseUrl`）；② 明确放弃网关，把 `baseUrl` 指向反代后的同源路径 |
+| 3 | **鉴权为零** | 本机无任何鉴权，`assistant_id` 拿到即可调用 | 上线前定：网关侧令牌 / 同源 + Nginx 限流（`ARCH.md` §12.2） |
+| 4 | **域名与反代路径未定** | `baseUrl` 现在硬编码 `http://127.0.0.1:2024` | 域名到位后（**B-01**）改 `agentConfig.baseUrl`，同步 §12.2 的 `/api/` 反代与 SSE 关闭缓冲 |
+| 5 | **线程是内存 checkpoint，重启即清空** | `langgraph dev` 用内存 checkpoint；服务一重启，旧 `thread_id` 全部失效 | 决定：前端检测到线程失效就**新建线程并重放最近 N 轮**，还是接受"重启后忘掉上下文"。当前契约只要求"失效即降级/新建"，不要求续接 |
+| 6 | **限流与长度上限没有落点** | §8.5 定的 20 次/分钟/IP、≤1000 字，实测**服务端没有**（那是网关规划） | 上线前在网关或 Nginx 做；前端侧 `maxlength` 是体验不是安全 |
+| 7 | **检索轮的耗时抖动大** | 实测 30~120 秒（同一句话两次运行差一倍以上） | 前端要么给"正在翻"的中间反馈（桌宠 `thinking` 态），要么把超时放宽到 180 秒；不要按"平均 45 秒"设计 |
+| 8 | **本机直连 Fandom / `web_fetch` 不通** | 只有 `127.0.0.1:2024` 正常 | 与前端无关，但**排障时别把网络问题误判成契约问题**：先看 `GET /ok` |
+
+#### 8.9.8 契约的可执行形态（`pnpm verify:agent`）
+
+`scripts/verify-agent.mjs`（零依赖，与 `verify-ui.mjs` 同风格：Node 原生 `fetch`，无第三方库）把本节变成 14 项断言：
+
+| 组 | 断言 |
+| --- | --- |
+| 配置对齐 | `agentConfig.ts` 的 `baseUrl`/`graphId`/`timeoutMs`/`resumeWords`/`knownGraphs` 与脚本内置契约常量一致（**读 `.ts` 原文核对**，脚本不 import 业务代码） |
+| 服务可用性 | `GET /ok → 200 {ok:true}` |
+| `assistants/search` | 去重后 4 张图齐全（**按图名断言，不按返回条数**）＋ 配置的 `graphId` 有对应 assistant |
+| 闲聊轮 | 事件名白名单 / `values` 收尾 / `metadata` 不在消息事件之后 / 与 `GET state` 一致；取到最后一条非空 `ai` 消息；答复不含工具输出 |
+| 检索轮 | **前提项**：检索意图的消息流确实含工具输出；**结论项**：同一条流里工具输出**没进**最终答复 |
+| 推荐轮 | 判出 `interrupt` 并取到询问原文；`resume:「不提供」` 后拿到最终答复、无第二次 `interrupt` |
+| 请求形状 | 同时传 `configurable` + `context` 被 `400` 拒 |
+| 降级路径 | 死端口被判为不可用 ＋ 活服务被判为可用（对照项，防假绿） |
+
+**退出码规矩（与其它 `verify:*` 不同，务必注意）**：
+
+| 情形 | 行为 | 退出码 |
+| --- | --- | --- |
+| Agent 没在跑 | 全套 **SKIP**，打印启动命令 `cd ..\agent_-for_-blog; langgraph dev` | **0**（环境问题不算回归，**不能让 CI 变红**） |
+| 全绿 / 有 SKIP 但无 FAIL | 正常报告 | **0** |
+| **契约不符**（白名单外事件名 / 取不到答复 / leak 命中 / 400 坑失效 …） | 逐条 ❌ | **1** |
+
+产物：`reports/verify-agent.log`（UTF-8 全文）、`reports/verify-agent.json`（结构化结果，含 `mode`/`passed`/`failed`/`skipped`/`exitCode`）。
+
+> **这条规矩是"验过"的，不是写上去的**：2026-09-26 停掉 `langgraph dev` 后跑，输出 `⏭️ [SKIP]` + 启动命令，**退出码 0**；再注入两次契约漂移（① 把一个图名改错，② 把"取最后一条 `ai`"改成"取第一条 `ai`"）→ 都是 **退出码 1**，且第二条精确命中了「检索轮 · 只渲染最后一条」这条断言。
 
 ---
 
@@ -1050,6 +1277,7 @@ dosc/blog/**/*.md（只读）
 | `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **214 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**排行榜全项**：几何比例 / 两档名次色与对比度 / 切换与 URL / Swup 路径回归 / 键盘 / 后退 / 打印与无 JS 兜底、**P4 内容迁移全项**：配图真实加载 / 编号顺序 / 移动端 / 不生成 figure 图注 / URL 形态 / 双链改写 / 无 Obsidian 残留 / 表格与代码块 / 无标题短笔记 / 归档与分类收录），并输出 **29 张**截图到 `reports/screenshots/`。P3 起含桌宠与壁纸全项（九状态触发 / 键盘 / 拖拽 / 菜单 / 联动 / reduced-motion / 与浮动按钮不重叠 / 移动端隐藏 / 取景与暗罩），**P3-R-PET-06 起含三档运动模式全项**：默认档为 `float` 且悬空（底部距视口底 > 120px）/ 强制起飞后坐标真的变化且飞行中带 `data-pet-flying` / 飞行全程不出视口 / 固定档 1.6s 两次采样坐标完全相同且拖放不落地 / 贴地档松手回地面高度 / 三档都不与右下角浮动按钮重叠 / reduced-motion 下 `float` 两帧 `transform` 相同（静态悬浮）/ 位置记忆仍生效且模式以配置为准；**R-PET-07 起含飞行手感与菜单摆位**（位移 60~180px / 时长 4~6s / row4 姿态 / 菜单四边在视口内）；**R-PET-08 起菜单判据全部换成左右摆位**（并排在宠物左/右、纵向顶部对齐、哪边够放哪边、5 点 `elementFromPoint` 命中、被遮挡换边、两侧都被挡的两级兜底、`data-pet-menu-side` 取值与层级不变），并新增**菜单项与下落/上升行为**断言（档位二选一显示「落下去」/「飘起来」、点「落下去」后 y 在 3 秒内落到地面线且 `data-pet-mode=ground`、点「飘起来」后反向回到悬浮档）。⚠️ **数字基准是"对 `pnpm preview` 的静态产物跑"**：对 `pnpm dev` 跑会少 12 条（4 条 noindex 存根 + sitemap 4 条 + llms.txt 2 条 + `/rank/` 存根 + noscript/class 兜底），那时的旧口径 145 就是这么来的，别拿它当基准 | ✅（P1 新增，P2/P3/P4/R-PET-06/R-PET-07/R-PET-08 六次扩容） |
 | `node scripts/import-posts.mjs` | **旧博客迁移**（默认 dry-run）：`--write` 落盘、`--batch 1..5`、`--cat`、`--only`、`--limit`、`--src`；报告写 `reports/import-report.json` | ✅（P4 新增） |
 | `pnpm verify:docs` | **文档一致性自检**（`scripts/verify-docs.mjs`）：核对三份文档互相之间、以及文档与仓库事实是否一致——版本号与"最后更新"日期、断言/截图数与最近一次实测、排行页清单与路由文件、导航子项与 `navBarConfig.ts`、需求编号引用闭环、阻塞项条数与编号连续、§2 与 §3 阶段状态，以及**配置事实**（`displaySettingsConfig.enable`、`rankConfig.dataStatus`、"4 组数据"类说法是否漏了第 5 份）。**每次收工前跑一次**（P2 加二游排行时文档漂移了 12 处，就是没有这道关卡） | ✅（v1.12 新增） |
+| `pnpm verify:agent` | **Agent 接口契约自检**（`scripts/verify-agent.mjs`，零依赖）：把 `ARCH.md` §8.9 的契约变成 **14 项断言**——配置对齐（读 `agentConfig.ts` 原文核对）/ `GET /ok` / `GET /assistants/search` 去重后 4 张图 / 闲聊轮事件白名单+`values` 收尾+与 `GET state` 一致+最终答复 / 检索轮「工具输出进了流但没进答复」/ 推荐轮 `interrupt`→`resume:「不提供」` / `configurable`+`context` 400 坑 / 降级探测（死端口不可用 + 活服务可用对照项）。**退出码规矩与其它 `verify:*` 不同**：Agent 没在跑 = **SKIP + 退出码 0**（打印 `langgraph dev` 启动命令），**契约不符 = 退出码 1**。产物 `reports/verify-agent.log` + `reports/verify-agent.json` | ✅（v1.33 / P5-0 新增） |
 | `pnpm make:logo` | 把 `src/assets/images/logo/imiss-logo.svg`（手写矢量设计源）栅格化成导航栏 Logo（webp）与 favicon 四档 PNG | ✅（P1 新增） |
 | `node scripts/make-rank-cover-guide.mjs` | 生成榜单配图比例对照图 `docs/imiss/rank-cover-guide.png`（16:9 原图裁成 5.7:1 后哪一条留下；发起人准备素材时看这张） | ✅（v1.13 新增） |
 
@@ -1212,7 +1440,7 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | D9 | 评论区先关闭但页面保留 | 直接删留言页 | 页面结构与导航一次到位，评论系统到位后只改一个配置 |
 | D10 | 留言/评论与 Agent 解耦 | 用 Agent 当留言后端 | 两者目标不同（留言是异步公开记录，Agent 是实时对话）；耦合会让简单需求变复杂 |
 
-### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 46 条：T1~T19 来自 P0/P1，T20~T26 来自 P2，T27~T29 来自 P3，T30~T33 来自 P3-9/P3-11，T34~T38 来自 P4，T39~T40 来自 R-PET-06，T41~T42 来自 R-PET-07，T43 来自 R-PET-08，T44 来自 R-PET-09，T45~T46 来自 R-PET-10）
+### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 48 条：T1~T19 来自 P0/P1，T20~T26 来自 P2，T27~T29 来自 P3，T30~T33 来自 P3-9/P3-11，T34~T38 来自 P4，T39~T40 来自 R-PET-06，T41~T42 来自 R-PET-07，T43 来自 R-PET-08，T44 来自 R-PET-09，T45~T46 来自 R-PET-10，**T47~T48 来自 P5-0 契约冻结**）
 
 实现时按这张表走，不要凭"应该没问题"假设。每条都给了文件与行号，可当场复核。
 
@@ -1267,6 +1495,8 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | T44 | **挂在元素上的 `keydown` 监听，用 CDP 的 `Input.dispatchKeyEvent` 打过去时不会触发** —— 事件是发给**当前焦点元素**的：宠物没聚焦时按键全落到 `document` 上，`#pet-body` 上的监听器收不到。R-PET-09 的探针第一版就踩了：按 `←` 之后宠物确实移动了 8px，看着像"通过"，其实是**后台的自动飞行**在动，按键根本没生效（差一点把假绿写进断言） | 键盘相关断言会静默变成"空跑"：状态恰好被别的行为改掉就假绿，否则假红，两种情况都看不出原因 | 键盘断言**先 `document.getElementById("pet-body").focus()`** 再 `dispatchKeyEvent`（本仓库 `verify:ui` 的 R-PET-02 键盘块一直是这么写的，探针要照抄）；并且断言要挑**只有这条路径能产生**的证据（R-PET-09 用"按 ← 后 420ms 内 x 位移 ≥ 20px"，位移量级对得上 93px/s 的悬浮滑行，而不是"动了就算过"） |
 | T45 | **`querySelector('[data-pet-act=...]').click()` 这种"按属性点元素"的断言，测不到"用户到底点到了什么"** —— 它绕过布局与命中测试：元素**不可见**（`display:none`）、**被别的层盖住**、或者"点到的其实是另一个按钮"，它全都照点不误并且全绿。R-PET-10 这一轮就是活例子：⑧b/⑧c 两条"落下去"的断言一直全绿，而真机上「落下去」有一整类现场根本不落地 —— 断言只跑了"悬浮档 + 没开聊天 + 没有减少动态偏好"这一种现场，而两条失效路径（`chatOpen` 挡在重力分支前面、`reduced-motion` 下压根没有 rAF 循环）**都在这三种现场之外**。另一个同源的坑：`menu.hidden = true` + `dispatchEvent(new MouseEvent("contextmenu"))` 合成右键，跳过了浏览器真实命中测试 | 断言全绿 + 真机不可用（发起人原话："点击落下去之后没有真的落下去啊"）；而且失效现场越"边缘"（开着聊天、系统开了减少动态）越测不到，恰好这些是真实用户会待的状态 | 菜单/弹出层的断言一律走 **`Input.dispatchMouseEvent` 的真实鼠标事件**（右键 `mousePressed`/`mouseReleased` button=right 走原生 `contextmenu`），坐标取**"当前可见那一项"的矩形中心**，并顺带核对 `getComputedStyle(项).display`、另一项是 `none`、以及该坐标上 `document.elementFromPoint` 命中的就是它自己；**同一个行为要把"能让它失效的现场"列出来各跑一遍**（这里是：聊天框开着 / `prefers-reduced-motion`），别只测出厂状态 |
 | T46 | **"把状态立起来"和"把状态跑完"分居两个函数时，任何提前 `return` 都会造成"状态对了、行为没发生"** —— `startFall()` 只写 `airborne = true` / `vy = 60`，真正的重力积分在 `step()` 里，而 `step()` 只在 rAF 循环里跑。于是：① `step()` 开头那句 `if (pet.dragging \|\| chatOpen) return;` 让"聊天框开着点落下去"卡在半空（实测 y 连续 1.5s 不动、离地 370px）；② `start()` 的 `if (raf \|\| reduce \|\| document.hidden) return;` 让**减少动态**这一档根本没有循环，`airborne` 立起来也永远没人积分。两次都是"`data-pet-mode` 已变 `ground`、菜单已换成「飘起来」、DOM 一切正常，就是宠物没动" | 用户看到的是"点了没反应/按钮是坏的"，而所有状态属性、菜单文字、档位**全都对**；断言若只看属性就必然假绿 | 立状态与跑状态**必须在同一个可判定条件下闭环**：要么保证执行体一定会被调到（把 `chatOpen` 闸门挪到重力分支**之后**，只留拖动——拖动期间 y 由指针直接写），要么在"执行体永远跑不到"的那一档**直接给终态**（`reduce` 下 `startFall()` 直接落到 `floorY`，语义与"直接定位"一致，不做位移动画）。断言口径：**位置随时间采样**（下落要有 ≥3 个递增采样点、落定要贴地、落地后还要继续采 5.4 秒确认没被拉走），不看属性变没变 |
+| T47 | **`langgraph dev` 的 SSE 事件集随"路由走哪个节点"变化，契约不能锁事件名顺序** —— 同一句「在吗」实测两种形态：**直接答复路径整个流只有 1 个 `values` 事件**（无 `metadata`、无 `messages/complete`，消息 `human,ai`）；走 `extend_graph` 路径才有 `metadata → values → updates → values → messages/metadata → messages/partial ×N → messages/complete → updates → values`（消息 `human,human,ai,tool,ai,ai,tool,ai,tool,ai`）。**两者都合法** | 契约测试若断言"首个事件必须是 `metadata`、必须含 `messages/complete`"，就会变成一个**随机失败的假红灯**（跑十次红几次），最后被人加 `skip` 绕过——比不测更糟 | 契约只锁**可判定且稳定**的三条：**事件名白名单**（越界说明上游改了协议）+ **末事件必须是 `values`**（前端就靠它拿最终状态）+ **`metadata` 若出现必须在任何 `messages/*` 之前**。再加一层保险：拿**最后一个 `values` 的消息数与 `GET /threads/{id}/state` 对比**，确保"前端拿到的最终状态 == 线程真实状态"。**P5-0 实测依据见 §8.9.3** | ✅ 已按此实现（`scripts/verify-agent.mjs`「闲聊轮 · 事件序列」） |
+| T48 | **`POST /assistants/search` 同一个 `graph_id` 可能有多个 assistant，断言必须去重** —— 实测返回 **5 条**，其中 `blog_agent` 有**两个实例**（不同 `assistant_id`），去重后才是 **4 张图**（`blog_agent` / `recommended_agent` / `collect_agent` / `extend_agent`） | 按返回条数断言（`expect(list).toHaveLength(4)`）会**因为后端多注册一个实例就变红**，而契约（"有这 4 张图可用"）其实没破；反过来也可能因为"少一张图但多了别的"而假绿 | 断言口径写成**去重后的图名集合**（`new Set(list.map(a => a.graph_id))` 必须包含契约清单里的每一张），并把**真实条数**只作为 detail 打印出来。同时**永远不要硬编码 `assistant_id`**——它是部署时生成的，每次都可能变 |
 
 ### 14.4 被移除的上游功能怎么找回来
 
