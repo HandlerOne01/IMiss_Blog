@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.38 |
+| 文档版本 | v1.39 |
 | 最后更新 | 2026-09-27 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -1393,7 +1393,7 @@ dosc/blog/**/*.md（只读）
 
 | 源目录 | category | 站内目录 | 备注 |
 | --- | --- | --- | --- |
-| AI应用 | AI 应用 | `ai` | 2 篇缺图（125 张 `page-*.png`），`draft: true` 隔离 |
+| AI应用 | AI 应用 | `ai` | **2 篇为原创重写版**（源导出里 125 张 `page-*.png` 整批缺失，发起人 2026-09-24 要求"重写这两篇" → 提交 `7219018`/`8264d0d`，站内 133 篇 0 draft）。⚠️ 源目录那两份**仍是缺图原版**，所以 `import-posts.mjs` 的 `SKIP_SOURCES` 必须保留（T74） |
 | C++11 | C++11 | `cpp11` | |
 | C与C++ | C/C++ | `cpp` | |
 | Linux系统 | Linux 系统 | `linux` | 与 `图片/linux`+`图片/linux系统` 两个池合并 |
@@ -1659,7 +1659,7 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | D10 | 留言/评论与 Agent 解耦 | 用 Agent 当留言后端 | 两者目标不同（留言是异步公开记录，Agent 是实时对话）；耦合会让简单需求变复杂 |
 | D11 | **人设「不许自称 AI，必须明确自己是爱弥斯」**（人设 v7，2026-09-27 发起人决定） | 保留 v6 的「被问是不是 AI 就诚实承认」 | **这是产品决定，由发起人拍板，不是技术偏好**：气泡里出现"我是 AI / 我是程序"会直接毁掉角色。**唯一保留、优先级更高的底线是不许越界到另一个方向**：不得宣称自己是真人、不得宣称自己是官方爱弥斯本人——否则就从"演得像"变成"给访客一个能截图打脸的硬伤"。落地只在后端人设文件（`agent/persona-aemeath-v7.txt` → `src/agent/common/persona.txt`），**契约与前端都不动**；验证是"真机问出来的字"（R-AGT 段身份类禁自称），不是"人设文件里写了什么" |
 
-### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 73 条，编号连续 T1~T73：T1~T19 来自 P0/P1，T20~T26 来自 P2，T27~T29 来自 P3，T30~T33 来自 P3-9/P3-11，T34~T38 来自 P4，T39~T40 来自 R-PET-06，T41~T42 来自 R-PET-07，T43 来自 R-PET-08，T44 来自 R-PET-09，T45~T46 来自 R-PET-10，T47~T48 来自 P5-0 契约冻结，T49~T58 来自 P5-1~P5-3 接线，**T53/T54 于 v1.35 补登记**（这两条在 P5-1 就被引用过、但一直没进表），**T59~T63 来自 P5 独立复核修复**，**T64~T67 来自 R-PET-11 聊天框重做**，**T68~T70 来自 v1.37 人设 v7 与"重复上屏"修复**，**T71~T73 来自 v1.38 父级独立复跑**）
+### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 74 条，编号连续 T1~T74：T1~T19 来自 P0/P1，T20~T26 来自 P2，T27~T29 来自 P3，T30~T33 来自 P3-9/P3-11，T34~T38 来自 P4，T39~T40 来自 R-PET-06，T41~T42 来自 R-PET-07，T43 来自 R-PET-08，T44 来自 R-PET-09，T45~T46 来自 R-PET-10，T47~T48 来自 P5-0 契约冻结，T49~T58 来自 P5-1~P5-3 接线，**T53/T54 于 v1.35 补登记**（这两条在 P5-1 就被引用过、但一直没进表），**T59~T63 来自 P5 独立复核修复**，**T64~T67 来自 R-PET-11 聊天框重做**，**T68~T70 来自 v1.37 人设 v7 与"重复上屏"修复**，**T71~T73 来自 v1.38 父级独立复跑**，**T74 来自 v1.39 文档纠偏**）
 
 实现时按这张表走，不要凭"应该没问题"假设。每条都给了文件与行号，可当场复核。
 
@@ -1742,6 +1742,8 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | T71 | **"服务保持运行"是子 agent 活着期间的状态，不跨进程继承** —— v1.38 父级独立复跑时，子 agent 的报告写着"2024 的 `langgraph dev` 保持运行（PID 44128）"；它一退出，**2024 与 4323 双双零监听**（`netstat` 无输出、`Get-Process python` 空）。原因是服务是那个 agent 的后台子进程，agent 一收工就被回收 | 父级若直接采信"服务还在跑"，第一步复跑就会拿到一堆假红（`verify:agent` 全线 SKIP、`verify:ui` 的真机往返全降级）—— 然后很容易误判成"子 agent 改坏了"。反过来，**交接说明里写"XX 保持运行"本身没有错**，错在把它当成可继承的交付状态 | 复跑前**自己把服务拉起来**并确认端口真的在听：`cd ..\agent_-for_-blog; .venv\Scripts\langgraph.exe dev --port 2024 --no-browser`、`pnpm preview --port 4323`，然后 `GET /ok` + `GET http://localhost:4323/` 各探一次再开跑。**报告里"保持运行"这类状态一律注明"截至何时"**，跨 agent 不继承 |
 | T72 | **受限沙箱会把这条工具链弄坏，而症状一点都不像权限问题** —— 同一台机器上：`langgraph dev` 起不来（Python `multiprocessing` 建命名管道被拒，满屏 `PermissionError: [WinError 5] 拒绝访问` / `_winapi.CreateNamedPipe`）；`astro preview` 与 `astro sync` **连配置都加载不了**（`Unable to load your Astro config` + `require is not defined`，栈顶定位到 `node_modules/.pnpm/picomatch@4.0.7/…/index.js:6` —— 一个"Vite 把 CJS 当 ESM 求值"的假象）；`tasklist` 与 `Get-NetTCPConnection` 直接 `ERROR: Access denied`；`netstat` 与 `node -e` 读文件却完全正常（所以"文件读得到"不能证明没被限制）。**放宽权限后同一条命令 `astro preview` 19ms 就 ready** | 极易把环境限制误读成**代码回归**（"配置加载失败 = 有人改坏了 astro.config"），然后去改一堆本来没坏的代码；也极易把**跑不动的验证**当成"已验证"。本轮为此白跑了三轮（一次 preview 起不来、一次打错端口、一次 `verify:ui` 中途超时） | ① **绿色结论必须在同一环境下复跑**，换环境复跑出来的红不是回归；② 遇到"整条工具链集体失灵 + 症状不像权限"时，先跑一条**已知能成的旁证命令**（`node -e` 读文件 / `netstat`）区分"环境受限"与"代码坏了"；③ `langgraph dev` 与 `astro preview` 这类要起服务、开子进程的验证，**必须在能起服务的权限下做**，否则宁可不跑，也别把 SKIP 记成通过 |
 | T73 | **`verify:ui` 默认打 4321 —— 那是别人的 dev server** —— `scripts/verify-ui.mjs` 的 `--base` 默认值是 `http://localhost:4321`；本机 4321 长期被**另一个 `astro dev`**（用户自己的，IPv6-only）占着。不传 `--base` 复跑时，脚本会静默地去打那个站：本轮实测直接 `验收脚本出错：TypeError: fetch failed … UND_ERR_HEADERS_TIMEOUT`（若那个站恰好能应答，则会跑出一份**看着像交付产物、实际是 dev 服务器**的日志） | 两类坏结果：① 报一个与本次改动无关的超时；② 更坏 —— **对着错误的站点跑完全绿**，日志数字被当成交付证据（`verify-ui-log.mjs` 的 `--base` 透传 bug 就是这一类的先例，见 T58 段注释） | **复跑一律显式给 `--base`**：验证交付产物用 `pnpm verify:ui:log --base http://localhost:4323`（顺带拿到 UTF-8 的 `reports/verify-ui.log` 供 `reports/sync-doc-counts.mjs` 读）；跑完看日志头第一行的"目标站点"是不是你要打的那个端口。**永远不要用默认值跑验收**（`pnpm verify:ui:log` 在不给 `--base` 时会补一个 4322 并打进日志头，就是为这件事） |
+
+| T74 | **"跳过名单"被人当成待办清单 → 清掉它就会用旧内容覆盖新内容** —— `scripts/import-posts.mjs` 的 `SKIP_SOURCES` 里那两条（`AI应用/LangChain 能力详解.md`、`AI应用/LangGraph 能力详解 · 学习笔记.md`）从 2026-09-24 起被写成"暂不导入（缺图），**之后主动提醒**"，所以它读起来像一张**待办**。但真相是反的：那两篇后来**被重写成原创笔记并直接落在站点里**（提交 `7219018` → `8264d0d`），而**源目录那两份仍是缺图原版**（359KB / 398KB，引用 125 / 80 张不存在的 `page-*.png`）—— 也就是说**跳过名单在这一刻已经变成"保护措施"**：谁"顺手把待办清掉"再跑 `--write`，谁就会用缺图原版**覆盖掉站内的重写版**（而且 `verify:posts` 不会报错——缺图会被导入器转成 `> [!WARNING]` 占位，看起来"只是少了图"） | **静默地毁掉已经验收过的内容**：覆盖后文章还在、构建也绿、`verify:posts` 0 错误，只有正文和图一起变回原样（125 处缺图占位）。比"导入漏了"难查得多——因为它不留报错，只留下"怎么变回去了"的困惑 | ① 跳过名单的**每一条都要写清"为什么现在还必须跳过"**，而不是"以后要做什么"：这两条的理由已改成 `【已由重写版替代 · 勿导入】…导入会覆盖它`；② 源码注释里写明**"不许删"**并指向本条陷阱；③ 更一般的规矩：**任何"白名单/黑名单"都要区分"临时待办"与"长期护栏"** —— 待办会被人清理，护栏必须自己说明身份。回归方式：`node scripts/import-posts.mjs`（dry-run）后看 `reports/import-report.json` 的 `ignored[]` 里那两条是否仍在、理由是否正确 |
 
 ### 14.4 被移除的上游功能怎么找回来
 
