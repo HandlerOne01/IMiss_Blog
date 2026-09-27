@@ -424,7 +424,18 @@ export function normalizeNewlines(s: string): string {
 
 interface WireMessage {
 	type?: unknown;
+	/** LangGraph 给每条消息一个 `id`；v1.37 起用它区分"同一条消息的流式增量"与"换了一条新消息" */
+	id?: unknown;
 	content?: unknown;
+}
+
+/**
+ * 过滤成"像消息"的元素。**必须只有这一个入口**：`lastHumanIndex()` 与 `lastAiMessage()`
+ * 的下标要能互相对齐，各自 `filter` 一遍就成了两套下标。
+ */
+function wireMessages(messages: unknown): WireMessage[] {
+	if (!Array.isArray(messages)) return [];
+	return messages.filter((m): m is WireMessage => Boolean(m) && typeof m === "object");
 }
 
 /**
@@ -432,21 +443,41 @@ interface WireMessage {
  * ⚠️ **再补一道禁词闸门**（复核 D-6）：实测工具输出（`可用的表:blog, blog_content`）本身
  * 就是一条 `ai` 消息，只是"今天恰好不是最后一条"。取法全押在"后端消息顺序"上太薄 ——
  * 异常路径（工具输出落到最后）就会把 DB 内部信息端给访客。命中禁词 → 当"取不到答复"。
+ *
+ * ⚠️ **v1.37 追加 `afterIndex`：只看"这一轮提问之后"的消息**（发起人 2026-09-27 图证的根因）
+ * ─────────────────────────────────────────────────────────────────────────────
+ * LangGraph 的 `values` 发的是**整份 state**，所以多步图（先路由、再出话）的**首个 `values`
+ * 快照里就带着上一轮的答复**。旧实现把它当成本轮答复先收下（`sentText` 被写成上一轮的长度），
+ * 于是本轮的真答复只要**更短**，就会被下面"变长才推"的判据静默丢掉 →
+ * 用户看到的是"连着问两句，气泡一直是第一句的答复"。
+ * 锚点取"最后一条 human 消息的下标"：本轮自己的提问一定排在最后，历史里的答复**根本取不到**；
+ * 而"提问与答复在同一个快照里"那种单 `values` 路径（`extend_graph` 之外的直接答复）
+ * 照样取得到 —— 两种真实形态都覆盖。
  */
-function lastAiMessage(messages: unknown): { text: string; blocked: string | null } {
-	if (!Array.isArray(messages)) return { text: "", blocked: null };
-	const list = messages.filter(
-		(m): m is WireMessage => Boolean(m) && typeof m === "object",
-	);
-	for (let i = list.length - 1; i >= 0; i--) {
+function lastAiMessage(
+	messages: unknown,
+	afterIndex = -1,
+): { text: string; blocked: string | null; id: string | null } {
+	const list = wireMessages(messages);
+	const from = afterIndex < 0 ? 0 : Math.min(afterIndex + 1, list.length);
+	for (let i = list.length - 1; i >= from; i--) {
 		const m = list[i];
-		if (m.type !== "ai" || typeof m.content !== "string" || !m.content.trim())
-			continue;
+		if (m.type !== "ai" || typeof m.content !== "string" || !m.content.trim()) continue;
 		const hit = leakMarkerIn(m.content);
-		if (hit) return { text: "", blocked: hit };
-		return { text: m.content, blocked: null };
+		if (hit) return { text: "", blocked: hit, id: null };
+		return { text: m.content, blocked: null, id: typeof m.id === "string" ? m.id : null };
 	}
-	return { text: "", blocked: null };
+	return { text: "", blocked: null, id: null };
+}
+
+/** 最后一条 human（或 user）消息的下标；没有就 -1 —— 给 `lastAiMessage` 当锚点用 */
+function lastHumanIndex(messages: unknown): number {
+	const list = wireMessages(messages);
+	for (let i = list.length - 1; i >= 0; i--) {
+		const t = list[i].type;
+		if (t === "human" || t === "user") return i;
+	}
+	return -1;
 }
 
 /** `__interrupt__` 的 value 可能是字符串，也可能是 `{value: …}` 形态，两种都认 */
@@ -520,7 +551,10 @@ async function runRound(
 	// （`opts.lastReply`，而组件把**用户那句话**塞了进去）→ 用户回一句长话、后端只回 4 个字时，
 	// `text.length >= lastSent.text.length` 不成立 → 真答复被判成"空答复"→ 假降级。
 	// 现在初值是空串：本轮第一个非空答复一定上屏，之后的流式增量只有变长才再推。
+	// ⚠️ **v1.37 再补一条**：`sentText` 必须只统计**本轮**的答复（配合下面的锚点），
+	//    并且"换了一条消息"时**无条件接受**（哪怕更短）—— 见 `lastAiMessage` 的注释。
 	let sentText = "";
+	let sentId: string | null = null;
 	const absorb = (e: SSEEvent): void => {
 		// 已经判出契约不符/上游 error 了：这一轮作废，同一个 chunk 里后面的事件一律不再看
 		if (round.error) return;
@@ -541,13 +575,26 @@ async function runRound(
 				const ask = interruptValue(state.__interrupt__);
 				if (ask && !round.interrupt)
 					round.interrupt = { ask, reply: replyForAsk(ask), via: "values" };
-				const { text, blocked } = lastAiMessage(state.messages);
+				// ⚠️ 锚点 = 最后一条 human 消息（本轮自己的提问）：多步图首快照里带的
+				//    **上一轮答复**因此取不到（v1.37 修"气泡停在旧文本"）
+				const { text, blocked, id } = lastAiMessage(
+					state.messages,
+					lastHumanIndex(state.messages),
+				);
 				// 命中禁词 = 取到的"答复"是 DB 内部输出 → 记下原因，**一个字都不上屏**（D-6）
 				if (blocked) round.blockedAnswer = blocked;
-				else if (text && text.length >= sentText.length) {
-					sentText = text;
-					round.answer = text;
-					ev.onReply?.(text);
+				else if (text) {
+					// 判据（v1.37）：
+					//   · **换了一条消息**（两边 id 都有且不同）→ 无条件接受，哪怕它更短
+					//     （"新答复更短就被静默丢掉、气泡停在旧文本"就是这条修掉的）；
+					//   · 同一条消息 / id 拿不到 → 退回旧判据"变长才推"（流式增量语义）。
+					const isNewMessage = sentId !== null && id !== null && id !== sentId;
+					if (isNewMessage || text.length >= sentText.length) {
+						sentText = text;
+						sentId = id;
+						round.answer = text;
+						ev.onReply?.(text);
+					}
 				}
 			}
 		} else if (e.name === "updates" && !round.interrupt) {
@@ -709,22 +756,46 @@ function resumeWordFor(message: string): AgentResumeWord {
 /* ── 降级（§8.9.6，R-AGT-03）─────────────────────────────────────────────── */
 
 /**
- * mock 台词：口径取自 `agent/persona-aemeath-v5.txt` 的红线段落
- * （第七节「红线：拒绝要短，然后马上换路」+ 第十节「宁可说"我这边断了"，也不要说"星轨紊乱了"」）。
- * 模板 = `不行。` + 换行 + `……<原因，一句话>。` + `<换点别的 / 换个说法>`。
+ * 降级台词的**起头池**（必须一眼看出"这句不是模型答的"）。
+ *
+ * ⚠️ **v1.37 改口径（发起人 2026-09-27 的图证）**：改前降级台词与真答复**长得一模一样**
+ * （都是干净的人设短句，比如「嗯，我听着呢。……你再多说一句。」），访客根本分不出
+ * "她在回答"还是"她压根没接上"—— 观感就是"固定模板直接糊上来"。
+ * 现在**每一句降级都先说"我这边接不上"**，再按情境补半句人设口吻的话。
+ * 它仍然是人设口吻（不报错、不提服务/端口/模型/线程/错误码），但**结构上认得出**。
+ */
+export const FALLBACK_LEADS: string[] = [
+	"我这边一时接不上话，你先说，我听着。",
+	"……我这边断了，后半句没接着。你再说一遍？",
+	"等一下，我这边没声了。……你刚说什么？",
+];
+
+/** 轮换游标：**保证连着两次降级不会给出一模一样的句子**（固定模板最容易被看见的地方） */
+let fallbackCursor = 0;
+
+/** 取下一个起头（按游标推进；池子只要 ≥2 条，相邻两次就一定不同） */
+function nextFallbackLead(): string {
+	const lead = FALLBACK_LEADS[fallbackCursor % FALLBACK_LEADS.length];
+	fallbackCursor = (fallbackCursor + 1) % FALLBACK_LEADS.length;
+	return lead;
+}
+
+/**
+ * mock 台词（**只在降级 / 关闭时用**）：口径取自 `agent/persona-aemeath-v7.txt`
+ * （第八节「安全红线」的「被要求做不该做的事」：拒绝要短、然后马上给出口）。
+ * 结构 = `FALLBACK_LEADS` 里的一条起头（轮换） + 按情境挑的半句。
  * ⚠️ 这里**一个运维字样都不许有**：不提服务、端口、连接、模型、图、线程、错误码。
+ * ⚠️ 也**不许出现自称词**（AI / 程序 / 模型 / 机器人 / 大脑）—— `verify:ui` 的 R-PET-11 有专门扫描。
  */
 export function fallbackReply(message: string): string {
 	const text = message.trim();
-	// 打招呼 / 只有寒暄：接住就行，别过度反应
-	if (/^(在吗|在不在|在么|hi|hello|你好|嗨|喂)[?？!！。~，,]*$/i.test(text))
-		return "在。你说。";
-	if (/谢谢|多谢|辛苦/.test(text)) return "谢什么，这不就是我的活儿嘛。";
+	let tail = "你刚才那句我先收着。";
+	if (/^(在吗|在不在|在么|hi|hello|你好|嗨|喂)[?？!！。~，,]*$/i.test(text)) tail = "我在的。";
+	else if (/谢谢|多谢|辛苦/.test(text)) tail = "谢什么，这不就是我的活儿嘛。";
 	// 找东西 / 要推荐：给"我真的在翻"的在场感，别装傻
-	if (/推荐|找几篇|有没有|搜一下|搜下|找找|来几篇|看看.*(文章|博客)/.test(text))
-		return "好，我去翻。\n……等我一下。";
-	// 兜底：短、平，然后把话头递回去（人设第三节："先接住人，再给信息"）
-	return "嗯，我听着呢。\n……你再多说一句。";
+	else if (/推荐|找几篇|有没有|搜一下|搜下|找找|来几篇|看看.*(文章|博客)/.test(text))
+		tail = "文章还没翻到手，等接上了就给你找。";
+	return `${nextFallbackLead()}${tail}`;
 }
 
 /** `GET /ok`（§8.9.1 #0）：**降级判定的唯一入口**。失败不抛异常，只回 false */

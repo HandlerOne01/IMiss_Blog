@@ -1,7 +1,7 @@
 import type { PetConfig } from "@/types/petConfig";
 
 /**
- * 桌宠「爱弥斯」配置（R-PET-01 ~ R-PET-06）
+ * 桌宠「爱弥斯」配置（R-PET-01 ~ R-PET-11）
  * ============================================================================
  * 素材：`src/assets/images/pet/pet-aemeath.webp`
  *   Codex 自定义宠物图集（MIT，来源 https://github.com/cuNuo/aemeath-mini-codex-pet），
@@ -108,6 +108,37 @@ export const petConfig: PetConfig = {
 	 *    看着像"开关"但其实不生效的那个是 `petConfig.agent.enable`；
 	 *    **真正决定发不发请求的是 `agentConfig.enable`**。
 	 */
+	/**
+	 * 聊天框（R-PET-11，发起人 2026-09-27 第五轮反馈重做）
+	 * ============================================================================
+	 * 发起人原话：「优化一下聊天框，在**思考的时候应该显示在思考**，然后**输入框不应该在下面吗**？
+	 * 还有**还看不到之前的聊天**，还有**不应该是左右边吗**，还有**这聊天框是不是小了**的」
+	 * → 五条全部落在这里：
+	 *   · 尺寸：`width` 340 × `height` 460（改前 260 × 最多 360、实际只有 91~132px 高）；
+	 *   · 摆位：左右两侧（复用右键菜单 `placePanel()` 的空间判定 + 遮挡抽样），
+	 *     窄到 `minWidth` 都放不下才改走宠物上下方（明确兜底）；
+	 *   · 历史：`historyLimit` 条留在**当前页面会话**里（切页也在，见 ARCH §7.6）；
+	 *   · 思考中：`thinkingLines` 至少 3 条轮换（写成一句硬编码 = 长回合看起来像卡住）；
+	 *   · 长答复：超过 `collapseChars` 才折叠给「展开全文」，之下靠滚动看。
+	 *
+	 * ⚠️ `thinkingLines` 是**给访客看的**：不许出现 AI / 程序 / 模型 / 机器人 / 大脑 /
+	 *    未连接 这类自称词（`verify:ui` 的 R-PET-11 有一条专门扫这个）。
+	 */
+	chat: {
+		width: 340,
+		height: 460,
+		minWidth: 236,
+		minHeight: 220,
+		historyLimit: 60,
+		collapseChars: 900,
+		thinkingLines: [
+			"嗯，让我想想……",
+			"……等我一下，我把这句捋顺。",
+			"别急，我在翻那摞纸。",
+			"……这题有点绕，我再过一遍。",
+		],
+		thinkingRotateMs: 2600,
+	},
 	agent: {
 		// ⚠️ 死配置（无消费方）：真实开关是 `src/config/agentConfig.ts` 的 `enable`
 		enable: false,

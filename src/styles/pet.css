@@ -1,5 +1,5 @@
 /* ============================================================================
- * 桌宠「爱弥斯」样式（R-PET-01 ~ R-PET-08）
+ * 桌宠「爱弥斯」样式（R-PET-01 ~ R-PET-11）
  *
  * 素材：8 列 × 9 行、单格 144×156 的图集（`src/assets/images/pet/pet-aemeath.webp`）。
  * 一帧 = 一个格子，**只靠 background-position 定位**：
@@ -188,51 +188,312 @@
 	}
 }
 
-/* ── 对话模式：气泡里长出一个输入框（R-PET-02「和爱弥斯聊天」）── */
+/* ── 对话模式（R-PET-11 重做：历史在上 / 输入框在下 / 更大 / 贴左右）──────
+   ============================================================================
+   发起人 2026-09-27 第五轮反馈（附图）四条布局问题 + 一条状态问题的落点：
+     「输入框不应该在下面吗」→ 表单是面板的**最后一个子节点** + `position: sticky; bottom: 0`
+        （视觉上永远贴在面板底部；DOM 顺序也就是"历史在上"本身，两条断言各证一次）；
+     「还看不到之前的聊天」→ `.pet-chat-log` 与**整块面板**都可滚（`overflow-y: auto` 在
+        `.pet-bubble.is-chat` 上，历史区超高时滚的就是它），新消息自动滚到底（JS）；
+     「这聊天框是不是小了」→ 尺寸从 `260 × 最多 360`（实测只有 91~132px 高）换成
+        `--pet-chat-w` × `--pet-chat-h`（默认 340 × 460，由 JS 按视口夹一次）；
+     「不应该是左右边吗」→ 摆位在 JS 里（`placeChat()` → 复用 `placePanel()`）。
+
+   ⚠️ **滚动容器是整块面板**（不是内层的历史区）：`verify:ui` 的 R-AGT-07 用
+      `#pet-bubble` 的 `scrollHeight > clientHeight` 断言"长答复可滚"，内层再套一个
+      滚动容器会让那条断言变成假绿（面板自己不滚 = 断言失效）。所以：
+      面板滚、头部 `sticky top`、表单 `sticky bottom`。
+   ⚠️ `height` 用 CSS 变量（JS 按视口夹过再写），**不写 max-height**（基类的
+      `max-height: min(48vh, 360px)` 会把 460px 的面板砍回 360px）。 */
 .pet-bubble.is-chat {
 	pointer-events: auto;
-	max-width: 260px;
-	width: 260px;
+	/* 摆位由 JS 写 left/top（相对 .pet 的坐标系），这里把基类的"贴宠物头顶"整组复位 */
+	left: 0;
+	top: 0;
+	bottom: auto;
+	translate: none;
+	width: var(--pet-chat-w, 340px);
+	height: var(--pet-chat-h, 460px);
+	max-width: none;
+	max-height: none;
+	padding: 0;
+	overflow-y: auto;
+	border-radius: 14px;
+	border-width: 1px;
+	background: var(--card-bg);
+	/* ── 为什么是 flex 列（而不是纯块级 + sticky）──────────────────────────
+	   纯 sticky 只能"滚动时钉住"，**不能把内容少的面板里的输入框推到最下面**：
+	   实测（自检截图）内容只有两行时，表单停在面板中部、下面留一大块空背景 ——
+	   发起人要的"输入框在下面"在视觉上不成立。所以：
+	     · `.pet-chat-log`：`flex: 1 0 auto` —— 内容少时**撑满**剩余空间（把表单顶到底部），
+	       内容多时**保持自身高度**（`flex-shrink: 0`，否则 flex 会把它压扁成"内部溢出"，
+	       面板就滚不动了 —— 而 R-AGT-07 的"长答复可滚"正是量面板的 `scrollHeight`）；
+	     · `.pet-chat`：`flex: 0 0 auto` + `position: sticky; bottom: 0` —— 内容多、用户在往回翻时
+	       仍然贴在可视区底部。 */
+	display: flex;
+	flex-direction: column;
 }
 
+/* 对话模式不要"小尾巴"（那是台词气泡指向宠物的形状） */
+.pet-bubble.is-chat::after {
+	display: none;
+}
+
+/* 头部：常驻（sticky top），标题 + 「回到最新」+「清空对话」 */
+.pet-chat-head {
+	position: sticky;
+	top: 0;
+	z-index: 2;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 10px;
+	background: var(--card-bg);
+	border-bottom: 1px solid var(--line-divider);
+}
+
+.pet-chat-title {
+	flex: 1 1 auto;
+	min-width: 0;
+	font-size: 12.6px;
+	font-weight: 600;
+	opacity: 0.86;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.pet-chat-head button {
+	flex: 0 0 auto;
+	appearance: none;
+	border: 0;
+	background: transparent;
+	color: var(--primary);
+	font: inherit;
+	font-size: 12px;
+	padding: 3px 6px;
+	border-radius: 7px;
+	cursor: pointer;
+}
+
+.pet-chat-head button:hover,
+.pet-chat-head button:focus-visible {
+	background: var(--btn-regular-bg);
+}
+
+.pet-chat-head button[hidden] {
+	display: none;
+}
+
+/* 历史区：块级流（不是滚动容器，理由见上面那段注释） */
+.pet-chat-log {
+	padding: 9px 10px 0;
+}
+
+.pet-chat-line {
+	margin: 0 0 9px;
+	padding: 7px 9px;
+	border-radius: 10px;
+	background: var(--btn-regular-bg);
+}
+
+.pet-chat-line[data-role="user"] {
+	background: color-mix(in oklab, var(--primary) 14%, transparent);
+}
+
+.pet-chat-line[data-role="notice"] {
+	background: transparent;
+	border: 1px dashed var(--line-divider);
+	opacity: 0.9;
+}
+
+.pet-chat-meta {
+	display: flex;
+	align-items: baseline;
+	gap: 6px;
+	margin-bottom: 3px;
+	font-size: 11px;
+	opacity: 0.62;
+}
+
+.pet-chat-who {
+	font-weight: 600;
+}
+
+.pet-chat-at {
+	font-variant-numeric: tabular-nums;
+}
+
+.pet-chat-text {
+	font-size: 12.8px;
+	line-height: 1.72;
+	white-space: pre-wrap;
+	/* 面板 340px 宽：URL / 连续英文必须能断开，否则会被横向裁掉 */
+	overflow-wrap: anywhere;
+}
+
+/* 超长答复（> petConfig.chat.collapseChars）默认折叠，「展开全文」再放开。
+   ⚠️ 阈值定得比真后端实测的 439~496 字高 —— 折叠与"面板可滚"是**互相抵消**的两种
+   长答复策略：折得太早，R-AGT-07 那条"500 字可滚"的断言就会因为"没内容可滚"而变红。 */
+.pet-chat-text.is-long {
+	max-height: 11.2em;
+	overflow: hidden;
+	-webkit-mask-image: linear-gradient(180deg, #000 72%, transparent);
+	mask-image: linear-gradient(180deg, #000 72%, transparent);
+}
+
+.pet-chat-text.is-long.is-open {
+	max-height: none;
+	-webkit-mask-image: none;
+	mask-image: none;
+}
+
+.pet-chat-tools {
+	display: flex;
+	gap: 8px;
+	margin-top: 3px;
+}
+
+.pet-chat-tools button {
+	appearance: none;
+	border: 0;
+	background: transparent;
+	color: var(--primary);
+	font: inherit;
+	font-size: 11px;
+	padding: 1px 0;
+	cursor: pointer;
+	opacity: 0.8;
+}
+
+.pet-chat-tools button:hover,
+.pet-chat-tools button:focus-visible {
+	opacity: 1;
+	text-decoration: underline;
+}
+
+/* 空态（没有历史时的引导语；一有历史就由 JS 摘掉） */
+.pet-chat-empty {
+	padding: 4px 2px 10px;
+	font-size: 12.4px;
+	opacity: 0.66;
+}
+
+/* ── 「思考中」（R-PET-11 的核心可见状态）───────────────────────────────
+   动画省略号 + 一句轮换短句 + （流式有进展时的）已收到字数。
+   ⚠️ 这里**不出现答复正文**：流式增量只进内存，完成才整段上屏（理由见组件注释）。 */
+.pet-chat-thinking {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	margin: 0 0 9px;
+	padding: 7px 9px;
+	border-radius: 10px;
+	background: color-mix(in oklab, var(--primary) 9%, transparent);
+	font-size: 12.4px;
+}
+
+.pet-chat-thinking[hidden] {
+	display: none;
+}
+
+.pet-chat-dots {
+	display: inline-flex;
+	gap: 3px;
+	flex: 0 0 auto;
+}
+
+.pet-chat-dots i {
+	width: 4px;
+	height: 4px;
+	border-radius: 50%;
+	background: var(--primary);
+	animation: petChatDot 1.05s ease-in-out infinite;
+}
+
+.pet-chat-dots i:nth-child(2) {
+	animation-delay: 0.16s;
+}
+
+.pet-chat-dots i:nth-child(3) {
+	animation-delay: 0.32s;
+}
+
+@keyframes petChatDot {
+	0%,
+	70%,
+	100% {
+		opacity: 0.28;
+		transform: translateY(0);
+	}
+	35% {
+		opacity: 1;
+		transform: translateY(-2.5px);
+	}
+}
+
+.pet-chat-think-text {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.pet-chat-recv {
+	flex: 0 0 auto;
+	opacity: 0.6;
+	font-variant-numeric: tabular-nums;
+}
+
+.pet-chat-recv[hidden] {
+	display: none;
+}
+
+/* 表单：**面板最后一个子节点** + sticky bottom（"输入框在下面"的落点） */
 .pet-chat {
+	position: sticky;
+	bottom: 0;
+	z-index: 2;
 	display: flex;
 	gap: 6px;
-	margin-top: 8px;
+	margin: 0;
+	padding: 9px 10px;
+	background: var(--card-bg);
+	border-top: 1px solid var(--line-divider);
 }
 
 .pet-chat input {
 	flex: 1 1 auto;
 	min-width: 0;
-	padding: 6px 8px;
+	padding: 7px 9px;
 	border: 1px solid var(--line-divider);
-	border-radius: 8px;
+	border-radius: 9px;
 	background: var(--btn-regular-bg);
 	color: var(--deep-text);
 	font: inherit;
-	font-size: 12.5px;
+	font-size: 12.8px;
 }
 
 .pet-chat button {
 	flex: 0 0 auto;
-	padding: 6px 10px;
+	padding: 7px 12px;
 	border: 0;
-	border-radius: 8px;
+	border-radius: 9px;
 	background: var(--primary);
 	color: #fff;
 	font: inherit;
-	font-size: 12.5px;
+	font-size: 12.6px;
 	cursor: pointer;
 }
 
-.pet-chat-reply {
-	margin-top: 6px;
-	font-size: 12.5px;
-	opacity: 0.9;
-	white-space: pre-wrap;
-	/* 长答复在 226px 宽的气泡里必须能断开长串（URL / 连续英文），否则会被横向裁掉 */
-	overflow-wrap: anywhere;
+/* 「思考中」的发送按钮：视觉上禁用 + 反馈（**不用原生 disabled**，理由见组件 setThinking()） */
+.pet-chat button[data-pet-busy="1"] {
+	opacity: 0.5;
+	cursor: progress;
 }
+
+/* 历史里"最新一句爱弥斯说的话"（`.pet-chat-reply` 只挂在它上面，见组件 markLatestReply）。
+   这里**故意不给它任何装饰**：`pet-chat-reply` 是"给断言与旧口径读正文"的**接口类名**，
+   一旦给它加了 padding/margin，`textContent` 之外的几何就会跟着变（500 字那条几何断言会飘）。
+   样式钩子请用 `.pet-chat-text` / `.pet-chat-line[data-role]`。 */
 
 /* ── 右键菜单 ───────────────────────────────────────────── */
 /* R-PET-07：菜单由 JS 按"宠物矩形"摆位（见 AemeathPet.astro 的 placeMenu），
@@ -345,6 +606,12 @@ html[data-pet-off="1"] .pet-menu {
 
 	.pet-spark {
 		display: none;
+	}
+
+	/* R-PET-11：思考中的三个点不再上下跳（状态仍然可见：点还在 + 文字还在轮换） */
+	.pet-chat-dots i {
+		animation: none;
+		opacity: 0.75;
 	}
 }
 

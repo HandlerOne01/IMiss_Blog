@@ -46,6 +46,41 @@ export interface PetAgentConfig {
 	maxLength: number;
 }
 
+/**
+ * 聊天框的几何、历史与「思考中」口径（R-PET-11）
+ * ============================================================================
+ * 发起人 2026-09-27 第五轮反馈（附图）：「输入框不应该在下面吗」「还看不到之前的聊天」
+ * 「不应该是左右边吗」「这聊天框是不是小了的」→ 全部落成这里可改的值，
+ * 组件（`AemeathPet.astro`）与验收脚本（`scripts/verify-ui.mjs` 的 R-PET-11 段）
+ * 读同一份事实，免得"文档说 340、实现是 260"这种漂移。
+ */
+export interface PetChatConfig {
+	/** 面板宽度（px）。窄屏按可用空间收窄，但不会小于 `minWidth` */
+	width: number;
+	/** 面板高度（px）。视口更矮时会被夹到 `vh - 2 × 安全边距` */
+	height: number;
+	/**
+	 * 收窄下限（px）：两侧可用宽度都低于它时不再硬塞在左右，
+	 * 改走"宠物上方/下方"的兜底摆位（明确兜底，不是静默溢出）。
+	 */
+	minWidth: number;
+	/** 高度下限（px）：视口极矮时的兜底高度（内部仍可滚） */
+	minHeight: number;
+	/** 历史区最多保留多少条（超出丢最旧的，防长聊把 DOM 撑爆） */
+	historyLimit: number;
+	/**
+	 * 超过这个字数才折叠 + 给「展开全文」。
+	 * ⚠️ 不能定小：实测真后端长答复 439~496 字，而 `verify:ui` 的 R-AGT-07 用
+	 * **500 字**答复断言"气泡可滚、首行可见"——阈值一旦低于 500，那条断言会因为
+	 * "被折叠所以滚不动"而变红（折叠与滚动是**互相抵消**的两种长答复策略）。
+	 */
+	collapseChars: number;
+	/** 「思考中」轮换的短句（**至少 3 条**：写死一句会让长回合看起来像卡住） */
+	thinkingLines: string[];
+	/** 思考中短句的轮换间隔（毫秒） */
+	thinkingRotateMs: number;
+}
+
 export interface PetConfig {
 	/** 总开关：false 时整个组件不渲染（R-PET-01） */
 	enable: boolean;
@@ -69,5 +104,7 @@ export interface PetConfig {
 	mockReplies: string[];
 	/** 运动模式与手感参数（R-PET-06，默认悬浮 + 偶尔飞行） */
 	movement: PetMovementConfig;
+	/** 聊天框的几何 / 历史 / 思考中口径（R-PET-11） */
+	chat: PetChatConfig;
 	agent: PetAgentConfig;
 }

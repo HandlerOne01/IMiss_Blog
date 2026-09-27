@@ -125,7 +125,8 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 
 <script>
 	import { petConfig } from "@/config";
-	import { askAemeath, type AgentTurn } from "@/utils/agent-client";
+	import { askAemeath, resetSession, type AgentTurn } from "@/utils/agent-client";
+	import { cleanMarkdown, cleanUserText, formatClock, shouldCollapse } from "@/utils/pet-chat-text";
 	import {
 		PET_COLS,
 		PET_FLIGHT_POSE,
@@ -223,7 +224,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		let workTimer = 0;
 		let chatOpen = false;
 
-		/* ── 对话接线（R-AGT-03 / R-AGT-04，P5-1 / P5-2 / P5-3）───────────
+		/* ── 对话接线（R-AGT-03 / R-AGT-04，P5-1 / P5-2 / P5-3；R-PET-11 重做 UI）─
 		   ⚠️ 五个会话变量**各管一件事**，别合并（合并过一次，结果是"关了聊天框
 		      还会把答复写进气泡"这类只在真机上出现的错位）：
 		     · `chatSession`  —— 第几次开聊天框。每次 `openChat()`/`closeChat()` 都 +1，
@@ -231,14 +232,18 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		     · `chatBusy`     —— 这一轮请求还在飞（防连点、给输入框上锁）。
 		     · `chatAsk`      —— 上一轮后端反问的那句原文（判"用户这句是不是在回答它"）。
 		     · `chatResume`   —— 用户明确说了约定词（不提供/需要/不需要）时，下一轮该回的话。
-		     · `chatAbort`    —— 关框 / 切页时掐掉已发出的流；`thinkTimer` 是"思考中"的兜底：
-		        即使请求在中途被丢掉，状态也不会永远卡在思考态（R-PET-04 的硬要求）。 */
+		     · `chatAbort`    —— 关框 / 切页时掐掉已发出的流。
+		   ⚠️ R-PET-11 把"思考中的兜底计时器"（`thinkTimer`，原来 1200ms 补写一次占位文本）
+		      换成了 `thinkRotateTimer`：占位文本**不再写进答复元素**，而是画在独立的
+		      `.pet-chat-thinking` 上（轮换短句 + 动画省略号），所以不需要"补写"，只需要
+		      "轮换"；它的清理仍然在 `clearChatRuntime()` / `endTrip()` 两处（缺一处就会
+		      出现"框关了，思考句还在轮换"的隐形定时器）。 */
 		let chatSession = 0;
 		let chatBusy = false;
 		let chatAsk: string | null = null;
 		let chatResume: string | null = null;
 		let chatAbort: AbortController | null = null;
-		let thinkTimer = 0;
+		let thinkRotateTimer = 0;
 		let stateTimer = 0;
 		/** 输入框里已经填过的上一位"爱弥斯说的话"（判约定词用；`closeChat()` 清空） */
 		let lastReply = "";
@@ -251,12 +256,44 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		let chatPendingRetry = false;
 		/** 后端反问时气泡里除了询问原文还会补这一行（人设口径，且不含任何内部信息） */
 		const INTERRUPT_HINT = "回我「不提供」也行，我替你挑。";
-		/** 等待时的占位文本：不是"错误提示"，是"正在翻"的可见反馈（R-AGT-04 的思考态要有落点） */
-		const THINKING_TEXT = "嗯，我看一眼。\n……等我一下。";
 		/** 忙的时候用户又按发送给的反馈（人设口径：不说"请求/服务/稍后再试"这类字样） */
 		const BUSY_HINT = "……我这儿还忙着上一句呢，等我落地你再发一次。";
-		/** 后端反问句最多显示多少字（气泡宽 260px，太长会顶到视口外；截断只发生在极长句上） */
+		/** 清空对话后的那一句（不是报错，是"我听见了"） */
+		const CLEAR_NOTICE = "……行，刚才那些我不提了，重新说。";
+		/** 后端反问句最多显示多少字（面板宽 340px，太长会顶到视口外；截断只发生在极长句上） */
 		const ASK_MAX_CHARS = 220;
+
+		/* ── 聊天框的历史与 DOM 句柄（R-PET-11）───────────────────────────
+		   `chatLog` 是**这次页面会话**的对话历史：关框、再开、Swup 切页都留着
+		   （理由与边界见 ARCH.md §7.6 的 R-PET-11 段）。
+		   ⚠️ 它是**唯一事实来源**：DOM 每次开框都按它重建，所以"关框再开续上"不需要
+		      额外同步逻辑，也不会出现"DOM 里多了一条、数组里没有"的错位。 */
+		interface ChatLine {
+			role: "user" | "ai" | "notice";
+			text: string;
+			at: number;
+		}
+		const CHAT = petConfig.chat;
+		let chatLog: ChatLine[] = [];
+		let chatList: HTMLElement | null = null;
+		let chatThink: HTMLElement | null = null;
+		let chatThinkText: HTMLElement | null = null;
+		let chatRecv: HTMLElement | null = null;
+		let chatInput: HTMLInputElement | null = null;
+		let chatSend: HTMLButtonElement | null = null;
+		let chatJump: HTMLButtonElement | null = null;
+		/**
+		 * 流式增量**只在这里攒着，一个字都不上屏**（R-PET-11 的核心选择）。
+		 * 发起人的图证就是"半截答案实时刷屏"（`SDD？ 你说的是 Spec-Driven Development？ 还是…`），
+		 * 用户看不出"它在想"还是"它答完了"；而且 Markdown 的 `**` 在流式途中会先露一半
+		 * （图证里 `**规范驱动开发**` 的星号就是这么漏出来的）。所以：
+		 *   思考中 → 只显示"思考中"指示 + **已收到的字数**（不含正文）；完成 → 整段清洗后一次上屏。
+		 */
+		let chatStreamBuf = "";
+		/** 「思考中」轮换短句的下标（-1 = 还没选过） */
+		let thinkIdx = -1;
+		/** ↑/↓ 翻自己说过的话：-1 = 不在翻历史 */
+		let histIdx = -1;
 
 		const pet = {
 			x: 0,
@@ -565,6 +602,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			setState("idle"); // 从飞行姿态回到待机（顺带把 poseLoop 复位）
 			savePos();
 			placeMenu();
+			placeChat(); // 宠物落位了 → 聊天框重新贴回它旁边（R-PET-11：飞行途中不跟，落位再跟）
 		}
 
 		/** 悬浮：绕基准线做正弦上下浮动（rAF 逐帧，理由见文件头） */
@@ -904,32 +942,266 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			sayTimer = window.setTimeout(() => bubble.classList.remove("is-pop"), 4200);
 		}
 
-		/* ── 对话：把答复写进气泡（只碰文本，不碰结构）──────────────────
+		/* ── 对话：历史区 / 思考中 / 上屏（R-PET-11 重做）────────────────────
 		   为什么不让适配层直接写 DOM：适配层要能被单独测（`verify:ui` 里那几条
-		   零请求 / 泄漏 / 降级断言都不该依赖气泡），DOM 与九状态联动留在这里。 */
-		function setReply(reply: HTMLElement, text: string): void {
-			if (!text) return;
-			reply.textContent = text;
-			lastReply = text;
+		   零请求 / 泄漏 / 降级断言都不该依赖气泡），DOM 与九状态联动留在这里。
+
+		   上屏口径（发起人图证的两条毛病都出在这里）：
+		     · 思考中**不铺正文**：流式增量只进 `chatStreamBuf`，界面上只有一个
+		       `.pet-chat-thinking`（动画省略号 + 轮换短句 + 已收到的字数）；
+		     · 完成后**整段清洗**再上屏（`cleanMarkdown()`），`**` / `#` / `|` / `>`
+		       这些裸符号一律不会漏给访客 —— 流式途中上屏就没法保证这一点
+		       （半个 `**` 会先露出来）。 */
+
+		/**
+		 * 历史区里**最新一句「爱弥斯说的话」**打上 `.pet-chat-reply`。
+		 * ⚠️ 这个类名是**对外的接口**（`verify:ui` 的 R-AGT 段一直用它当"答复"），
+		 * 语义是"此刻该被当作答复的那一条"——所以它必须**跟着最新一条走**：
+		 * 不当成"每条答复都挂"（那样 `querySelector` 会永远返回第一条，
+		 * 变成"第 2 问显示第 1 问的答复"这种 bug）。
+		 * 只挂在 `.pet-chat-text` 上（不含"爱弥斯/时间"这些装饰），
+		 * 这样 `textContent` 就是**纯答复正文**，长度断言（500 字那条）才对得上。
+		 */
+		function markLatestReply(): void {
+			for (const t of bubble.querySelectorAll(".pet-chat-text")) t.classList.remove("pet-chat-reply");
+			const rows = bubble.querySelectorAll<HTMLElement>('.pet-chat-line[data-role="ai"], .pet-chat-line[data-role="notice"]');
+			const last = rows[rows.length - 1];
+			last?.querySelector(".pet-chat-text")?.classList.add("pet-chat-reply");
 		}
 
-		/** 收尾（无论网络那侧发生了什么）：解锁输入、停"思考中"计时、按会话比一次再复位 */
+		/** 历史区空的时候给一句引导（有历史就不显示，免得占地方） */
+		function ensureEmptyHint(): void {
+			if (!chatList) return;
+			const has = chatList.querySelector(".pet-chat-empty");
+			if (!chatLog.length && !has) {
+				const hint = document.createElement("div");
+				hint.className = "pet-chat-empty";
+				hint.textContent = "聊点什么？我在这儿。";
+				chatList.insertBefore(hint, chatThink);
+			} else if (chatLog.length && has) {
+				has.remove();
+			}
+		}
+
+		/** 复制一段文本（R-PET-11 的附加优化）。优先异步剪贴板，失败退回选区复制 */
+		function fallbackCopy(text: string): boolean {
+			try {
+				const ta = document.createElement("textarea");
+				ta.value = text;
+				ta.setAttribute("aria-hidden", "true");
+				ta.style.position = "fixed";
+				ta.style.opacity = "0";
+				document.body.appendChild(ta);
+				ta.select();
+				// `execCommand("copy")` 是**唯一的同步兜底**（非安全上下文里没有
+				// `navigator.clipboard`）。它被标记为 deprecated，所以按"字符串索引的未知方法"
+				// 取用，免得 `astro check` 每次都报一条 ts(6387) 提示（提示不致命，但会淹没真问题）。
+				const legacy = document as unknown as Record<string, ((cmd: string) => boolean) | undefined>;
+				const ok = legacy.execCommand?.("copy") ?? false;
+				ta.remove();
+				return ok;
+			} catch {
+				return false;
+			}
+		}
+
+		function copyText(text: string, btn: HTMLButtonElement): void {
+			const done = (ok: boolean) => {
+				btn.textContent = ok ? "已复制" : "复制不了";
+				window.setTimeout(() => {
+					btn.textContent = "复制";
+				}, 1400);
+			};
+			try {
+				if (navigator.clipboard?.writeText) {
+					void navigator.clipboard
+						.writeText(text)
+						.then(() => done(true))
+						.catch(() => done(fallbackCopy(text)));
+					return;
+				}
+			} catch {
+				/* 非安全上下文 / 无权限：直接走兜底 */
+			}
+			done(fallbackCopy(text));
+		}
+
+		/** 建一条历史（用户 / 爱弥斯 / 提示）—— 只碰结构，文本一律 `textContent` 赋值（不拼 HTML） */
+		function buildLine(line: ChatLine): HTMLElement {
+			const row = document.createElement("div");
+			row.className = "pet-chat-line";
+			row.dataset.role = line.role;
+			const meta = document.createElement("div");
+			meta.className = "pet-chat-meta";
+			const who = document.createElement("span");
+			who.className = "pet-chat-who";
+			who.textContent = line.role === "user" ? "你" : "爱弥斯";
+			const at = document.createElement("time");
+			at.className = "pet-chat-at";
+			at.textContent = formatClock(line.at);
+			meta.append(who, at);
+			const textEl = document.createElement("div");
+			textEl.className = "pet-chat-text";
+			textEl.textContent = line.text;
+			row.append(meta, textEl);
+			// 长答复：默认折叠 + 「展开全文」（阈值见 petConfig.chat.collapseChars 的注释：
+			// 定得比"真后端实测的 439~496 字"高，常规答复不折，只兜极端长文）
+			const tools = document.createElement("div");
+			tools.className = "pet-chat-tools";
+			if (line.role !== "user" && line.text.length > 8) {
+				const copy = document.createElement("button");
+				copy.type = "button";
+				copy.className = "pet-chat-copy";
+				copy.textContent = "复制";
+				copy.title = "把这条答复复制走";
+				copy.addEventListener("click", () => copyText(line.text, copy));
+				tools.appendChild(copy);
+			}
+			if (line.role === "ai" && shouldCollapse(line.text, CHAT.collapseChars)) {
+				textEl.classList.add("is-long");
+				const expand = document.createElement("button");
+				expand.type = "button";
+				expand.className = "pet-chat-expand";
+				expand.textContent = "展开全文";
+				expand.addEventListener("click", () => {
+					const open = textEl.classList.toggle("is-open");
+					expand.textContent = open ? "收起" : "展开全文";
+				});
+				tools.appendChild(expand);
+			}
+			if (tools.childElementCount) row.appendChild(tools);
+			return row;
+		}
+
+		/** 是不是"贴着底部看"（决定新消息要不要自动滚；离底 > 28px 就认为用户在往回翻） */
+		function chatNearBottom(): boolean {
+			return bubble.scrollHeight - bubble.scrollTop - bubble.clientHeight <= 28;
+		}
+
+		/** 「回到最新」按钮的显隐（用户往回翻时才出现） */
+		function showJump(on: boolean): void {
+			if (chatJump) chatJump.hidden = !on;
+		}
+
+		function scrollChatToBottom(force = false): void {
+			if (!force && !chatNearBottom()) {
+				showJump(true);
+				return;
+			}
+			bubble.scrollTop = bubble.scrollHeight;
+			showJump(false);
+		}
+
+		/**
+		 * 追加一条并（默认）滚到最新。
+		 * ⚠️ **"要不要跟着滚"在插入之前算**（`chatNearBottom()` 读的是插入前的几何）：
+		 *    先插入再判断的话，新内容自己就把 `scrollHeight` 撑大了 —— 差值立刻超过阈值，
+		 *    于是每一句都被判成"用户在往回翻"，自动滚动等于失效（自检探针实测：
+		 *    4 轮之后 `scrollTop 353 / scrollHeight 901 / clientHeight 458`，停在离底 90px 处）。
+		 * ⚠️ 插入点是**思考指示之前**：它必须永远排在历史最后一行（视觉上"它在想下一句"），
+		 * 不能因为"先 addLine 后 setThinking"的次序被甩到中间去。
+		 */
+		function addLine(role: ChatLine["role"], raw: string, doScroll = true): void {
+			if (!chatList) return;
+			const text = role === "user" ? cleanUserText(raw, petConfig.agent.maxLength) : cleanMarkdown(raw);
+			if (!text) return;
+			const nearBottom = chatNearBottom(); // ⚠️ 必须在插入之前算，理由见函数头
+			const line: ChatLine = { role, text, at: Date.now() };
+			chatLog.push(line);
+			// 历史上限：丢最旧的（DOM 与数组一起丢，不留"看不见但还在"的幽灵行）
+			while (chatLog.length > CHAT.historyLimit) {
+				chatLog.shift();
+				chatList.querySelector(".pet-chat-line")?.remove();
+			}
+			chatList.insertBefore(buildLine(line), chatThink);
+			ensureEmptyHint();
+			markLatestReply();
+			if (role !== "user") lastReply = text;
+			if (doScroll) {
+				if (nearBottom) {
+					bubble.scrollTop = bubble.scrollHeight;
+					showJump(false);
+				} else {
+					showJump(true);
+				}
+			}
+		}
+
+		/** 清空历史区里所有行（只动 DOM；`chatLog` 由调用方维护） */
+		function clearLineNodes(): void {
+			if (!chatList) return;
+			for (const el of chatList.querySelectorAll(".pet-chat-line, .pet-chat-empty")) el.remove();
+		}
+
+		/** 轮换「思考中」的短句（至少 3 条，见 petConfig.chat.thinkingLines） */
+		function rotateThinking(): void {
+			const lines = CHAT.thinkingLines;
+			if (!lines.length || !chatThinkText) return;
+			let i = thinkIdx;
+			if (lines.length > 1) {
+				while (i === thinkIdx) i = Math.floor(Math.random() * lines.length);
+			} else {
+				i = 0;
+			}
+			thinkIdx = i;
+			chatThinkText.textContent = lines[i];
+		}
+
+		/** 「已经写了 N 字…」——不含正文，只让长回合有进展感 */
+		function setStreamProgress(chars: number): void {
+			if (chatRecv) {
+				chatRecv.textContent = chars > 0 ? `已经写了 ${chars} 字…` : "";
+				chatRecv.hidden = chars <= 0;
+			}
+			bubble.dataset.petChatRecv = String(chars);
+		}
+
+		/**
+		 * 思考指示的开关（R-PET-11 的**核心可见状态**）。
+		 * 开启：显示省略号 + 短句 + 轮换定时器；给发送按钮上 `data-pet-busy` 与
+		 * `aria-disabled`，并把面板标成 `data-pet-chat-state="thinking"`。
+		 * ⚠️ 发送按钮**不进原生 `disabled`**：原生 disabled 会让表单的隐式提交（回车）
+		 *    整条失效，而那正是 P5 复核 D-9 点名要保住的路径（"在飞时又按发送"要给出可见
+		 *    反馈、且不丢用户输入）。所以"禁用"落在**行为守卫 + 视觉 + aria** 上：
+		 *    提交守卫仍然拒绝重复提交，样式置灰，读屏读到的是 disabled。
+		 */
+		function setThinking(on: boolean): void {
+			clearInterval(thinkRotateTimer);
+			thinkRotateTimer = 0;
+			if (chatThink) chatThink.hidden = !on;
+			if (on) {
+				chatStreamBuf = "";
+				setStreamProgress(0);
+				rotateThinking();
+				thinkRotateTimer = window.setInterval(rotateThinking, Math.max(1200, CHAT.thinkingRotateMs));
+				scrollChatToBottom(true);
+			} else if (chatRecv) {
+				chatRecv.hidden = true;
+			}
+			bubble.dataset.petChatState = on ? "thinking" : "idle";
+			if (chatSend) {
+				if (on) {
+					chatSend.dataset.petBusy = "1";
+					chatSend.setAttribute("aria-disabled", "true");
+				} else {
+					delete chatSend.dataset.petBusy;
+					chatSend.removeAttribute("aria-disabled");
+				}
+			}
+		}
+
+		/** 收尾（无论网络那侧发生了什么）：解锁输入、停"思考中"指示、按会话比一次再复位 */
 		function endTrip(session: number, state: PetStateName, hold = 0): void {
 			if (chatSession !== session) return;
 			chatBusy = false;
-			clearTimeout(thinkTimer);
+			setThinking(false);
 			reEnableInput();
 			// 这一轮飞着的时候用户按过发送（D-9）：现在给一句**看得见**的交代 ——
 			// 他刚打的那句话还在输入框里，提醒他再发一次，而不是让他对着没反应的气泡猜。
 			if (chatPendingRetry) {
 				chatPendingRetry = false;
-				const input = bubble.querySelector<HTMLInputElement>(".pet-chat input");
-				const pendingText = (input?.value ?? "").trim();
-				if (pendingText) {
-					const reply = bubble.querySelector<HTMLElement>(".pet-chat-reply");
-					if (reply)
-						reply.textContent = `${reply.textContent?.trim() ?? ""}\n\n${BUSY_HINT}`.trim();
-				}
+				const pendingText = (chatInput?.value ?? "").trim();
+				if (pendingText) addLine("notice", BUSY_HINT);
 			}
 			setState(state, hold);
 			if (hold > 0) {
@@ -948,11 +1220,15 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		 * 能连续降级、能重试"，而输入框一旦被锁死，用户看到的就是"坏了"。
 		 */
 		function reEnableInput(): void {
-			const input = bubble.querySelector<HTMLInputElement>(".pet-chat input");
-			if (!input) return;
-			input.disabled = false;
-			input.removeAttribute("data-pet-busy");
-			if (chatOpen && document.activeElement !== input) input.focus();
+			if (chatInput) {
+				chatInput.disabled = false;
+				chatInput.removeAttribute("data-pet-busy");
+			}
+			if (chatSend) {
+				delete chatSend.dataset.petBusy;
+				chatSend.removeAttribute("aria-disabled");
+			}
+			if (chatOpen && chatInput && document.activeElement !== chatInput) chatInput.focus();
 		}
 
 		/** 清掉这一轮的全部残留（关框 / 切页都走它），顺带把状态从"思考中"摘出来 */
@@ -963,42 +1239,44 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			chatAsk = null;
 			chatResume = null;
 			lastReply = "";
-			clearTimeout(thinkTimer);
+			chatStreamBuf = "";
+			histIdx = -1;
+			setThinking(false);
 			clearTimeout(stateTimer);
 			chatAbort?.abort();
 			chatAbort = null;
 		}
 
 		/**
-		 * 把一次问答交给适配层，并把结果落到气泡与九状态上（R-AGT-03 / R-AGT-04）。
+		 * 把一次问答交给适配层，并把结果落到历史区与九状态上（R-AGT-03 / R-AGT-04）。
 		 * 状态口径（**复用现有九状态，不新增**）：
 		 *   · 发出请求 → `running`（"执行任务"）。为什么不用 `review`：`review` 是 `once`
 		 *     一次性动画 + 一次星屑庆祝，语义是"完成了"；用它在"还在等"的时候眨眼会误导。
 		 *   · 失败 / 降级 → `failed`（"困惑"，1500ms 后回 `running`，聊天框还开着不算待机）。
 		 *   · 拿到答复 → `review`（"完成反馈"）。
+		 * ⚠️ R-PET-11：流式增量**不上屏**（只记字数），答复在 `turn` 落地时整段清洗后一次上屏。
 		 */
-		function runAsk(reply: HTMLElement, message: string, pending: string | null): void {
+		/**
+		 * 这一轮的答复**是哪来的**（v1.37，发起人 2026-09-27 图证）。
+		 * 只写一个只读标记（`data-pet-chat-source`），不改文案、不改状态机：
+		 *   · `"live"`     —— 真从后端拿到的答复（含 `interrupt` 那一轮）；
+		 *   · `"fallback"` —— 后端不可达 / 契约不符 / 命中禁词闸门 → 气泡里是降级台词；
+		 *   · `"mock"`     —— 配置关掉（`enable:false`，一个请求都没发）。
+		 * 为什么要它：降级台词与真答复**长得一模一样**，访客分不出"她在回答"还是"她没接上"；
+		 * 有了这个标记，`verify:ui` 才能用"不靠文本"的判据把两种情况分开。
+		 */
+		function setReplySource(kind: "live" | "fallback" | "mock"): void {
+			bubble.dataset.petChatSource = kind;
+		}
+
+		function runAsk(message: string, pending: string | null): void {
 			const session = chatSession;
 			chatBusy = true;
 			chatAsk = null;
 			chatResume = null;
 			chatPendingRetry = false;
-			// 「思考中」的可见反馈：状态切到 `running`（执行任务）+ 气泡里给一句占位。
-			// ⚠️ 提交时已经往气泡里写了**用户那句话**，所以占位不能等答复元素为空才写
-			//    （P5 复核 D-19：旧写法 `if (!reply.textContent)` 在聊天路径上永远为假，
-			//    `THINKING_TEXT` 是死代码 —— 长回合里用户唯一的反馈只剩桌宠动画，
-			//    而动画还会被飞行落地抢掉（D-12））。
-			//    口径：占位**覆盖用户那句回声**，答复一到就被真答复替换（`setReply`）。
-			//    为什么覆盖回声是可以接受的：用户刚打完那句话，他当然知道说了什么；
-			//    而"它在看我这句话"必须在按下回车**立刻**可见（旧实现要等 1200ms 那次补写，
-			//    而那次也写不进去）。
-			const thinking = () => {
-				if (chatSession !== session || pet.dragging) return;
-				setState("running");
-				reply.textContent = THINKING_TEXT;
-			};
-			thinking();
-			thinkTimer = window.setTimeout(thinking, 1200);
+			setState("running");
+			setThinking(true);
 
 			chatAbort?.abort();
 			const ac = new AbortController();
@@ -1013,12 +1291,13 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 					onReply: (text) => {
 						// 中途的流式增量：会话变了就丢掉（不能往已经关掉的气泡里写）
 						if (chatSession !== session) return;
-						setReply(reply, text);
+						chatStreamBuf = text;
+						setStreamProgress(text.length);
 					},
 				},
 			}).then((turn: AgentTurn) => {
 				if (chatSession !== session) return; // 关框 / 切页之后的迟到结果，丢掉
-				clearTimeout(thinkTimer);
+				chatStreamBuf = "";
 				if (turn.status === "interrupt") {
 					chatAsk = turn.interrupt?.ask ?? null;
 					chatResume = turn.interrupt?.reply ?? null;
@@ -1029,30 +1308,29 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 					// 适配层已经按这个顺序拼好 `text`（答复在前、反问在后），这里原样上屏。
 					// ⚠️ **答复不许截断**（P5 复核 D-7）：`ASK_MAX_CHARS` 的初衷是"询问原文太长"，
 					//    旧实现把它套在整段（答复+反问）上 → 450 字的文章列表被砍成 221 字。
-					//    现在只对**纯反问**那一形态截断；长答复交给气泡的 `max-height` + 滚动（pet.css）。
+					//    现在只对**纯反问**那一形态截断；长答复交给历史区的滚动与折叠（见 pet.css）。
 					const onlyAsk = !turn.text.includes("\n\n");
-					setReply(
-						reply,
-						onlyAsk
-							? `${trimAsk(turn.text, true)}\n\n${INTERRUPT_HINT}`
-							: turn.text,
-					);
+					setReplySource("live");
+					addLine("ai", onlyAsk ? `${trimAsk(turn.text, true)}\n\n${INTERRUPT_HINT}` : turn.text);
 					endTrip(session, "running");
 					return;
 				}
 				if (turn.status === "disabled") {
 					// 配置关闭**不是故障**：别播"困惑"动画（复核 D-11），也别按降级计
-					setReply(reply, turn.text);
+					setReplySource("mock");
+					addLine("ai", turn.text);
 					endTrip(session, "running");
 					return;
 				}
 				if (turn.status === "fallback") {
-					setReply(reply, turn.text);
+					setReplySource("fallback");
+					addLine("ai", turn.text);
 					// 降级不改输入框的可用性：还能接着问（契约 §8.9.6 第 4 条）
 					endTrip(session, "failed", 1500);
 					return;
 				}
-				setReply(reply, turn.text);
+				setReplySource("live");
+				addLine("ai", turn.text);
 				endTrip(session, "review", REVIEW_HOLD);
 			});
 		}
@@ -1216,6 +1494,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 					pet.nextAt = Number.POSITIVE_INFINITY;
 				}
 				savePos();
+				placeChat(); // 拖完松手 → 聊天框重新贴回宠物旁边（拖动途中不跟，见 placeChat 的注释）
 				return;
 			}
 
@@ -1244,72 +1523,62 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			if (Math.abs(e.clientX - cx) > w * 0.45) setFace(e.clientX > cx ? 1 : -1);
 		}
 
-		/* ── 右键菜单 ───────────────────────────────────── */
-		/**
-		 * 菜单尺寸缓存（只为 clamp 用）：同一档位下菜单项固定，量一次就够。
-		 * 视口尺寸变了会清零重量（`max-height: calc(100vh - 16px)` 会改变实际高度）；
-		 * R-PET-08 起**切档也会清零**（「落下去」/「飘起来」二选一，菜单高度会变，见 syncMenuMode）。
-		 */
+		/* ── 浮层摆位（右键菜单 + 聊天框**共用这一份算法**，R-PET-08 / R-PET-11）──
+		   ⚠️ 为什么要把 `placeMenu()` 抽成通用的 `placePanel()`：R-PET-11 要求聊天框
+		      "像右键菜单那样出现在桌宠左边或右边"。如果给聊天框另写一套摆位，两份算法
+		      迟早会给出互相矛盾的结果（同一个宠物位置，菜单说"贴左"、聊天框说"贴右"），
+		      而且遮挡抽样这种有真机教训的逻辑（T41~T43）会被复制一遍、只修一份。
+		      所以：**同一份选边 + 5 点抽样 + 让位 + 夹回视口**，调用方只给尺寸与两条可选约束。
+		   `placeMenu()` 的对外行为（`data-pet-menu-side` / `-occluded` / `-nudged`）**一个字没改**。 */
+
+		/** 菜单尺寸缓存（只为 clamp 用）：同一档位下菜单项固定，量一次就够。
+		 *  视口尺寸变了会清零重量（`max-height: calc(100vh - 16px)` 会改变实际高度）；
+		 *  R-PET-08 起**切档也会清零**（「落下去」/「飘起来」二选一，菜单高度会变，见 syncMenuMode）。 */
 		let menuW = 0;
 		let menuH = 0;
 
 		/** 遮挡抽样的四角内缩量（px）：避开圆角/边框，别让"压在圆角外"被算成遮挡 */
-		const MENU_SAMPLE_INSET = 6;
+		const PANEL_SAMPLE_INSET = 6;
 
-		/**
-		 * 按当前档位决定菜单里显示「落下去」还是「飘起来」（R-PET-08）
-		 * ============================================================================
-		 * 两个按钮都在 DOM 里（不是条件渲染）：切档只翻 `hidden`，不用重建节点。
-		 * 悬浮/固定档 → 显示「落下去」（可以把宠物放回地面）；贴地档 → 显示「飘起来」
-		 * （否则一旦落下去就再也回不到悬浮，发起人会陷进死路）。
-		 * ⚠️ 显隐会改变菜单高度 → 尺寸缓存必须作废，否则 `placeMenu()` 会拿旧高度算摆位。
-		 */
-		function syncMenuMode(): void {
-			if (!menu) return;
-			const ground = pet.mode === "ground";
-			if (dropItem) dropItem.hidden = ground;
-			if (riseItem) riseItem.hidden = !ground;
-			menuW = 0;
-			menuH = 0;
+		/** 浮层尺寸（px，摆位用） */
+		interface PanelBox {
+			w: number;
+			h: number;
 		}
 
-		/**
-		 * 菜单矩形内的抽样点：**中心 + 四角内缩**（R-PET-08）
-		 * 内缩量取 `MENU_SAMPLE_INSET` 与矩形的 1/4 中的小者，保证极小的菜单也取得到 5 个点。
-		 */
-		function menuSamplePoints(l: number, t: number): Array<[number, number]> {
-			const ix = Math.min(MENU_SAMPLE_INSET, Math.max(1, menuW / 4));
-			const iy = Math.min(MENU_SAMPLE_INSET, Math.max(1, menuH / 4));
-			return [
-				[l + menuW / 2, t + menuH / 2],
-				[l + ix, t + iy],
-				[l + menuW - ix, t + iy],
-				[l + ix, t + menuH - iy],
-				[l + menuW - ix, t + menuH - iy],
-			];
+		/** 摆位结果（视口坐标）；`nudged` = 为避让遮挡动过"自由轴"上的位置 */
+		interface PanelPlacement {
+			side: "left" | "right" | "above" | "below";
+			left: number;
+			top: number;
+			miss: number;
+			nudged: boolean;
 		}
 
-		/**
-		 * 在这个位置上抽样：返回"没命中菜单自己"的点数与**遮挡方盒子**。
-		 * ⚠️ 读的是**像素真话**：`document.elementFromPoint()` 返回的是真正画在最上面的元素，
-		 * 遮挡方（壁纸 / 正文面板 / 侧栏 / 导航栏 / 任何 z-index 更高的浮层）会立刻暴露出来。
-		 * 调用前必须已经把菜单摆到 (l, t) —— 它靠的是"当前这一刻的真实布局"。
-		 */
-		function sampleAt(l: number, t: number): { miss: number; boxes: DOMRect[] } {
-			menu.style.left = `${Math.round(l)}px`;
-			menu.style.top = `${Math.round(t)}px`;
-			let miss = 0;
-			const boxes: DOMRect[] = [];
-			for (const [x, y] of menuSamplePoints(l, t)) {
-				const node = document.elementFromPoint(x, y);
-				if (node && (node === menu || menu.contains(node))) continue;
-				miss++;
-				if (node) {
-					const box = occluderBox(node, x, y);
-					if (box.width > 0 && box.height > 0) boxes.push(box);
-				}
-			}
-			return { miss, boxes };
+		interface PanelPlaceOpts {
+			/** 与宠物之间的间隙 */
+			gap: number;
+			/** 与视口四边的安全边距 */
+			margin: number;
+			/**
+			 * 两侧都放不下时是否允许改走"宠物上方/下方"。
+			 * 菜单是 `false`（R-PET-08 实测过：视口窄到并排不了时"取空间更大的一侧"就好，
+			 * 菜单只有 132px 宽、压住宠物 1~2px 可以接受）；聊天框是 `true`
+			 * （340px 宽，硬塞会直接盖住宠物与正文，宁可上下摆）。
+			 */
+			verticalFallback: boolean;
+			/**
+			 * 视口坐标 → 节点自身坐标系（写 `style.left/top` 用）。
+			 * 菜单是 `position:fixed` 的兄弟节点 → 原样（默认）；聊天框在 `.pet` 里
+			 * （`.pet` 有 `transform`，fixed/absolute 都以它为包含块）→ 减 `pet.x/pet.y`。
+			 * ⚠️ `elementFromPoint` 抽样用的仍然是**视口坐标**，转换只作用于写样式那一步。
+			 */
+			toLocal?: (left: number, top: number) => { left: number; top: number };
+			/**
+			 * 额外约束：在这个纵向带上，"右边最多能到哪"（px）。
+			 * 聊天框用它避开右下角的浮动按钮列（返回顶部等）；菜单不传（行为保持原样）。
+			 */
+			rightEdgeFor?: (top: number, h: number) => number;
 		}
 
 		/**
@@ -1339,58 +1608,131 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			return box;
 		}
 
-		/** 纵向夹回视口（宠物贴屏幕上下边、菜单比视口还高时都不会溢出） */
-		function clampMenuTop(t: number): number {
-			return Math.max(menuMargin, Math.min(Math.max(menuMargin, vh - menuMargin - menuH), t));
-		}
-
 		/**
-		 * 把菜单摆到宠物的**左边或右边**（R-PET-08 重写；R-PET-07 的"优先下方/翻上方"整条判据已替换）
+		 * 把浮层摆到宠物的**左边或右边**（R-PET-08 的算法本体；R-PET-11 起菜单与聊天框共用）
 		 * ============================================================================
-		 * 发起人原话：「**右键出现的选择框最好是要出现在人物的左边或者右边**啊，出现判断应该是
-		 * **左边或右边区域够不够展开**，展开之后**会不会被遮挡**。」→ 四段式：
-		 *   ① **选边**：两侧可用宽度 = 宠物矩形到视口边、扣掉 `menuMargin`(8) 与 `menuGap`(10)；
-		 *      `room >= menuW` 才算"这一侧放得下"。**优先右侧**，右侧放不下才翻左侧。
+		 * 发起人原话（R-PET-08）：「**右键出现的选择框最好是要出现在人物的左边或者右边**啊，
+		 * 出现判断应该是**左边或右边区域够不够展开**，展开之后**会不会被遮挡**。」→ 四段式：
+		 *   ① **选边**：两侧可用宽度 = 宠物矩形到视口边、扣掉 `margin`(8) 与 `gap`(10)；
+		 *      `room >= box.w` 才算"这一侧放得下"。**优先右侧**，右侧放不下才翻左侧。
 		 *      为什么默认右侧：本站是 LTR 排版，"从宠物向右读"与阅读方向一致；而且宠物的默认
 		 *      出场位在**右下角**（`startSide: "right"` + 给浮动按钮预留 64px），右侧通常本来就
 		 *      不够 —— 于是默认视觉上就是"贴在宠物左边"，也不会挡住右下角的浮动按钮列。
-		 *      两侧都放不下（视口比 `menuW + 宠物宽 + 间隙` 还窄，实测 390 宽、宠物落在正中
-		 *      那一小段会出现）→ **取空间更大的一侧**，再夹回视口；这时菜单可能压住宠物
-		 *      1~2px，属于几何上无解的兜底（`.pet-menu` 132px + 宠物 124px > 390 − 2×8 − 2×10），
-		 *      不再假装能"并排"。
-		 *   ② **纵向**：菜单**顶部对齐宠物顶部**（气泡在宠物上方，纵向对齐不会跟气泡打架），
-		 *      再夹回 `[menuMargin, vh - menuMargin - menuH]` —— 宠物贴着屏幕上下边时菜单也不溢出。
+		 *      两侧都放不下：菜单**取空间更大的一侧**（几何上无解的兜底，132px 的菜单压住
+		 *      宠物 1~2px 可以忍）；聊天框（`verticalFallback:true`）改走**上下兜底**（见 ⑤）。
+		 *   ② **纵向**：顶部对齐宠物顶部（气泡在宠物上方，纵向对齐不会跟气泡打架），
+		 *      再夹回 `[margin, vh - margin - box.h]` —— 宠物贴着屏幕上下边时也不溢出。
 		 *   ③ **遮挡检测**：摆好之后用 `elementFromPoint` 抽 5 个点（中心 + 四角内缩），
-		 *      命中的必须是**菜单自己**；**被挡住就换另一侧**（这是首选补救）。
-		 *   ④ **兜底（两侧都被挡住）**：先试**纵向让开遮挡物**（挪到遮挡带上/下沿之外，最多 3 轮，
-		 *      实测就是这条救回"宠物拖到最上面"的场景 —— 模板 `#navbar-wrapper` 是 `z-index: 80`，
-		 *      比菜单的 67 高，顶部对齐的菜单会有一截压在导航栏下面）；让不开才取**遮挡点更少**
+		 *      命中的必须是**浮层自己**；**被挡住就换另一侧**（这是首选补救）。
+		 *   ④ **兜底（两侧都被挡住）**：先试**自由轴让开遮挡物**（左右摆位时是纵向：挪到遮挡带
+		 *      上/下沿之外，最多 3 轮，实测就是这条救回"宠物拖到最上面"的场景 —— 模板
+		 *      `#navbar-wrapper` 是 `z-index: 80`，比浮层的 67 高）；让不开才取**遮挡点更少**
 		 *      的一侧（明确兜底，不摆烂也不硬撑）。
-		 *      结果写进 DOM：`data-pet-menu-side`（`left`/`right`）、`data-pet-menu-occluded`
-		 *      （被挡住的抽样点数，0 = 干净）、`data-pet-menu-nudged`（1 = 这次为避让遮挡动过纵向位置）。
+		 *   ⑤ **上下兜底**（只有 `verticalFallback:true` 走）：优先宠物**下方**（阅读方向），
+		 *      下方放不下翻上方，横向与宠物左对齐再夹回视口；同样过一遍抽样，被挡就在横向上
+		 *      让开遮挡带（最多 3 轮）。
 		 * ⚠️ 层级仍然只有 `petConfig.zIndex + 1` = 67（< 导航栏 80 / 浮动控件 1000 / 移动端面板 1100）：
-		 * 这里是"换边 + 纵向让开"，**不是**靠抬高 z-index 把别人压下去（R-PET-07 的 z-index 结论不变）。
+		 * 这里是"换边 + 让位"，**不是**靠抬高 z-index 把别人压下去（R-PET-07 的 z-index 结论不变）。
 		 */
-		function placeMenu(): void {
-			if (!menu || menu.hidden) return;
-			if (!menuW || !menuH) {
-				menuW = menu.offsetWidth || 132;
-				menuH = menu.offsetHeight || 200;
-			}
-			const gap = menuGap;
-			const m = menuMargin;
-			// ② 纵向：顶部对齐宠物顶部，再夹进视口
-			const aligned = clampMenuTop(pet.y);
+		function placePanel(node: HTMLElement, box: PanelBox, opts: PanelPlaceOpts): PanelPlacement {
+			const gap = opts.gap;
+			const m = opts.margin;
+			const pw = Math.max(1, box.w);
+			const ph = Math.max(1, box.h);
+			const toLocal = opts.toLocal ?? ((left: number, top: number) => ({ left, top }));
+			const write = (left: number, top: number): void => {
+				const p = toLocal(left, top);
+				node.style.left = `${Math.round(p.left)}px`;
+				node.style.top = `${Math.round(p.top)}px`;
+			};
+			const clampTop = (t: number): number => Math.max(m, Math.min(Math.max(m, vh - m - ph), t));
+			const clampLeft = (l: number): number => Math.max(m, Math.min(Math.max(m, vw - m - pw), l));
+			/** 浮层矩形内的抽样点：中心 + 四角内缩（内缩量取 `PANEL_SAMPLE_INSET` 与 1/4 中的小者） */
+			const samplePoints = (l: number, t: number): Array<[number, number]> => {
+				const ix = Math.min(PANEL_SAMPLE_INSET, Math.max(1, pw / 4));
+				const iy = Math.min(PANEL_SAMPLE_INSET, Math.max(1, ph / 4));
+				return [
+					[l + pw / 2, t + ph / 2],
+					[l + ix, t + iy],
+					[l + pw - ix, t + iy],
+					[l + ix, t + ph - iy],
+					[l + pw - ix, t + ph - iy],
+				];
+			};
+			/**
+			 * 在这个位置上抽样：返回"没命中浮层自己"的点数与**遮挡方盒子**。
+			 * ⚠️ 读的是**像素真话**：`document.elementFromPoint()` 返回的是真正画在最上面的元素，
+			 * 遮挡方（壁纸 / 正文面板 / 侧栏 / 导航栏 / 任何 z-index 更高的浮层）会立刻暴露出来。
+			 * 调用前必须已经把浮层摆到 (l, t) —— 它靠的是"当前这一刻的真实布局"。
+			 */
+			const sampleAt = (l: number, t: number): { miss: number; boxes: DOMRect[] } => {
+				write(l, t);
+				let miss = 0;
+				const boxes: DOMRect[] = [];
+				for (const [x, y] of samplePoints(l, t)) {
+					const hitNode = document.elementFromPoint(x, y);
+					if (hitNode && (hitNode === node || node.contains(hitNode))) continue;
+					miss++;
+					if (hitNode) {
+						const o = occluderBox(hitNode, x, y);
+						if (o.width > 0 && o.height > 0) boxes.push(o);
+					}
+				}
+				return { miss, boxes };
+			};
+
+			/** 纵向：顶部对齐宠物顶部，再夹进视口 */
+			const aligned = clampTop(pet.y);
+			const rightEdge = opts.rightEdgeFor ? Math.min(vw - m, opts.rightEdgeFor(aligned, ph)) : vw - m;
 			// ① 横向：两个候选（右优先），room = 这一侧"扣掉边距与间隙后"还剩多少
-			const right = { side: "right" as const, raw: pet.x + w + gap, room: vw - m - (pet.x + w + gap) };
-			const left = { side: "left" as const, raw: pet.x - gap - menuW, room: pet.x - gap - m };
-			const fitting = [right, left].filter((c) => c.room >= menuW);
+			const right = { side: "right" as const, raw: pet.x + w + gap, room: rightEdge - (pet.x + w + gap) };
+			const left = { side: "left" as const, raw: pet.x - gap - pw, room: pet.x - gap - m };
+			const fitting = [right, left].filter((c) => c.room >= pw);
+
+			// ⑤ 上下兜底（只有聊天框这类大浮层会走到）：下方优先，放不下翻上方
+			if (!fitting.length && opts.verticalFallback) {
+				const belowTop = pet.y + h + gap;
+				const aboveTop = pet.y - gap - ph;
+				const belowFits = belowTop + ph <= vh - m;
+				const aboveFits = aboveTop >= m;
+				const pool = belowFits || !aboveFits ? [belowTop, aboveTop] : [aboveTop, belowTop];
+				const geoV = pool.map((t) => ({ side: t === belowTop ? ("below" as const) : ("above" as const), left: clampLeft(pet.x), top: clampTop(t) }));
+				let bestV: PanelPlacement | null = null;
+				for (const g of geoV) {
+					const t = g.top;
+					let r = sampleAt(g.left, t);
+					let miss = r.miss;
+					let nudged = false;
+					// 自由轴是横向：让开遮挡带（左右各试一次，取更干净的）
+					for (let k = 0; k < 3 && r.miss > 0 && r.boxes.length; k++) {
+						const right2 = clampLeft(Math.max(...r.boxes.map((b) => b.right)) + 4);
+						const left2 = clampLeft(Math.min(...r.boxes.map((b) => b.left)) - 4 - pw);
+						let step: { l: number; miss: number } | null = null;
+						for (const l2 of [right2, left2]) {
+							if (l2 === g.left) continue;
+							const r2 = sampleAt(l2, t);
+							if (r2.miss < r.miss && (step === null || r2.miss < step.miss)) step = { l: l2, miss: r2.miss };
+						}
+						if (!step) break;
+						g.left = step.l;
+						nudged = true;
+						r = sampleAt(g.left, t);
+						miss = r.miss;
+					}
+					if (!bestV || miss < bestV.miss) bestV = { side: g.side, left: g.left, top: t, miss, nudged };
+					if (bestV.miss === 0) break;
+				}
+				const chosenV = bestV ?? { side: "below" as const, left: clampLeft(pet.x), top: clampTop(belowTop), miss: -1, nudged: false };
+				write(chosenV.left, chosenV.top);
+				return chosenV;
+			}
+
 			const pool = fitting.length
 				? fitting // 放得下的一侧（右优先），再按遮挡筛
 				: [right.room >= left.room ? right : left]; // 两侧都放不下 → 空间大的那侧兜底
 			const geo = pool.map((c) => ({
 				side: c.side,
-				left: Math.max(m, Math.min(Math.max(m, vw - m - menuW), c.raw)),
+				left: c.side === "right" ? Math.max(m, Math.min(Math.max(m, rightEdge - pw), c.raw)) : clampLeft(c.raw),
 			}));
 			let best: { side: "left" | "right"; left: number; top: number; miss: number } | null = null;
 			// ③ 第一轮：对齐宠物顶部，逐个候选侧抽样；哪一侧干净就用它（被遮挡 → 换另一侧）
@@ -1406,8 +1748,8 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 					let r = sampleAt(g.left, t);
 					let misses = r.miss;
 					for (let k = 0; k < 3 && r.miss > 0 && r.boxes.length; k++) {
-						const down = clampMenuTop(Math.max(...r.boxes.map((b) => b.bottom)) + 4);
-						const up = clampMenuTop(Math.min(...r.boxes.map((b) => b.top)) - 4 - menuH);
+						const down = clampTop(Math.max(...r.boxes.map((b) => b.bottom)) + 4);
+						const up = clampTop(Math.min(...r.boxes.map((b) => b.top)) - 4 - ph);
 						// 两个方向各抽一次，取更干净的那个（相同就保持不动，避免来回抖）
 						let step: { t: number; miss: number } | null = null;
 						for (const t2 of [down, up]) {
@@ -1425,12 +1767,43 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				}
 			}
 			// 兜底：pool 至少有一个候选，所以 best 一定有值（最坏情况就是"遮挡更少的那一侧"）
-			const chosen = best ?? { side: "right" as const, left: Math.max(m, Math.min(vw - m - menuW, pet.x + w + gap)), top: aligned, miss: -1 };
-			menu.style.left = `${Math.round(chosen.left)}px`;
-			menu.style.top = `${Math.round(chosen.top)}px`;
-			menu.dataset.petMenuSide = chosen.side;
-			menu.dataset.petMenuOccluded = String(chosen.miss);
-			menu.dataset.petMenuNudged = chosen.top === aligned ? "0" : "1";
+			const chosen = best ?? { side: "right" as const, left: clampLeft(pet.x + w + gap), top: aligned, miss: -1 };
+			write(chosen.left, chosen.top);
+			return { ...chosen, nudged: chosen.top !== aligned };
+		}
+
+		/**
+		 * 按当前档位决定菜单里显示「落下去」还是「飘起来」（R-PET-08）
+		 * ============================================================================
+		 * 两个按钮都在 DOM 里（不是条件渲染）：切档只翻 `hidden`，不用重建节点。
+		 * 悬浮/固定档 → 显示「落下去」（可以把宠物放回地面）；贴地档 → 显示「飘起来」
+		 * （否则一旦落下去就再也回不到悬浮，发起人会陷进死路）。
+		 * ⚠️ 显隐会改变菜单高度 → 尺寸缓存必须作废，否则 `placeMenu()` 会拿旧高度算摆位。
+		 */
+		function syncMenuMode(): void {
+			if (!menu) return;
+			const ground = pet.mode === "ground";
+			if (dropItem) dropItem.hidden = ground;
+			if (riseItem) riseItem.hidden = !ground;
+			menuW = 0;
+			menuH = 0;
+		}
+
+		/** 菜单摆位（口径 = `placePanel()` 的"不上下兜底"那一支，R-PET-08 起未变） */
+		function placeMenu(): void {
+			if (!menu || menu.hidden) return;
+			if (!menuW || !menuH) {
+				menuW = menu.offsetWidth || 132;
+				menuH = menu.offsetHeight || 200;
+			}
+			const p = placePanel(
+				menu,
+				{ w: menuW, h: menuH },
+				{ gap: menuGap, margin: menuMargin, verticalFallback: false },
+			);
+			menu.dataset.petMenuSide = p.side;
+			menu.dataset.petMenuOccluded = String(p.miss);
+			menu.dataset.petMenuNudged = p.nudged ? "1" : "0";
 		}
 
 		/** 打开菜单：先按档位定好「落下去」/「飘起来」，显形（才量得到尺寸）再摆位 */
@@ -1449,7 +1822,9 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		   ⚠️ 这条路径**不再读 `petConfig.agent.enable`**（那是 P3 的遗留死配置）：
 		      真正的开关是 `agentConfig.enable`，由 `askAemeath()` 在里面判（关掉时
 		      **一个请求都不发**，直接回 mock）。气泡提示语也照这个分叉，但两边都不许
-		      出现"服务/连接/后端"这类运维字样。 */
+		      出现"服务/连接/后端"这类运维字样。
+		   R-PET-11：开框 = 建面板（`buildChatPanel()`，历史按内存里的 `chatLog` 回填）
+		      + 摆位（`placeChat()`）+ 自动聚焦输入框（焦点管理，别让用户再点一下）。 */
 		function openChat(): void {
 			chatOpen = true;
 			clearChatRuntime(); // 上一次的计时器 / AbortController / 待续跑状态一律作废
@@ -1461,47 +1836,245 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			bubble.classList.add("is-chat");
 			bubble.classList.add("is-pop");
 			clearTimeout(sayTimer);
-			bubble.innerHTML = "";
-			const tip = document.createElement("div");
-			tip.textContent = "聊点什么？";
-			const reply = document.createElement("div");
-			reply.className = "pet-chat-reply";
+			buildChatPanel();
+			placeChat();
+			chatInput?.focus();
+		}
+
+		/**
+		 * 开框时把面板**按 `chatLog` 重建**（R-PET-11）
+		 * ============================================================================
+		 * 为什么"每次开都重建"而不是"留着 DOM 只翻显隐"：`closeChat()` 有一条**冻结的
+		 * 老口径** —— 关框之后 `#pet-bubble.textContent` 必须为空（R-AGT-04 的复位断言就
+		 * 量的这个）。既然关框要清空，那"关框再开续上历史"就只剩一条干净的路：
+		 * **历史留在内存数组里，DOM 按它重建**（单一事实来源，不会出现"DOM 多一条、数组没有"）。
+		 * 面板结构（自上而下，也就是"历史在上、输入框在下"这条需求的落点）：
+		 *   `.pet-chat-head`   常驻标题 + 「回到最新」（往回翻时才出现）+ 「清空对话」
+		 *   `.pet-chat-log`    历史区（`role="log" aria-live="polite"`：新行会被读屏播报）
+		 *     └ `.pet-chat-line…` 逐条；末尾是 `.pet-chat-thinking`（思考中指示）
+		 *   `.pet-chat`        输入框 + 发送（**最后一个子节点**，见 CSS 的 sticky bottom）
+		 */
+		function buildChatPanel(): void {
+			bubble.textContent = "";
+			// 聊天时整块气泡从 `role="status"` 换成 `role="dialog"`：
+			// `role=status` 是 aria-atomic 的隐式语义 —— 历史区一多，每次新增都会**重播整段
+			// 聊天记录**（读屏体验灾难）。改成 dialog + 让 `.pet-chat-log` 自己 polite 播新增行。
+			bubble.setAttribute("role", "dialog");
+			bubble.setAttribute("aria-label", "和爱弥斯聊天");
+			bubble.removeAttribute("aria-live");
+
+			const head = document.createElement("div");
+			head.className = "pet-chat-head";
+			const title = document.createElement("span");
+			title.className = "pet-chat-title";
+			title.textContent = "和爱弥斯聊天";
+			chatJump = document.createElement("button");
+			chatJump.type = "button";
+			chatJump.className = "pet-chat-jump";
+			chatJump.textContent = "↓ 最新";
+			chatJump.title = "跳到最新一句";
+			chatJump.hidden = true;
+			chatJump.addEventListener("click", () => scrollChatToBottom(true));
+			const clear = document.createElement("button");
+			clear.type = "button";
+			clear.className = "pet-chat-clear";
+			clear.textContent = "清空对话";
+			clear.title = "清掉这次会话里看得见的聊天记录";
+			clear.addEventListener("click", () => clearConversation());
+			head.append(title, chatJump, clear);
+
+			chatList = document.createElement("div");
+			chatList.className = "pet-chat-log";
+			chatList.setAttribute("role", "log");
+			chatList.setAttribute("aria-live", "polite");
+			chatList.setAttribute("aria-relevant", "additions");
+			chatList.setAttribute("aria-label", "聊天记录");
+
+			chatThink = document.createElement("div");
+			chatThink.className = "pet-chat-thinking";
+			chatThink.hidden = true;
+			const dots = document.createElement("span");
+			dots.className = "pet-chat-dots";
+			dots.setAttribute("aria-hidden", "true");
+			for (let i = 0; i < 3; i++) dots.appendChild(document.createElement("i"));
+			chatThinkText = document.createElement("span");
+			chatThinkText.className = "pet-chat-think-text";
+			chatRecv = document.createElement("span");
+			chatRecv.className = "pet-chat-recv";
+			chatRecv.hidden = true;
+			chatThink.append(dots, chatThinkText, chatRecv);
+			chatList.appendChild(chatThink);
+
 			const form = document.createElement("form");
 			form.className = "pet-chat";
-			const input = document.createElement("input");
-			input.type = "text";
-			input.maxLength = petConfig.agent.maxLength;
-			input.placeholder = "和爱弥斯说……";
-			input.setAttribute("aria-label", "对爱弥斯说的话");
-			const send = document.createElement("button");
-			send.type = "submit";
-			send.textContent = "发送";
-			form.append(input, send);
-			bubble.append(tip, form, reply);
-			input.focus();
+			chatInput = document.createElement("input");
+			chatInput.type = "text";
+			chatInput.maxLength = petConfig.agent.maxLength;
+			chatInput.placeholder = "和爱弥斯说……";
+			chatInput.setAttribute("aria-label", "对爱弥斯说的话");
+			chatSend = document.createElement("button");
+			chatSend.type = "submit";
+			chatSend.textContent = "发送";
+			form.append(chatInput, chatSend);
+			bubble.append(head, chatList, form);
+
+			// 历史回填（关框再开、切页之后再开都走这里 —— 见 `chatLog` 的注释）
+			for (const line of chatLog) chatList.insertBefore(buildLine(line), chatThink);
+			ensureEmptyHint();
+			markLatestReply();
+			setThinking(chatBusy);
+			bubble.addEventListener("scroll", () => showJump(!chatNearBottom()), { passive: true });
+			scrollChatToBottom(true);
+
 			form.addEventListener("submit", (e) => {
 				e.preventDefault();
-				const text = input.value.trim();
+				const text = (chatInput?.value ?? "").trim();
 				if (!text) return;
 				// 请求还在飞：**不许静默吞掉**（P5 复核 D-9）。留着用户那句话（别清输入框，
 				// 否则他刚打的字没了），并给一句可见反馈；这一轮落地后会再提醒他重发一次。
 				if (chatBusy) {
 					chatPendingRetry = true;
-					send.dataset.petBusy = "1";
-					// ⚠️ 反馈要**追加**，不能"只在气泡为空时写"：提交第一句时气泡里已经有
-					//    `THINKING_TEXT` 了，那条判断会让反馈永远写不进去（写这段时实测踩到）。
-					if (!reply.textContent?.includes(BUSY_HINT))
-						reply.textContent = `${reply.textContent?.trim() ?? ""}\n\n${BUSY_HINT}`.trim();
+					if (chatSend) {
+						chatSend.dataset.petBusy = "1";
+						chatSend.setAttribute("aria-disabled", "true");
+					}
+					// ⚠️ 反馈要**追加**：提交第一句时思考指示已经在转了，任何"只在答复为空时写"
+					//    的判断都会让反馈永远写不进去（写这段时实测踩到）。
+					if (!chatLog.some((l) => l.role === "notice" && l.text === BUSY_HINT))
+						addLine("notice", BUSY_HINT);
 					return;
 				}
-				input.value = "";
-				// 刻意**不** disable 输入框：`chatBusy` 已经挡住重复提交，而禁用会让
-				// "读到 disabled 就当坏了"的旁路判断和读屏体验都变差（气泡里的答复才是反馈）。
-				send.dataset.petBusy = "1"; // 只给验收脚本读"正在飞"这个事实，样式不动
-				reply.textContent = text; // 用户那句先上屏，接着才是思考态与答复
+				if (chatInput) chatInput.value = "";
+				addLine("user", text); // 用户那句先进历史（R-PET-11：历史区就是"看得见的上下文"）
+				histIdx = -1;
 				lastReply = text; // 兜底：适配层拿它判"这句是不是在回答刚才的反问"
-				runAsk(reply, text, chatResume);
+				runAsk(text, chatResume);
 			});
+			// 键盘：Enter 发送走表单的隐式提交（原生行为，不用另写）；Esc 关框在 document 上。
+			// ↑/↓ = 翻自己说过的话（R-PET-11 的附加优化：历史能滚了，键盘也该能翻）
+			// ⚠️ 用局部 `const box = chatInput` 而不是直接引用闭包变量：后者是 `let`（可空），
+			//    TS 在回调里会一直判"possibly null"（astro check 会红）。
+			const box = chatInput;
+			box.addEventListener("keydown", (e: KeyboardEvent) => {
+				const mine = chatLog.filter((l) => l.role === "user");
+				if (!mine.length) return;
+				if (e.key === "ArrowUp" && (box.selectionStart ?? 0) === 0 && !box.value) {
+					e.preventDefault();
+					histIdx = histIdx < 0 ? mine.length - 1 : Math.max(0, histIdx - 1);
+					box.value = mine[histIdx].text;
+				} else if (e.key === "ArrowDown" && histIdx >= 0) {
+					e.preventDefault();
+					if (histIdx >= mine.length - 1) {
+						histIdx = -1;
+						box.value = "";
+					} else {
+						histIdx += 1;
+						box.value = mine[histIdx].text;
+					}
+				}
+			});
+		}
+
+		/**
+		 * 摆聊天框（R-PET-11）：**复用 `placePanel()`**（与右键菜单同一份选边 + 遮挡抽样），
+		 * 只多两条约束：
+		 *   · `verticalFallback: true` —— 340px 的面板并排不了时改走宠物上下方（明确兜底）；
+		 *   · `rightEdgeFor` —— 避开右下角的浮动按钮列（`#back-to-top-btn` / `.floating-controls-container`），
+		 *     判据与 R-PET-05 给宠物留安全区时用的是同一批节点。
+		 * ⚠️ 坐标：气泡在 `.pet` 里（`.pet` 有 `transform`，它就是包含块），
+		 *    所以写样式时要减掉 `pet.x/pet.y`；抽样仍按视口坐标（`toLocal` 只作用于写样式）。
+		 * ⚠️ 什么时候重排：开框、缩窗、滚动（浮动按钮会随滚动出现/消失）。**宠物飞行/浮动时不重排** ——
+		 *    面板是"读东西的地方"，跟着宠物一呼一吸地漂会让字看不稳；拖动松手与飞行结束各补一次。
+		 */
+		/**
+		 * 在这个纵向带上，"浮层右边最多能到哪"（px）——避开右下角的浮动按钮列。
+		 * 节点与判据跟 R-PET-05 给宠物留安全区时用的是同一批（`#back-to-top-btn` /
+		 * `.floating-controls-container`），只是这里换成"整块面板的右边界"。
+		 */
+		function floatFreeRight(top: number, ph: number): number {
+			let limit = vw - menuMargin;
+			for (const node of document.querySelectorAll<HTMLElement>(
+				"#back-to-top-btn, .floating-controls-container",
+			)) {
+				const r = node.getBoundingClientRect();
+				if (r.width === 0 || r.height === 0) continue;
+				if (r.bottom < top || r.top > top + ph) continue; // 纵向不重叠 → 不挡
+				limit = Math.min(limit, r.left - 12);
+			}
+			return limit;
+		}
+
+		function placeChat(): void {
+			if (!chatOpen) return;
+			const m = menuMargin;
+			const gap = menuGap;
+			let panelW = Math.min(CHAT.width, Math.max(CHAT.minWidth, vw - m * 2));
+			let panelH = Math.min(CHAT.height, Math.max(CHAT.minHeight, vh - m * 2));
+			// 两侧可用宽度：**与 `placePanel()` 的选边口径逐字一致**（宠物矩形到视口边，
+			// 扣掉边距与间隙；右侧再避开浮动按钮列），否则"这里算够、那里算不够"会互相打架
+			const roomRight = Math.min(vw - m, floatFreeRight(pet.y, panelH)) - (pet.x + w + gap);
+			const roomLeft = pet.x - gap - m;
+			const bestRoom = Math.max(roomRight, roomLeft);
+			if (bestRoom < panelW && bestRoom >= CHAT.minWidth) {
+				// ② 收窄：塞得进就**别翻上下** —— "出现在人物的左边或者右边"是发起人明确的偏好，
+				//    宁可窄一点（340 → 可用宽度），也别把他要的方向换掉。留 2px 余量给边框取整。
+				panelW = Math.max(CHAT.minWidth, Math.floor(bestRoom) - 2);
+			} else if (bestRoom < CHAT.minWidth) {
+				// ③ 上下兜底（明确兜底）：先把高度压到"宠物上方/下方真正剩多少" ——
+				//    宁可矮（面板内部本来就能滚），也别把宠物本体整块盖住。
+				//    ⚠️ 高度要按**两支里更紧的那一份**量：最后被选中哪一支不由这里决定 ——
+				//       `placePanel()` 还会做遮挡抽样（620×700 实测：上方那一支被顶部导航栏挡住 →
+				//       它自己翻到下方），只按其中一支量高，另一支就会因为放不下而被夹回来压住宠物
+				//       （实测压了 2px）。两支都 ≥ `minHeight` 时取小的那份 → 选哪支都不压；
+				//       都放不下（极端矮视口）才取大的那份，允许压一点，至少还读得到。
+				const below = vh - m - (pet.y + h + gap);
+				const above = pet.y - gap - m;
+				const tight = Math.min(below, above);
+				const room = tight >= CHAT.minHeight ? tight : Math.max(below, above);
+				panelH = Math.max(CHAT.minHeight, Math.min(CHAT.height, room));
+				panelW = Math.min(CHAT.width, vw - m * 2);
+			}
+			bubble.style.setProperty("--pet-chat-w", `${Math.round(panelW)}px`);
+			bubble.style.setProperty("--pet-chat-h", `${Math.round(panelH)}px`);
+			// 量真实盒子（宽高都可能被视口夹过），拿它去算摆位
+			const box: PanelBox = { w: bubble.offsetWidth || panelW, h: bubble.offsetHeight || panelH };
+			const p = placePanel(bubble, box, {
+				gap,
+				margin: m,
+				verticalFallback: true,
+				toLocal: (left, top) => ({ left: left - pet.x, top: top - pet.y }),
+				rightEdgeFor: floatFreeRight,
+			});
+			bubble.dataset.petChatSide = p.side;
+			bubble.dataset.petChatOccluded = String(p.miss);
+			bubble.dataset.petChatNudged = p.nudged ? "1" : "0";
+			bubble.dataset.petChatW = String(Math.round(box.w));
+			bubble.dataset.petChatH = String(Math.round(box.h));
+		}
+
+		/**
+		 * 「清空对话」（R-PET-11）：清历史 + 放掉后端那条线程。
+		 * 为什么放在**面板头部**而不是输入框旁边：它是破坏性操作，离发送按钮越远越不容易误点，
+		 * 而且不占输入行的宽度（输入框越宽越好打字）。
+		 * 为什么顺带 `resetSession()`：清空之后后端还拿着上文会很怪（用户说"刚才那个"，它却还记得）。
+		 */
+		function clearConversation(): void {
+			// 与关框同一条作废口径：掐掉在飞的这一轮，迟到结果不许再写进来
+			chatSession++;
+			chatAbort?.abort();
+			chatAbort = null;
+			chatBusy = false;
+			chatPendingRetry = false;
+			chatAsk = null;
+			chatResume = null;
+			lastReply = "";
+			chatLog = [];
+			clearLineNodes();
+			setThinking(false);
+			reEnableInput();
+			resetSession();
+			addLine("notice", CLEAR_NOTICE);
+			setState("running");
 		}
 
 		function closeChat(): void {
@@ -1510,7 +2083,38 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			clearChatRuntime(); // 关框 = 这一轮作废：掐流、清计时器、迟到结果不许再写气泡
 			bubble.classList.remove("is-chat");
 			bubble.classList.remove("is-pop");
-			bubble.textContent = "";
+			// 焦点还给宠物（R-PET-11：Esc 关框之后 Tab 不该从头开始找）
+			if (bubble.contains(document.activeElement)) {
+				try {
+					hit?.focus({ preventScroll: true });
+				} catch {
+					/* 老浏览器不认 options：忽略 */
+				}
+			}
+			bubble.textContent = ""; // 老口径：关框后气泡文本必须为空（R-AGT-04 的复位断言）
+			bubble.removeAttribute("role");
+			bubble.removeAttribute("aria-label");
+			bubble.setAttribute("role", "status");
+			bubble.setAttribute("aria-live", "polite");
+			delete bubble.dataset.petChatState;
+			delete bubble.dataset.petChatSide;
+			delete bubble.dataset.petChatW;
+			delete bubble.dataset.petChatH;
+			chatList = null;
+			chatThink = null;
+			chatThinkText = null;
+			chatRecv = null;
+			chatInput = null;
+			chatSend = null;
+			chatJump = null;
+			bubble.style.removeProperty("--pet-chat-w");
+			bubble.style.removeProperty("--pet-chat-h");
+			// ⚠️ **必须把摆位写的 inline left/top 也清掉**：台词气泡（`say()`）靠的是
+			//    `.pet-bubble` 基类的 `left:50%; bottom: calc(100% - 20px); translate:-50% 0`
+			//    贴在宠物头顶；残留的 inline `left/top`（聊天框那套视口坐标换算成 `.pet` 坐标系的值）
+			//    会**压过基类**，于是关框之后第一句台词会出现在屏幕中间那块地方（错位）。
+			bubble.style.removeProperty("left");
+			bubble.style.removeProperty("top");
 			setState("idle");
 			pet.nextAt = performance.now() + 1200;
 		}
@@ -1705,6 +2309,21 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				ask: chatAsk,
 				resume: chatResume,
 				lastReply,
+				// ── R-PET-11 新增（同样是**只读**事实，给"历史 / 思考中 / 上一次答复"
+				//    这几条断言用）：`lines` = 历史条数、`thinking` = 思考指示是否在转、
+				//    `received` = 思考中已收到的流式字数（**不含正文**，正文只在完成时上屏）、
+				//    `answer` = 此刻 `.pet-chat-reply` 的正文（判"第 N 问显示的是不是第 N 答"）。
+				lines: chatLog.length,
+				thinking: !!chatThink && !chatThink.hidden,
+				thinkLine: chatThinkText?.textContent ?? "",
+				received: chatStreamBuf.length,
+				answer: bubble.querySelector(".pet-chat-reply")?.textContent ?? "",
+				// ── v1.37 新增：这一轮答复**是哪来的**（只读事实）。
+				//    `"live"` = 真的从后端拿到的答复；`"fallback"` = 后端不可达/契约不符，
+				//    气泡里是 `fallbackReply()` 的降级台词；`"mock"` = 配置关掉（`enable:false`）。
+				//    为什么要暴露：发起人 2026-09-27 图证里"降级台词与真答复长得一模一样"，
+				//    光看文本分不出来 —— 断言得有一个**不靠文本**的判据。
+				source: bubble.dataset.petChatSource ?? "",
 			});
 
 			hit?.addEventListener("pointerdown", onPointerDown);
@@ -1801,17 +2420,28 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				() => {
 					measure();
 					applyTransform();
-					// 视口变了 → 菜单尺寸缓存（max-height 跟着 vh 走）与位置都要重算（R-PET-07）
+					// 视口变了 → 菜单尺寸缓存（max-height 跟着 vh 走）与位置都要重算（R-PET-07）；
+					// 聊天框同理（宽高都被视口夹，R-PET-11）
 					menuW = 0;
 					menuH = 0;
 					placeMenu();
+					placeChat();
 				},
 				{ passive: true },
 			);
 
 			// 滚动时菜单跟着宠物重排（宠物是 fixed，滚动不影响它，但菜单的位置是相对视口算的，
-			// 页面滚动后若还留着旧 left/top，视觉上就会"飘"在别处 —— R-PET-07）
-			window.addEventListener("scroll", placeMenu, { passive: true, capture: true });
+			// 页面滚动后若还留着旧 left/top，视觉上就会"飘"在别处 —— R-PET-07）。
+			// R-PET-11：聊天框也要重排 —— 它有一条"避开右下角浮动按钮列"的约束，
+			// 而那几个按钮是**滚下去才出现**的（与 R-PET-05 同一个坑）。
+			window.addEventListener(
+				"scroll",
+				() => {
+					placeMenu();
+					placeChat();
+				},
+				{ passive: true, capture: true },
+			);
 
 			document.addEventListener("visibilitychange", () => {
 				if (document.hidden) {

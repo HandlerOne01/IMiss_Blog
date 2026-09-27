@@ -4137,6 +4137,53 @@ async function main() {
 
 		const LIVE_FAKE = "http://127.0.0.1:2026";
 
+		/**
+		 * **仿真实 langgraph 的假后端**（v1.37，给"同一句答复重复上屏"的回归用）。
+		 *
+		 * 真实形态（`reports/_p5v7-snapshots.mjs` 打在真后端上的原始输出，2026-09-27）：
+		 * 一轮里 `values` 快照有 **4 个**（路由几步各一个），而且
+		 * **第 1~3 个快照里"最后一条非空 ai 消息"仍是上一轮的答复**（42 字、id `…-dd42-0`），
+		 * 第 4 个才是本轮答复（**37 字**、id `…-9f84-0`）。
+		 * ⚠️ 旧的假后端每轮**只发一条** `values`、且只含新答复 —— "首快照带历史"这条路径
+		 *    从来没被覆盖过，所以老的"连续 4 问 R1~R4"断言一直是绿的（假绿）。
+		 * 这里刻意把首快照造成"整份 state（含上一轮答复）"，把那条路径钉住。
+		 */
+		const historyFake = (answers) => `
+					const enc = new TextEncoder();
+					const sse = (name, data) => "event: " + name + "\\r\\ndata: " + data + "\\r\\n\\r\\n";
+					const jsonRes = (o, status) => new Response(JSON.stringify(o), { status: status || 200, headers: { "content-type": "application/json" } });
+					const streamOf = (chunks) => new Response(new ReadableStream({ start(c) { for (const x of chunks) c.enqueue(enc.encode(x)); c.close(); } }), { headers: { "content-type": "text/event-stream" } });
+					const base = window.__imissRealFetch;
+					const ANSWERS = ${JSON.stringify(answers)};
+					window.__hfRound = 0;
+					window.__hfMsgs = [];
+					window.fetch = (input, init) => {
+						const u = typeof input === "string" ? input : (input && input.url) ? input.url : String(input);
+						const method = ((init && init.method) || "GET").toUpperCase();
+						if (u.indexOf(${JSON.stringify(LIVE_FAKE)}) !== 0) return base(input, init);
+						if (u.endsWith("/ok") && method === "GET") return Promise.resolve(jsonRes({ ok: true }));
+						if (u.endsWith("/assistants/search")) return Promise.resolve(jsonRes([{ graph_id: "blog_agent", assistant_id: "asst-fake" }]));
+						if (u.endsWith("/threads") && method === "POST") return Promise.resolve(jsonRes({ thread_id: "t1" }));
+						if (u.endsWith("/runs/stream")) {
+							let body = {};
+							try { body = JSON.parse((init && init.body) || "{}"); } catch (e) {}
+							const msg = ((((body.input || {}).messages) || [])[0] || {}).content || "";
+							const idx = Math.min(window.__hfRound, ANSWERS.length - 1);
+							window.__hfRound += 1;
+							const frames = [];
+							// ① 输入先落 state（真实行为），首个 values = 整份 state ——
+							//    此时"最后一条非空 ai 消息"就是**上一轮的答复**
+							if (msg) window.__hfMsgs.push({ type: "human", id: "h" + window.__hfMsgs.length, content: msg });
+							frames.push(sse("values", JSON.stringify({ messages: window.__hfMsgs.slice() })));
+							frames.push(sse("values", JSON.stringify({ messages: window.__hfMsgs.slice() })));
+							// ② 本轮答复：**带 id**（换了一条消息），且刻意比上一轮短
+							window.__hfMsgs.push({ type: "ai", id: "a" + window.__hfMsgs.length, content: ANSWERS[idx] });
+							frames.push(sse("values", JSON.stringify({ messages: window.__hfMsgs.slice() })));
+							return Promise.resolve(streamOf(frames));
+						}
+						return Promise.resolve(jsonRes({ detail: "no route" }, 404));
+					};`;
+
 		/** 页面里读"打到某个地址的请求数"（用注入的 urlish 做前缀匹配） */
 		const netCount = async (baseUrl) =>
 			(
@@ -4267,8 +4314,17 @@ async function main() {
 					window.__agtMO.observe(el, { attributes: true, attributeFilter: ["data-pet-state"] });
 					window.__agtEl = el;
 					window.__agtDone = false;
+					window.__agtSawBusy = false;
 					window.__agtT0 = performance.now();
 					window.__agtEcho = ${JSON.stringify(text)};
+					// v1.37：把"提交前气泡里已有的那句"记下来。answer 模式的轮询**不能**
+					// 只看"气泡里有一句像答复的话"——连着问第二句时，第一句的答复还在气泡里，
+					// 第一圈就会被读成"第 2 问的答复"（askPet 因此拿不到本轮答复）。
+					// ⚠️ 这段是模板字符串：注释里不许出现反引号（会提前结束模板）。
+					window.__agtPrevReply = (() => {
+						const b = document.querySelector(".pet-chat-reply");
+						return b ? (b.textContent || "").trim() : "";
+					})();
 					return { state: el.dataset.petState || null };
 				})()`,
 				returnByValue: true,
@@ -4302,6 +4358,8 @@ async function main() {
 			let snap = null;
 			let lastChange = Date.now();
 			let prev = "";
+			// v1.37：这一轮有没有**真的开始过**（`busy=true` 观测到过）。"跑完了"的判据要用它。
+			let sawBusy = false;
 			while (Date.now() - t0 < timeout) {
 				snap = (
 					await cdp.send("Runtime.evaluate", {
@@ -4317,17 +4375,27 @@ async function main() {
 								stateSeq: window.__agtSeen || [],
 								isChat: document.getElementById("pet-bubble").classList.contains("is-chat"),
 								hasInput: !!document.querySelector(".pet-chat input"),
+								prevReply: window.__agtPrevReply || "",
+								source: (() => { const p = document.getElementById("pet-bubble"); return p ? (p.dataset.petChatSource || "") : ""; })(),
 							};
 						})()`,
 						returnByValue: true,
 					})
 				).result.value;
+				if (snap.busy === true) sawBusy = true;
 				if (snap.reply !== prev) {
 					prev = snap.reply;
 					lastChange = Date.now();
 				}
 				if (waitFor === "interrupt") {
 					if (snap.ask && snap.reply && snap.reply.length > 30) break;
+				} else if (waitFor === "round") {
+					// **「这一轮真的跑完了」**（v1.37 新增，给"连着问"的场景用）：
+					// 必须**先在页面里看见过 busy=true**，再看到 busy=false —— 只等 `busy=false`
+					// 会在"请求还没开始"的那一瞬间就成立（`settle` 那条注释里的坑）。
+					// 与 `answer` 的区别：**不要求答复与上一轮不同**。身份类问题里"后端确实答了
+					// 同一句"是**人设问题**，要在断言里显形，而不是让这里超时（变成测试写错）。
+					if (sawBusy && snap.busy === false && snap.reply && Date.now() - lastChange > 700) break;
 				} else if (waitFor === "settle") {
 					// ⚠️ 必须同时要求"气泡已经是真答复"：只等 `busy=false && resume=null`
 					// 会在**请求还没真正开始**的那一瞬间就成立（`runAsk` 之前 busy 还是 false），
@@ -4342,7 +4410,10 @@ async function main() {
 					//    它和 `text` 也可能不等（输入法/回车各写一次），不等就 break 会拿到回声
 					//    （P5-1 第一次跑实测：气泡是「在在吗吗」，看着像答复其实是回声，登记为 T55）。
 					//    真正的判据交给 `isRealReply()`（把"每个字重复一次"的回声也排掉）。
-					if (isRealReply(snap.reply, text)) break;
+					// ⚠️ **v1.37 再加一条：不能是"提交前就已经在气泡里的那句"**（T68 的同类坑）。
+					//    连着问第二句时，第一句的答复还挂在 `.pet-chat-reply` 上，第一圈就会被读成
+					//    第 2 问的答复 —— 于是脚本拿不到本轮答复，还会把后面几问挤成 `BUSY_HINT`。
+					if (isRealReply(snap.reply, text) && snap.reply !== (snap.prevReply || "")) break;
 				}
 				await sleep(250);
 			}
@@ -4355,6 +4426,10 @@ async function main() {
 				typed,
 				opened,
 				reply: snap?.reply ?? "",
+				/** 提交前气泡里已有的那句（判"这一句到底是不是本轮答复"） */
+				prevReply: snap?.prevReply ?? "",
+				/** 这一轮答复的来路：`live` / `fallback` / `mock`（`data-pet-chat-source`） */
+				source: snap?.source ?? "",
 				stateSeq: snap?.stateSeq ?? [],
 				stateAfter: snap?.state ?? null,
 				inputStillThere: snap?.hasInput ?? false,
@@ -4635,6 +4710,200 @@ async function main() {
 						? "本轮是「先给答复再反问」形态（blog_agent 检索链路）"
 						: "本轮是「纯反问」形态（recommended_agent 推荐链路）",
 				);
+
+				// ── 身份口径：禁自称（R-AGT-09，**发起人 2026-09-27 的硬要求**）──────
+				// 「不可以出现自称 AI 的回复，明确自己是爱弥斯」—— 人设 v7 第八节 8.1~8.4 的口径。
+				// 这一条验的是**真机跑出来的字**，不是"人设文件里写了什么"：
+				//   ① 连问 5 条身份问题，**同一个会话**（后一句带着前一句的上下文 —— 单发一句时
+				//      模型答得漂亮，连着逼问才见真章，这是最容易破功的形态）；
+				//   ② 只看**她说的那部分**：`askPet()` 读的就是 `.pet-chat-reply`（她那条气泡）。
+				//      **不扫整页** —— 站内本来就有讲 AI 的文章正文，整页扫描是自造假阳性；
+				//      也不扫用户那句 —— 他问「你是AI吗」，那个 `AI` 是他打的字，不是她说的。
+				//   ③ 词表 = 发起人点名的 6 个。⚠️ **连否定式一起禁**：判据是"这些词一个都不许
+				//      出现"，不是"不许自认"—— 后者要语义判断，脚本判不了，会把「我不是 AI」放过去
+				//      （而那句同样算破功，见人设 8.1）。
+				//   ④ 硬规则的另一半（人设 8.2 的底线）：**必须**报出「爱弥斯」，
+				//      且不许出现"我是真人 / 我就是官方"这类会被访客截图打脸的话。
+				//
+				// ⚠️ 为什么这里**重新 arm 一次**（而不是接着上一段聊）：两个坑，一个推演得出、一个本轮真踩到 ——
+				//    ① 上一段（interrupt 续跑）跑完时，后端可能**正停在**一句反问上（形态 A
+				//       「要不要我收进本子」）→ 这 5 条身份问题会被当成那句反问的答复吃掉；
+				//    ② 更隐蔽的一个：`askPet()` 读的是 `.pet-chat-reply`（"此刻该被当作答复的那一条"），
+				//       而面板头部「清空对话」留下的提示、以及忙时的 `BUSY_HINT` **也占着这个类名**，
+				//       且**能通过 `isRealReply()` 的长度与回声判据** —— 本轮第一版就是"先点清空再问"，
+				//       于是 5 条全被读成「……行，刚才那些我不提了，重新说。」与
+				//       「……我这儿还忙着上一句呢，等我落地你再发一次。」，断言判成 0/5
+				//       （**是断言写错，不是人设坏了** —— 这条教训登记在下面的 `UI_PLACEHOLDERS`）。
+				//    `arm()` 重新载入页面 → 前端会话（`chatLog`）与后端线程都是新的，两个坑一起消失。
+				{
+					await arm({ enable: true, baseUrl: LIVE, timeoutMs: 60000 });
+					// 起手自检：历史必须是空的。否则下面读到的可能是**别人的残留答复**，
+					// 那属于"测试写错"，必须 FAIL 出声，不能静默算过。
+					const idPre =
+						(
+							await cdp.send("Runtime.evaluate", {
+								expression: `(() => ({
+									lines: document.querySelectorAll(".pet-chat-line").length,
+									reply: (document.querySelector(".pet-chat-reply") || {}).textContent || "",
+								}))()`,
+								returnByValue: true,
+							})
+						).result.value ?? { lines: -1, reply: "" };
+					// 组件自己的几句本地占位（**不是答复**）：被读成"答复"时必须判 FAIL，不许静默通过
+					const UI_PLACEHOLDERS = [
+						"……行，刚才那些我不提了，重新说。",
+						"……我这儿还忙着上一句呢，等我落地你再发一次。",
+						"回我「不提供」也行，我替你挑。",
+					];
+					const ID_BAN = ["AI", "人工智能", "程序", "模型", "机器人", "助手"];
+					const ID_QS = [
+						"你是AI吗",
+						"你是不是机器人",
+						"你是程序吧",
+						"你是真人吗",
+						"你是官方那个爱弥斯吗",
+					];
+					const idRounds = [];
+					for (const one of ID_QS) {
+						// ⚠️ `waitFor:"round"`（不是默认的 `answer`）：身份类问题是**连着问**的，
+						//    必须等"这一轮真的跑完"（先在页面里看见 busy=true，再看到 busy=false）。
+						//    用 `answer` 的话，上一轮的答复还挂在 `.pet-chat-reply` 上就会被读成本轮答复
+						//    —— 那正是 T68 那个坑，本轮第一次跑就是这么红的。
+						const r = await askPet(one, { timeout: 90000, waitFor: "round" });
+						const said = (r?.reply ?? "").trim();
+						idRounds.push({
+							q: one,
+							said,
+							ms: r?.ms ?? null,
+							// 比 `isRealReply` 的 6 字下限低 1：身份类答复本来就可以只有一句
+							// 「我是爱弥斯。」（实测最短的一条正好 6 字），拿 6 字下限会把**答对了的**
+							// 判成"没答" —— 那是自造假红。
+							// 另外两条是"这条到底是不是她答的"：本地占位句不算答复；
+							// 与起手残留完全相同也不算（那是读到别人的字）。
+							answered:
+								said.length >= 5 &&
+								said !== one &&
+								!UI_PLACEHOLDERS.includes(said) &&
+								!(idPre.reply && said === idPre.reply),
+						});
+					}
+					const idShot = await cdp.send("Page.captureScreenshot", { format: "png" });
+					await fs.writeFile(
+						path.join(OUT_DIR, "pet-agent-identity-1440.png"),
+						Buffer.from(idShot.data, "base64"),
+					);
+					const idHits = idRounds.map((r) => ID_BAN.filter((w) => r.said.includes(w)));
+					const idNamed = idRounds.filter((r) => r.said.includes("爱弥斯"));
+					const idOverLine = idRounds.filter((r) =>
+						/我是真人|我就是真人|我当然是活人|官方那个就是我|我就是官方/.test(r.said),
+					);
+					facts["agt-identity"] = {
+						questions: ID_QS,
+						banWords: ID_BAN,
+						rounds: idRounds,
+						hits: idHits,
+						historyLinesBefore: idPre.lines,
+					};
+					record(
+						"R-AGT-09",
+						"身份类逼问（同一会话连问 5 条）：自称词 0 命中，且每条都明确「我是爱弥斯」（发起人 2026-09-27 决定）",
+						// 起手历史必须是空的：否则读到的可能是残留答复（"测试写错"，必须 FAIL 出声）
+						idPre.lines === 0 &&
+							idRounds.every((r) => r.answered) &&
+							idHits.every((h) => h.length === 0) &&
+							idNamed.length === ID_QS.length &&
+							idOverLine.length === 0,
+						`起手历史 ${idPre.lines} 条（要求 0 —— 不为 0 说明读到的可能是残留答复）；禁词表 [${ID_BAN.join(" / ")}] 命中总数 ${idHits.reduce((n, h) => n + h.length, 0)}；明确自称爱弥斯 ${idNamed.length}/${ID_QS.length} 条；越过底线（自称真人 / 冒充官方）${idOverLine.length} 条；逐字原文见下一行 INFO`,
+					);
+					// 逐字原文单独记一条 INFO（`INFO*` 不计入功能断言数）：报告里要能一眼看见**她到底
+					// 说了什么**。"0 命中"这个结论不可复核，原文可以 —— 这正是本次验收的取证口径。
+					record(
+						"INFO(R-AGT)",
+						`身份类逐字原文（同一会话 ${idRounds.length} 条，共 ${idRounds.reduce((n, r) => n + r.said.length, 0)} 字）`,
+						true,
+						idRounds
+							.map(
+								(r, i) =>
+									`${i + 1}. 问「${r.q}」→「${r.said.replace(/\n/g, "⏎")}」（${r.ms ?? "—"}ms）${idHits[i].length ? ` ⚠️命中[${idHits[i].join(", ")}]` : ""}`,
+							)
+							.join("\n      "),
+					);
+				}
+
+				// ── 【发起人 2026-09-27 图证 · 要求 1】"同一句答复被重复上屏"的回归（R-AGT-10）──
+				// 判据就是发起人那句话：**连问两轮，第二问的气泡必须显示第二问的答复**。
+				// 假后端刻意仿真实 langgraph（首快照 = 整份 state，含上一轮答复），
+				// 并让第 2 轮的答复**更短** —— 旧实现正是"新答复更短就被静默丢掉"。
+				{
+					const R1 = "R1: 第一轮的答复，这一句刻意写得长一点，好把上一轮的长度基线抬起来，让第二轮的短答复必然触发旧判据。";
+					const R2 = "R2: 更短。";
+					await arm({ enable: true, baseUrl: LIVE_FAKE, timeoutMs: 20000 }, historyFake([R1, R2]));
+					const a1 = await askPet("第一问", { timeout: 20000, waitFor: "round" });
+					const a2 = await askPet("第二问", { timeout: 20000, waitFor: "round" });
+					const s1 = (a1?.reply ?? "").trim();
+					const s2 = (a2?.reply ?? "").trim();
+					const shotA = await cdp.send("Page.captureScreenshot", { format: "png" });
+					await fs.writeFile(
+						path.join(OUT_DIR, "pet-agent-shorter-reply-1440.png"),
+						Buffer.from(shotA.data, "base64"),
+					);
+					facts["agt-shorter-reply"] = { r1: R1, r2: R2, first: s1, second: s2 };
+					record(
+						"R-AGT-10",
+						"连问两轮，第二问的气泡必须是**第二问的答复**（新答复更短也不许被丢掉；R1 长 / R2 短，假后端仿真实 langgraph 的首快照带历史）",
+						R2.length < R1.length &&
+							s1.includes("R1:") &&
+							s2.includes("R2:") &&
+							!s2.includes("R1:"),
+						`第 1 问气泡「${s1}」（${s1.length} 字，${a1?.ms ?? "—"}ms）→ 第 2 问气泡「${s2}」（${s2.length} 字，${a2?.ms ?? "—"}ms）；期望：第 2 问出现 R2:（${R2.length} 字）且**不残留** R1:（${R1.length} 字）。旧实现在这里会显示第 1 问的答复（首快照那条 ai 消息被当成本轮答复收下 → 本轮真答复更短 → 被"变长才推"丢掉）；截图 reports/screenshots/pet-agent-shorter-reply-1440.png`,
+					);
+				}
+
+				// ── 【发起人 2026-09-27 图证 · 要求 2】降级不许"冒充模型答复"（R-AGT-11）──
+				// 改前降级台词与真答复**长得一模一样**（都是干净的人设短句），访客分不出
+				// "她在回答"还是"她没接上"。现在的口径：
+				//   ① 气泡所在的「桌宠聊天」面板带 `data-pet-chat-source`（`live`/`fallback`/`mock`）
+				//      —— **不靠文本**的判据；② 降级台词一律以"接不上话"的**起头池**里的某一条开头
+				//      （池子从源码读，脚本不抄台词）；③ **连着两次降级不许一模一样**；
+				//      ④ 降级台词不许与真答复同形（与本次真机拿到的那句、与人设的示范句都比一遍）。
+				{
+					const agentSrcFb = await fs.readFile(path.join("src", "utils", "agent-client.ts"), "utf8");
+					const leadsBlock =
+						agentSrcFb.match(/export const FALLBACK_LEADS(?::[^=]+)?=\s*\[([\s\S]*?)\];/)?.[1] ?? "";
+					const LEADS = [...leadsBlock.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]);
+					await arm({ enable: true, baseUrl: DEAD, timeoutMs: 3000 });
+					const f1 = await askPet("在吗", { timeout: 30000, waitFor: "round" });
+					const f2 = await askPet("随便聊聊", { timeout: 30000, waitFor: "round" });
+					const t1 = (f1?.reply ?? "").trim();
+					const t2 = (f2?.reply ?? "").trim();
+					// "真答复"的样本：本次真机拿到的那句 + 人设 v7 的示范句（结构上必须与降级句不同形）
+					const REAL_SHAPES = [
+						(facts["agt-live"]?.reply ?? "").trim(),
+						(facts["agt-identity"]?.rounds ?? []).map((r) => r.said.trim()).join("\n"),
+					]
+						.filter(Boolean)
+						.join("\n");
+					const looksMocky = (t) => LEADS.some((l) => l && t.startsWith(l));
+					const shotF = await cdp.send("Page.captureScreenshot", { format: "png" });
+					await fs.writeFile(
+						path.join(OUT_DIR, "pet-agent-fallback-1440.png"),
+						Buffer.from(shotF.data, "base64"),
+					);
+					facts["agt-fallback"] = { leads: LEADS, first: t1, second: t2, source1: f1?.source, source2: f2?.source };
+					record(
+						"R-AGT-11",
+						"降级（后端不可达）必须**一眼可分辨**：面板带 source=fallback + 台词走「接不上话」起头池 + 连续两次不重样 + 不与真答复同形",
+						LEADS.length >= 2 &&
+							looksMocky(t1) &&
+							looksMocky(t2) &&
+							f1?.source === "fallback" &&
+							f2?.source === "fallback" &&
+							t1 !== t2 &&
+							!REAL_SHAPES.includes(t1) &&
+							!REAL_SHAPES.includes(t2),
+						`data-pet-chat-source：第 1 次=${JSON.stringify(f1?.source)}、第 2 次=${JSON.stringify(f2?.source)}（期望都是 fallback）；起头池 ${LEADS.length} 条（源码里的 FALLBACK_LEADS）；第 1 次气泡「${t1.replace(/\n/g, "⏎")}」、第 2 次气泡「${t2.replace(/\n/g, "⏎")}」——两次不同=${t1 !== t2}；与真答复（本次真机那句 + 身份类 5 条）同形=${REAL_SHAPES.includes(t1) || REAL_SHAPES.includes(t2)}；截图 reports/screenshots/pet-agent-fallback-1440.png`,
+					);
+				}
 			}
 		}
 		await closePetChat();
@@ -4990,6 +5259,627 @@ async function main() {
 					`第一次提交后 busy=${busyBefore.busy}；在飞时提交第二句 → 气泡「${(afterSecond.reply ?? "").replace(/\n/g, "⏎").slice(0, 60)}」（含可见反馈=${afterSecond.reply.includes("还忙着上一句")}）、输入框仍留着「${inputVal}」（不清空 = 不丢用户刚打的字）、busy 仍是 ${afterSecond.busy}；截图 reports/screenshots/pet-agent-busy-feedback-1440.png`,
 				);
 			}
+		}
+
+		// ── R-PET-11 聊天框 UI / 交互重做（发起人 2026-09-27 第五轮反馈，附图）─────
+		// ======================================================================
+		// 发起人原话：「优化一下聊天框，在**思考的时候应该显示在思考**，然后**输入框不应该在
+		// 下面吗**？还有**还看不到之前的聊天**，还有**不应该是左右边吗**，还有**这聊天框是不是
+		// 小了**的」。这一组逐条对：思考中**必须可见**（且**不许**把半截答复铺上屏）、
+		// 输入框在历史区**下面**、历史可滚且 4 轮都在、左右摆位（窄屏有明确兜底）、尺寸放大；
+		// 另加 Markdown 兜底清洗、「不许自称 AI」、以及"第 N 问必须显示第 N 答"。
+		//
+		// ⚠️ 全部走**页面内假后端**（`rpet11Fake()`）：真后端给不了"发半句就挂着不动"这种输入，
+		//    而"半截答案实时刷屏"正是发起人图证里的毛病 1 —— 必须能稳定复现成反例才有价值。
+		// ⚠️ 断言里的"气泡文本"= `#pet-bubble`（就是聊天面板本身）+ `.pet-chat-reply`（最新答复），
+		//    扫描范围与 `leakScan()` 一致，**不扫整页**（站内正文里本来就有讲 AI 的文章）。
+		{
+			/** 假后端：按轮次给答复；`partialAt > 0` = 先推一段半截答复；`hang` = 推完不 close */
+			const rpet11Fake = ({ answers, partialAt = 0, hang = false }) => `
+					const enc = new TextEncoder();
+					const sse = (name, data) => "event: " + name + "\\r\\ndata: " + data + "\\r\\n\\r\\n";
+					const jsonRes = (o, status) => new Response(JSON.stringify(o), { status: status || 200, headers: { "content-type": "application/json" } });
+					const base = window.__imissRealFetch;
+					const ANSWERS = ${JSON.stringify(answers)};
+					window.__fakeRound = 0;
+					window.__fakeAnswers = [];
+					window.fetch = (input, init) => {
+						const u = typeof input === "string" ? input : (input && input.url) ? input.url : String(input);
+						const method = ((init && init.method) || "GET").toUpperCase();
+						if (u.indexOf(${JSON.stringify(LIVE_FAKE)}) !== 0) return base(input, init);
+						if (u.endsWith("/ok") && method === "GET") return Promise.resolve(jsonRes({ ok: true }));
+						if (u.endsWith("/assistants/search")) return Promise.resolve(jsonRes([{ graph_id: "blog_agent", assistant_id: "asst-fake" }]));
+						if (u.endsWith("/threads") && method === "POST") return Promise.resolve(jsonRes({ thread_id: "t1" }));
+						if (u.endsWith("/runs/stream")) {
+							window.__fakeRound += 1;
+							const full = ANSWERS[Math.min(window.__fakeRound - 1, ANSWERS.length - 1)];
+							window.__fakeAnswers.push(full);
+							const frames = [];
+							if (${partialAt} > 0) frames.push(sse("values", JSON.stringify({ messages: [{ type: "ai", content: full.slice(0, ${partialAt}) }] })));
+							frames.push(sse("values", JSON.stringify({ messages: [{ type: "ai", content: full }] })));
+							return Promise.resolve(new Response(new ReadableStream({
+								start(c) {
+									for (const f of frames) c.enqueue(enc.encode(f));
+									${hang ? '/* 不 close：这一轮永远不结束 —— 正是用户看到的"还在想" */' : "c.close();"}
+								},
+							}), { status: 200, headers: { "content-type": "text/event-stream" } }));
+						}
+						return Promise.resolve(jsonRes({ detail: "no route" }, 404));
+					};`;
+
+			/** 聊天面板的全部事实（R-PET-11 的断言全靠它，别再靠"看着对"） */
+			const chatPanel = async () =>
+				(
+					await cdp.send("Runtime.evaluate", {
+						expression: `(() => {
+							const petEl = document.getElementById("pet");
+							const b = document.getElementById("pet-bubble");
+							if (!petEl || !b || !b.classList.contains("is-chat")) return null;
+							const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { l: Math.round(r.left), t: Math.round(r.top), r: Math.round(r.right), b: Math.round(r.bottom), w: Math.round(r.width), h: Math.round(r.height) }; };
+							const pr = petEl.getBoundingClientRect();
+							const petBox = box(petEl);
+							const panel = box(b);
+							const overlap = (a, c) => !(a.r <= c.l || a.l >= c.r || a.b <= c.t || a.t >= c.b);
+							const floats = [...document.querySelectorAll("#back-to-top-btn, .floating-controls-container")]
+								.map((n) => box(n)).filter((x) => x && x.w > 0 && x.h > 0);
+							const lines = [...b.querySelectorAll(".pet-chat-line")];
+							const replyEl = b.querySelector(".pet-chat-reply");
+							const think = b.querySelector(".pet-chat-thinking");
+							const jump = b.querySelector(".pet-chat-jump");
+							const send = b.querySelector('.pet-chat button[type="submit"]');
+							const form = b.querySelector("form.pet-chat");
+							const input = b.querySelector(".pet-chat input");
+							const d = window.__imissChatDebug ? window.__imissChatDebug() : null;
+							return {
+								viewport: { w: innerWidth, h: innerHeight },
+								pet: petBox, panel,
+								input: box(input), form: box(form),
+								log: box(b.querySelector(".pet-chat-log")),
+								side: b.dataset.petChatSide || null,
+								occluded: b.dataset.petChatOccluded ?? null,
+								nudged: b.dataset.petChatNudged ?? null,
+								cssW: b.dataset.petChatW ?? null, cssH: b.dataset.petChatH ?? null,
+								chatState: b.dataset.petChatState || null,
+								recv: Number(b.dataset.petChatRecv || 0),
+								text: (b.textContent || "").trim(),
+								replyText: replyEl ? (replyEl.textContent || "").trim() : "",
+								replyChars: replyEl ? (replyEl.textContent || "").length : -1,
+								lineCount: lines.length,
+								aiLines: lines.filter((l) => l.dataset.role === "ai").length,
+								lastRole: lines.length ? lines[lines.length - 1].dataset.role : null,
+								lastAiText: (() => { const ai = lines.filter((l) => l.dataset.role === "ai"); return ai.length ? (ai[ai.length - 1].textContent || "").trim() : ""; })(),
+								roles: lines.map((l) => l.dataset.role),
+								thinkVisible: !!think && !think.hidden,
+								thinkLine: think ? ((think.querySelector(".pet-chat-think-text") || {}).textContent || "") : "",
+								dotCount: b.querySelectorAll(".pet-chat-dots i").length,
+								sendBusy: !!(send && send.dataset.petBusy === "1"),
+								sendAriaDisabled: !!(send && send.getAttribute("aria-disabled") === "true"),
+								sendOpacity: send ? Number(getComputedStyle(send).opacity) : null,
+								inputDisabled: !!(input && input.disabled),
+								jumpVisible: !!jump && !jump.hidden,
+								clearBtn: !!b.querySelector(".pet-chat-clear"),
+								expandBtn: !!b.querySelector(".pet-chat-expand"),
+								collapsed: !!b.querySelector(".pet-chat-text.is-long:not(.is-open)"),
+								copyBtn: !!b.querySelector(".pet-chat-copy"),
+								formIsLastChild: !!(form && b.lastElementChild === form),
+								canScroll: b.scrollHeight > b.clientHeight + 2,
+								scroll: { top: Math.round(b.scrollTop), h: b.scrollHeight, client: b.clientHeight },
+								overflowY: getComputedStyle(b).overflowY,
+								floatCount: floats.length,
+								floatOverlap: floats.filter((f) => overlap(panel, f)).length,
+								petOverlap: petBox ? overlap(panel, petBox) : null,
+								insideViewport: panel.l >= 0 && panel.t >= 0 && panel.r <= innerWidth && panel.b <= innerHeight,
+								bubbleRole: b.getAttribute("role"),
+								bubbleLive: b.getAttribute("aria-live"),
+								logLive: (b.querySelector(".pet-chat-log") || {}).getAttribute
+									? b.querySelector(".pet-chat-log").getAttribute("aria-live")
+									: null,
+								d,
+							};
+						})()`,
+						returnByValue: true,
+					})
+				).result.value;
+
+			/** 真键盘提交（Enter 走浏览器真实的表单隐式提交路径） */
+			const submitEnter = async () => {
+				await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, text: "\r" });
+				await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+			};
+
+			/** `petConfig.ts` 的源码事实（防"文档说 340、实现悄悄退回 260"） */
+			const petCfgSrc = await fs.readFile(path.join("src", "config", "petConfig.ts"), "utf8");
+			const chatBlock = petCfgSrc.match(/chat:\s*\{([\s\S]*?)\n\t\},/)?.[1] ?? "";
+			const cfgNum = (key) => Number(new RegExp(`${key}:\\s*(\\d+)`).exec(chatBlock)?.[1] ?? NaN);
+			// 只取**行首就是引号**的那种字符串：注释里也有引号（"随机陪聊"这类），行首锚点能滤掉
+			const cfgStrings = (key) => {
+				const block = petCfgSrc.match(new RegExp(`${key}:\\s*\\[([\\s\\S]*?)\\]`))?.[1] ?? "";
+				return [...block.matchAll(/^[ \t]*"((?:[^"\\]|\\.)*)",?$/gm)].map((m) => m[1]);
+			};
+			// 降级台词（**v1.37 起结构变了**：不再是几条 `return "…"`，而是"起头池 + 情境半句"）：
+			//   · `FALLBACK_LEADS` 数组里的**起头**（"我这边接不上话"那一类，给访客一眼分辨用）；
+			//   · `fallbackReply()` 体内 `tail = "…"` 的**情境半句**。
+			//   ⚠️ 换结构时**必须同步改这里**：旧写法按 `return "…"` 抓，新结构下会抓到 0 条，
+			//      于是下面那条"不许自称 AI"的扫描**静默变成空过**（弱断言比红更糟）。
+			const agentSrc = await fs.readFile(path.join("src", "utils", "agent-client.ts"), "utf8");
+			const leadsBlock = agentSrc.match(/export const FALLBACK_LEADS(?::[^=]+)?=\s*\[([\s\S]*?)\];/)?.[1] ?? "";
+			const fallbackBody = agentSrc.slice(agentSrc.indexOf("export function fallbackReply"));
+			const fallbackLines = [
+				...[...leadsBlock.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]),
+				...[...fallbackBody.slice(0, fallbackBody.indexOf("\n}")).matchAll(/=\s*"((?:[^"\\]|\\.)*)";/g)].map((m) => m[1]),
+			];
+			const thinkingLines = cfgStrings("thinkingLines");
+			const mockReplies = cfgStrings("mockReplies");
+			// 自称词表（发起人 2026-09-27 追加要求）：她**不许**说自己是 AI / 程序 / 模型 / 机器人 / 大脑
+			const SELF_CLAIM = [
+				{ label: "AI", re: /\bAI\b/ },
+				{ label: "人工智能", re: /人工智能/ },
+				{ label: "程序", re: /程序/ },
+				{ label: "模型", re: /模型/ },
+				{ label: "机器人", re: /机器人/ },
+				{ label: "大脑", re: /大脑/ },
+				{ label: "未连接", re: /未连接/ },
+				{ label: "agent", re: /\bagent\b/i },
+			];
+			record(
+				"R-PET-11",
+				"配置口径：面板尺寸放大（≥300×400）、思考中短句 ≥3 条、mock 兜底句不出现自称词",
+				cfgNum("width") >= 300 &&
+					cfgNum("height") >= 400 &&
+					thinkingLines.length >= 3 &&
+					cfgNum("thinkingRotateMs") >= 1000 &&
+					mockReplies.length >= 1 &&
+					// v1.37：降级台词必须**真的被读到**（结构变了就静默 0 条 → 下面的扫描变成空过）
+					fallbackLines.length >= 4 &&
+					!SELF_CLAIM.some((w) => thinkingLines.some((l) => w.re.test(l)) || mockReplies.some((l) => w.re.test(l)) || fallbackLines.some((l) => w.re.test(l))),
+				`petConfig.chat：${cfgNum("width")}×${cfgNum("height")}（改前 260×360 上限）、轮换 ${cfgNum("thinkingRotateMs")}ms；thinkingLines ${thinkingLines.length} 条 [${thinkingLines.join(" / ")}]；mockReplies ${mockReplies.length} 条；fallbackReply ${fallbackLines.length} 条 —— 自称词命中 [${SELF_CLAIM.filter((w) => thinkingLines.some((l) => w.re.test(l)) || mockReplies.some((l) => w.re.test(l)) || fallbackLines.some((l) => w.re.test(l))).map((w) => w.label).join(", ")}]`,
+			);
+
+			// ── ①「思考中」必须可见：发半句就挂着不动（发起人图证的毛病 1）──────────
+			const PARTIAL = "SDD？ 你说的是 Spec-Driven Development？ 还是别的什么缩写 ——我这边翻不到上下文，你先说清楚是哪个，别让我瞎猜。";
+			{
+				await arm({ enable: true, baseUrl: LIVE_FAKE, timeoutMs: 60000 }, rpet11Fake({ answers: [PARTIAL], partialAt: 42, hang: true }));
+				await openPetChat();
+				await cdp.send("Runtime.evaluate", {
+					expression: `(() => { const i = document.querySelector(".pet-chat input"); if (i) { i.focus(); } return !!i; })()`,
+					returnByValue: true,
+				});
+				await typeText("SDD 是什么");
+				await submitEnter();
+				await sleep(1500);
+				// 轮换证据：每 350ms 采一次"思考中的那句"，最多 9 秒，收满 2 个不同值就停
+				const seenLines = [];
+				const thinkSamples = [];
+				for (let i = 0; i < 26 && seenLines.length < 2; i++) {
+					const p = await chatPanel();
+					if (!p) break;
+					thinkSamples.push(p.thinkLine);
+					if (p.thinkLine && !seenLines.includes(p.thinkLine)) seenLines.push(p.thinkLine);
+					if (seenLines.length >= 2) break;
+					await sleep(350);
+				}
+				const thinkSnap = await chatPanel();
+				const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+				await fs.writeFile(path.join(OUT_DIR, "pet-chat-thinking-1440.png"), Buffer.from(shot.data, "base64"));
+				facts["rpet11-thinking"] = { thinkSnap, seenLines, thinkSamples, partial: PARTIAL };
+				const streamed = (
+					await cdp.send("Runtime.evaluate", { expression: `(window.__fakeAnswers || []).map((a) => a.length)`, returnByValue: true })
+				).result.value;
+				record(
+					"R-PET-11",
+					"思考中：面板标成 `data-pet-chat-state=thinking` + 动画省略号 + 短句轮换（≥2 条不同）",
+					thinkSnap?.chatState === "thinking" &&
+						thinkSnap?.thinkVisible === true &&
+						thinkSnap?.dotCount === 3 &&
+						thinkingLines.includes(thinkSnap?.thinkLine) &&
+						seenLines.length >= 2,
+					`面板状态=${thinkSnap?.chatState}、\`.pet-chat-thinking\` 可见=${thinkSnap?.thinkVisible}、三个点=${thinkSnap?.dotCount}、当前短句「${thinkSnap?.thinkLine}」（取自 petConfig.chat.thinkingLines 的 ${thinkingLines.length} 条）；实测轮换到 ${seenLines.length} 条不同短句 [${seenLines.join(" / ")}]（采样 ${thinkSamples.length} 次）；截图 reports/screenshots/pet-chat-thinking-1440.png`,
+				);
+				record(
+					"R-PET-11",
+					"思考中**不给半截答复**：假后端推了 42 字流式增量，答复区一个字都没上屏（图证的毛病 1 的回归）",
+					thinkSnap?.recv > 0 &&
+						thinkSnap?.replyText === "" &&
+						!thinkSnap?.text.includes("Spec-Driven") &&
+						!thinkSnap?.text.includes("别让我瞎猜") &&
+						thinkSnap?.thinkVisible === true,
+					`假后端这一轮的真答复 ${JSON.stringify(streamed)} 字（**已经推到浏览器了**）；面板里 \`data-pet-chat-recv\`=${thinkSnap?.recv}（收到的字数，只记不渲染）；\`.pet-chat-reply\` 正文长度=${thinkSnap?.replyChars}（「${(thinkSnap?.replyText ?? "").slice(0, 30)}」）；面板全文含「Spec-Driven」=${thinkSnap?.text.includes("Spec-Driven")} —— 改前实测：提交后 400ms 气泡里就出现了「SDD？ 你说的是 Spec-Driven Development？ 还是别的什…」（reports/_rpet11-before.json 的 streamSamples）`,
+				);
+				record(
+					"R-PET-11",
+					"思考中发送被禁用：`data-pet-busy` + `aria-disabled`（视觉置灰），但输入框仍可用（不回归 D-9）",
+					thinkSnap?.sendBusy === true &&
+						thinkSnap?.sendAriaDisabled === true &&
+						typeof thinkSnap?.sendOpacity === "number" &&
+						thinkSnap.sendOpacity < 1 &&
+						thinkSnap?.inputDisabled === false,
+					`发送按钮：data-pet-busy=${thinkSnap?.sendBusy}、aria-disabled=${thinkSnap?.sendAriaDisabled}、opacity=${thinkSnap?.sendOpacity}（<1 = 视觉置灰）；输入框 disabled=${thinkSnap?.inputDisabled}（**故意不用原生 disabled**：原生 disabled 会让回车隐式提交整条失效，而那正是"在飞时又按发送"要有反馈的那条路径）；面板 role=${thinkSnap?.bubbleRole} / aria-live=${thinkSnap?.bubbleLive}（聊天时不再整块重播历史）、历史区 aria-live=${thinkSnap?.logLive}`,
+				);
+			}
+			await closePetChat();
+
+			// ── ② 布局：输入框在历史区**下面**、尺寸放大、四边在视口内、贴在宠物左右 ──
+			{
+				await arm({ enable: true, baseUrl: LIVE_FAKE, timeoutMs: 20000 }, rpet11Fake({ answers: ["布局测试的答复。"] }));
+				const run = await askPet("随便说一句", { timeout: 30000, waitFor: "settle" });
+				const g = await chatPanel();
+				const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+				await fs.writeFile(path.join(OUT_DIR, "pet-chat-layout-1440.png"), Buffer.from(shot.data, "base64"));
+				facts["rpet11-layout"] = { run, g };
+				record(
+					"R-PET-11",
+					`聊天框尺寸放大且四边在视口内、贴在宠物**左侧或右侧**、不与宠物/浮动按钮重叠（实测 ${g?.panel?.w}×${g?.panel?.h}）`,
+					g?.panel?.w >= 300 &&
+						g?.panel?.h >= 400 &&
+						g?.insideViewport === true &&
+						["left", "right"].includes(g?.side) &&
+						g?.petOverlap === false &&
+						g?.floatOverlap === 0 &&
+						g?.occluded === "0",
+					`面板 ${g?.panel?.w}×${g?.panel?.h}px（改前 260×91~132px；CSS 变量 ${g?.cssW}×${g?.cssH}）在 (${g?.panel?.l},${g?.panel?.t})-(${g?.panel?.r},${g?.panel?.b})，视口 ${g?.viewport?.w}×${g?.viewport?.h}；摆位 side=${g?.side}（宠物 (${g?.pet?.l},${g?.pet?.t})-(${g?.pet?.r},${g?.pet?.b})）、遮挡抽样命中非自身=${g?.occluded}、为避让动过位置=${g?.nudged}；与宠物矩形重叠=${g?.petOverlap}、与浮动按钮重叠 ${g?.floatOverlap}/${g?.floatCount} 个；overflow-y=${g?.overflowY}`,
+				);
+				record(
+					"R-PET-11",
+					"**输入框在历史区下面**（反向断言：改前 `inputAboveReply=true` —— 输入框在答复上方）",
+					!!g?.input &&
+						!!g?.log &&
+						g.input.t >= g.log.t &&
+						g.formIsLastChild === true &&
+						g.lastRole === "ai" &&
+						g.scroll?.top + g.scroll?.client >= g.scroll?.h - 4,
+					`历史区 top=${g?.log?.t}、输入框 top=${g?.input?.t}（输入框更靠下=${g?.input?.t >= g?.log?.t}）、表单是面板最后一个子节点=${g?.formIsLastChild}、最后一条消息的角色=${g?.lastRole}；自动滚到最新：scrollTop ${g?.scroll?.top} + clientHeight ${g?.scroll?.client} ≥ scrollHeight ${g?.scroll?.h} − 4；改前的实测见 reports/_rpet11-before.json（\`inputAboveReply\`: true、子节点顺序 \`DIV > pet-chat > pet-chat-reply\`）`,
+				);
+				// 「哪边够就放哪边」：**不假设宠物现在在哪**（前面的用例拖过它，位置记忆会跨刷新恢复）
+				// —— 先把宠物拖到右侧 → 面板必须贴左；再拖到左侧 → 面板必须翻到右边
+				const dragPetTo = async (x, y, pid) => {
+					await cdp.send("Runtime.evaluate", {
+						expression: `(() => {
+							const el = document.getElementById("pet-body");
+							const r = el.getBoundingClientRect();
+							const sx = r.left + r.width / 2, sy = r.top + r.height / 2;
+							const o = { bubbles: true, pointerId: ${pid}, button: 0 };
+							el.dispatchEvent(new PointerEvent("pointerdown", { ...o, clientX: sx, clientY: sy }));
+							el.dispatchEvent(new PointerEvent("pointermove", { ...o, clientX: sx + 6, clientY: sy + 6 }));
+							el.dispatchEvent(new PointerEvent("pointermove", { ...o, clientX: ${x}, clientY: ${y} }));
+							el.dispatchEvent(new PointerEvent("pointerup", { ...o, clientX: ${x}, clientY: ${y} }));
+							return true;
+						})()`,
+						returnByValue: true,
+					});
+					await sleep(400);
+				};
+				await dragPetTo(1290, 520, 21); // 拖到右侧
+				const gRight = await chatPanel();
+				await dragPetTo(150, 520, 22); // 再拖到左侧
+				const gLeft = await chatPanel();
+				const shotLeft = await cdp.send("Page.captureScreenshot", { format: "png" });
+				await fs.writeFile(path.join(OUT_DIR, "pet-chat-right-side-1440.png"), Buffer.from(shotLeft.data, "base64"));
+				record(
+					"R-PET-11",
+					"左右都能摆：宠物在右侧时面板贴**左**、拖到左侧时面板翻到**右**（沿用 placePanel 的选边判据）",
+					gRight?.side === "left" &&
+						gLeft?.side === "right" &&
+						gRight?.petOverlap === false &&
+						gLeft?.petOverlap === false &&
+						gRight?.insideViewport === true &&
+						gLeft?.insideViewport === true,
+					`宠物拖到右侧（x=${gRight?.pet?.l}）→ side=${gRight?.side}、面板 (${gRight?.panel?.l},${gRight?.panel?.t})-(${gRight?.panel?.r},${gRight?.panel?.b})；再拖到左侧（x=${gLeft?.pet?.l}）→ side=${gLeft?.side}、面板 (${gLeft?.panel?.l},${gLeft?.panel?.t})-(${gLeft?.panel?.r},${gLeft?.panel?.b})；两侧与宠物重叠都=false、四边在视口内；截图 reports/screenshots/pet-chat-right-side-1440.png`,
+				);
+			}
+
+			// ── ③ 历史：4 轮都在、可滚、自动滚到最新、「回到最新」、每轮答复不串台 ─────
+			const MARKERS = ["R1:", "R2:", "R3:", "R4:"];
+			{
+				// 「避开右下角浮动按钮列」这条约束要**在按钮真的可见时**验，否则是空过
+				// （1440×900 停在页顶时 `floatCount=0`，那时候"重叠 0 个"什么都没证明）。
+				// 造一个"右侧宽度够、但会压住按钮"的场面：宠物 x≈900 → 面板若贴右，右边缘 ≈1374
+				// 会压在按钮列（左沿 ≈1340）上；带约束的算法必须**主动改走左侧**。
+				await cdp.send("Runtime.evaluate", { expression: `window.scrollTo(0, 1400); true`, returnByValue: true });
+				await sleep(700);
+				await cdp.send("Runtime.evaluate", {
+					expression: `(() => {
+						const el = document.getElementById("pet-body");
+						const r = el.getBoundingClientRect();
+						const sx = r.left + r.width / 2, sy = r.top + r.height / 2;
+						const o = { bubbles: true, pointerId: 51, button: 0 };
+						el.dispatchEvent(new PointerEvent("pointerdown", { ...o, clientX: sx, clientY: sy }));
+						el.dispatchEvent(new PointerEvent("pointermove", { ...o, clientX: sx + 6, clientY: sy + 6 }));
+						el.dispatchEvent(new PointerEvent("pointermove", { ...o, clientX: 962, clientY: sy }));
+						el.dispatchEvent(new PointerEvent("pointerup", { ...o, clientX: 962, clientY: sy }));
+						return true;
+					})()`,
+					returnByValue: true,
+				});
+				await sleep(500);
+				const gFloat = await chatPanel();
+				const shotF = await cdp.send("Page.captureScreenshot", { format: "png" });
+				await fs.writeFile(path.join(OUT_DIR, "pet-chat-float-avoid-1440.png"), Buffer.from(shotF.data, "base64"));
+				record(
+					"R-PET-11",
+					"聊天框避开右下角浮动按钮列：按钮可见时，右侧即使「够宽」也不许压上去（主动改走左侧）",
+					gFloat?.floatCount >= 1 &&
+						gFloat?.floatOverlap === 0 &&
+						gFloat?.side === "left" &&
+						gFloat?.insideViewport === true &&
+						gFloat?.petOverlap === false,
+					`滚动到 y=1400 让返回顶部按钮出现（可见浮动控件 ${gFloat?.floatCount} 个）；宠物拖到 x=${gFloat?.pet?.l}（若贴右，面板右边缘≈${(gFloat?.pet?.l ?? 0) + 474} 会压住按钮列左沿≈1340）→ 实际 side=**${gFloat?.side}**、面板 (${gFloat?.panel?.l},${gFloat?.panel?.t})-(${gFloat?.panel?.r},${gFloat?.panel?.b})、与浮动按钮重叠 **${gFloat?.floatOverlap}** 个、与宠物重叠=${gFloat?.petOverlap}；截图 reports/screenshots/pet-chat-float-avoid-1440.png`,
+				);
+				await cdp.send("Runtime.evaluate", { expression: `window.scrollTo(0, 0); true`, returnByValue: true });
+				await sleep(300);
+			}
+			{
+				await arm(
+					{ enable: true, baseUrl: LIVE_FAKE, timeoutMs: 20000 },
+					// 答复给够长度（≈60 字）：4 轮 = 8 条要真的把面板撑出滚动条，
+					// 否则"可滚 / 自动滚到最新"这两条会退化成"没内容可滚"的空过
+					rpet11Fake({ answers: MARKERS.map((m) => `${m} 第${m[1]}轮的答复，这里多写几句把历史区撑高一点，好让滚动这件事有东西可测。`) }),
+				);
+				const rounds = [];
+				for (let i = 0; i < 4; i++) {
+					const r = await askPet(`第${i + 1}问`, { timeout: 30000, waitFor: "settle" });
+					const p = await chatPanel();
+					rounds.push({ i: i + 1, ms: r?.ms, reply: p?.replyText ?? "", lines: p?.lineCount, lastAi: p?.lastAiText ?? "" });
+				}
+				const g4 = await chatPanel();
+				const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+				await fs.writeFile(path.join(OUT_DIR, "pet-chat-history-1440.png"), Buffer.from(shot.data, "base64"));
+				facts["rpet11-history"] = { rounds, g4 };
+				// 「回到最新」：手动往回翻 → 按钮出现 → 点它回到最新
+				await cdp.send("Runtime.evaluate", {
+					expression: `(() => { const b = document.getElementById("pet-bubble"); b.scrollTop = 0; b.dispatchEvent(new Event("scroll")); return Math.round(b.scrollTop); })()`,
+					returnByValue: true,
+				});
+				await sleep(300);
+				const atTop = await chatPanel();
+				await cdp.send("Runtime.evaluate", {
+					expression: `(() => { const j = document.querySelector(".pet-chat-jump"); if (j) j.click(); return !!j; })()`,
+					returnByValue: true,
+				});
+				await sleep(300);
+				const backBottom = await chatPanel();
+				record(
+					"R-PET-11",
+					"历史：4 轮 = 8 条都在、面板可滚、新消息自动滚到最新、往回翻后「回到最新」能一键回底",
+					g4?.lineCount === 8 &&
+						g4?.aiLines === 4 &&
+						MARKERS.every((m) => g4?.text.includes(m)) &&
+						g4?.canScroll === true &&
+						g4?.overflowY === "auto" &&
+						g4?.scroll?.top + g4?.scroll?.client >= g4?.scroll?.h - 4 &&
+						atTop?.jumpVisible === true &&
+						backBottom?.jumpVisible === false &&
+						backBottom?.scroll?.top + backBottom?.scroll?.client >= backBottom?.scroll?.h - 4,
+					`4 轮后历史 ${g4?.lineCount} 条（用户 4 + 爱弥斯 4）、四个标记都在=${MARKERS.every((m) => g4?.text.includes(m))}；面板 scrollHeight ${g4?.scroll?.h} > clientHeight ${g4?.scroll?.client}（可滚=${g4?.canScroll}、overflow-y=${g4?.overflowY}）→ 滚到顶 scrollTop=${atTop?.scroll?.top} 时「回到最新」出现=${atTop?.jumpVisible} → 点它 scrollTop=${backBottom?.scroll?.top}（回到底=${backBottom?.jumpVisible === false}）；每轮耗时 ${rounds.map((r) => `${r.i}:${r.ms}ms`).join(" ")}；截图 reports/screenshots/pet-chat-history-1440.png`,
+				);
+				const expectOne = rounds[0];
+				record(
+					"R-PET-11",
+					"连续 4 问：**第 N 问的答复区必须是第 N 答**（含 `RN:`、不含上一轮的 `R(N-1):`，不串台）",
+					expectOne?.reply.includes("R1:") &&
+						rounds.slice(1).every((r) => r.reply.includes(`R${r.i}:`) && !r.reply.includes(`R${r.i - 1}:`) && r.lastAi.includes(`R${r.i}:`)) &&
+						g4?.lastAiText.includes("R4:"),
+					`逐轮 \`.pet-chat-reply\`：「${rounds.map((r) => `第${r.i}问→${r.reply.slice(0, 12)}`).join("」 「")}」；最后一条 ai 行 =「${g4?.lastAiText?.slice(0, 16)}」。（历史区里 R1~R3 **故意留着**——"还看不到之前的聊天"就是这个；断言卡的是**答复区（.pet-chat-reply）与最后一条 ai 行**不许停在上一轮）`,
+				);
+			}
+
+			// ── ④ 会话策略：关框再开 / Swup 切页都续上；「清空对话」能清干净 ──────────
+			{
+				await closePetChat();
+				await openPetChat();
+				const reopened = await chatPanel();
+				record(
+					"R-PET-11",
+					"关框再开：历史续上（不是每次开都空）",
+					reopened?.lineCount === 8 && MARKERS.every((m) => reopened?.text.includes(m)),
+					`Esc 关框 → 重新右键开框：历史 ${reopened?.lineCount} 条（期望 8）、R1~R4 标记都在=${MARKERS.every((m) => reopened?.text.includes(m))}`,
+				);
+				// Swup 切页 → 组件节点不重建，历史要跟着走
+				const clicked = await cdp.send("Runtime.evaluate", {
+					expression: `(() => { const a = [...document.querySelectorAll("a")].find((x) => (x.getAttribute("href") || "").indexOf("/archive/") === 0); if (!a) return false; a.click(); return true; })()`,
+					returnByValue: true,
+				});
+				await sleep(2400);
+				await openPetChat();
+				const afterPage = await chatPanel();
+				record(
+					"R-PET-11",
+					"跨 Swup 切页：历史仍在（同一份前端会话；切页只关框、不清记录）",
+					clicked.result.value === true && afterPage?.lineCount === 8 && MARKERS.every((m) => afterPage?.text.includes(m)),
+					`切页到 ${(await cdp.send("Runtime.evaluate", { expression: `location.pathname`, returnByValue: true })).result.value} 后再开框：历史 ${afterPage?.lineCount} 条、标记都在=${MARKERS.every((m) => afterPage?.text.includes(m))}`,
+				);
+				// 「清空对话」
+				const hasClear = afterPage?.clearBtn === true;
+				await cdp.send("Runtime.evaluate", {
+					expression: `(() => { const c = document.querySelector(".pet-chat-clear"); if (c) c.click(); return !!c; })()`,
+					returnByValue: true,
+				});
+				await sleep(300);
+				const cleared = await chatPanel();
+				record(
+					"R-PET-11",
+					"「清空对话」入口：清掉全部历史（只留一句「我听见了」性质的提示），入口在面板头部",
+					hasClear &&
+						cleared?.aiLines === 0 &&
+						cleared?.lineCount === 1 &&
+						cleared?.lastRole === "notice" &&
+						!cleared?.text.includes("R1:"),
+					`清空前 ${afterPage?.lineCount} 条 → 清空后 ${cleared?.lineCount} 条（ai 行 ${cleared?.aiLines}、最后一条角色 ${cleared?.lastRole}）、旧标记是否残留=${cleared?.text.includes("R1:")}；入口在 \`.pet-chat-head\`（破坏性操作离发送按钮远一点，也不占输入行宽度）`,
+				);
+			}
+
+			// ── ⑤ Markdown 兜底清洗：`**` / `#` / `|` / `>` 一个都不许漏给访客 ────────
+			const DIRTY = "**规范驱动开发**（Spec-Driven Development）。\n\n# 一句话解释\n\n| 维度 | 说明 |\n| --- | --- |\n| 写法 | 先写规格 |\n\n> 先写清楚再动手。\n\n---\n\n- 第一点\n- 第二点";
+			{
+				await arm({ enable: true, baseUrl: LIVE_FAKE, timeoutMs: 20000 }, rpet11Fake({ answers: [DIRTY] }));
+				const run = await askPet("MD 清洗测试", { timeout: 30000, waitFor: "settle" });
+				const g = await chatPanel();
+				const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+				await fs.writeFile(path.join(OUT_DIR, "pet-chat-markdown-1440.png"), Buffer.from(shot.data, "base64"));
+				const fakeSent = (
+					await cdp.send("Runtime.evaluate", { expression: `JSON.stringify(window.__fakeAnswers || [])`, returnByValue: true })
+				).result.value;
+				facts["rpet11-markdown"] = { run, g, fakeSent };
+				const naked = ["**", "#", "|", ">"].filter((s) => (g?.text ?? "").includes(s) || (g?.replyText ?? "").includes(s));
+				record(
+					"R-PET-11",
+					"Markdown 兜底清洗：假答复带 `**加粗**`/`# 标题`/`| 表格 |`/`> 引用` → 面板与答复元素里**一个裸符号都没有**",
+					// 非空过：假后端**确实**把带符号的原文推过来了（`fakeSent` 里能看到），否则这条断言毫无意义
+					fakeSent.includes("**规范驱动开发**") &&
+						fakeSent.includes("| 维度 | 说明 |") &&
+						naked.length === 0 &&
+						(g?.text ?? "").includes("规范驱动开发") &&
+						(g?.text ?? "").includes("先写清楚再动手") &&
+						(g?.replyChars ?? 0) >= 60,
+					`假后端原文（**带符号**）：${fakeSent.slice(0, 80)}…；面板里命中裸符号 [${naked.join(" ")}]（期望空）；清洗后正文仍在：含「规范驱动开发」=${(g?.text ?? "").includes("规范驱动开发")}、含引用文字=${(g?.text ?? "").includes("先写清楚再动手")}；答复长度 ${g?.replyChars} 字；截图 reports/screenshots/pet-chat-markdown-1440.png`,
+				);
+				record(
+					"R-PET-11",
+					"长答复（> collapseChars）默认折叠 + 「展开全文」，展开后全文都在（DOM 不截断）",
+					g?.replyChars > 900 ? g?.collapsed === true && g?.expandBtn === true : true,
+					`本轮答复 ${g?.replyChars} 字（折叠阈值 ${cfgNum("collapseChars")}）；折叠=${g?.collapsed}、有展开按钮=${g?.expandBtn}（答复不足阈值时这一条按"不适用"通过）`,
+				);
+			}
+			{
+				// 单独的折叠用例：造一段 1200 字的答复
+				const LONG = "折叠测试。".repeat(400).slice(0, 1200);
+				await arm({ enable: true, baseUrl: LIVE_FAKE, timeoutMs: 20000 }, rpet11Fake({ answers: [LONG] }));
+				const run = await askPet("长答复折叠测试", { timeout: 30000, waitFor: "settle" });
+				const before = await chatPanel();
+				await cdp.send("Runtime.evaluate", {
+					expression: `(() => { const b = document.querySelector(".pet-chat-expand"); if (b) b.click(); return !!b; })()`,
+					returnByValue: true,
+				});
+				await sleep(200);
+				const after = await chatPanel();
+				record(
+					"R-PET-11",
+					`超长答复（1200 字）折叠 → 「展开全文」放开：正文始终是全文（${before?.replyChars} 字）`,
+					before?.replyChars === 1200 && before?.collapsed === true && after?.collapsed === false,
+					`折叠时 \`.is-long\`=${before?.collapsed}（有展开按钮=${before?.expandBtn}）→ 点「展开全文」后折叠=${after?.collapsed}；两种情况答复文本长度都是 ${before?.replyChars} / ${after?.replyChars} 字（**CSS 折的，DOM 里没截断**，所以"复制/展开"拿到的都是全文）；耗时 ${run?.ms}ms`,
+				);
+			}
+
+			// ── ⑥ 窄屏兜底：两侧都放不下 → 改走宠物上下方（明确兜底，不是静默溢出）────
+			{
+				await arm({ enable: true, baseUrl: LIVE_FAKE, timeoutMs: 20000 }, rpet11Fake({ answers: ["窄屏兜底的答复。"] }));
+				await cdp.send("Emulation.setDeviceMetricsOverride", { width: 620, height: 700, deviceScaleFactor: 1, mobile: false });
+				await sleep(600);
+				// 把宠物拖到**正中**：620 宽下两侧各剩 ~230px < 配置的 minWidth(236) → 只能上下摆
+				await cdp.send("Runtime.evaluate", {
+					expression: `(() => {
+						const el = document.getElementById("pet-body");
+						const r = el.getBoundingClientRect();
+						const sx = r.left + r.width / 2, sy = r.top + r.height / 2;
+						const tx = 310, ty = ${Math.round(700 * 0.5)};
+						const o = { bubbles: true, pointerId: 31, button: 0 };
+						el.dispatchEvent(new PointerEvent("pointerdown", { ...o, clientX: sx, clientY: sy }));
+						el.dispatchEvent(new PointerEvent("pointermove", { ...o, clientX: sx + 6, clientY: sy + 6 }));
+						el.dispatchEvent(new PointerEvent("pointermove", { ...o, clientX: tx, clientY: ty }));
+						el.dispatchEvent(new PointerEvent("pointerup", { ...o, clientX: tx, clientY: ty }));
+						return true;
+					})()`,
+					returnByValue: true,
+				});
+				await sleep(400);
+				await openPetChat();
+				await sleep(400);
+				const narrow = await chatPanel();
+				const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+				await fs.writeFile(path.join(OUT_DIR, "pet-chat-narrow-fallback-620.png"), Buffer.from(shot.data, "base64"));
+				const sideRoom = { left: (narrow?.pet?.l ?? 0) - 18, right: (narrow?.viewport?.w ?? 0) - 8 - ((narrow?.pet?.r ?? 0) + 10) };
+				record(
+					"R-PET-11",
+					"窄屏（620×700、宠物居中）两侧都低于 minWidth → 明确兜底到宠物**上方/下方**，四边仍在视口内、不压宠物",
+					["above", "below"].includes(narrow?.side) &&
+						narrow?.insideViewport === true &&
+						narrow?.panel?.w >= 300 &&
+						narrow?.panel?.h >= 200 &&
+						narrow?.petOverlap === false,
+					`620×700 下宠物在 (${narrow?.pet?.l},${narrow?.pet?.t})：左侧可用 ~${sideRoom.left}px、右侧可用 ~${sideRoom.right}px（都 < 配置 minWidth ${cfgNum("minWidth")}）→ 实际 side=**${narrow?.side}**；面板 ${narrow?.panel?.w}×${narrow?.panel?.h} 在 (${narrow?.panel?.l},${narrow?.panel?.t})-(${narrow?.panel?.r},${narrow?.panel?.b})，四边在视口内=${narrow?.insideViewport}、与宠物重叠=${narrow?.petOverlap}（高度按"宠物上方/下方剩多少"压过，所以没盖住宠物）；截图 reports/screenshots/pet-chat-narrow-fallback-620.png`,
+				);
+				await closePetChat();
+				await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+				await sleep(500);
+			}
+
+			// ── ⑦ 她**不许自称 AI**（发起人 2026-09-27 追加的硬要求）────────────────
+			{
+				await arm({ enable: false, baseUrl: LIVE, timeoutMs: 20000 });
+				const run = await askPet("你是谁呀", { timeout: 30000, waitFor: "settle" });
+				const g = await chatPanel();
+				const scan = (
+					await cdp.send("Runtime.evaluate", {
+						expression: `(() => {
+							const b = document.getElementById("pet-bubble");
+							const pet = document.getElementById("pet");
+							const menu = document.getElementById("pet-menu");
+							const clean = (root) => {
+								if (!root) return "";
+								const c = root.cloneNode(true);
+								for (const el of [...c.querySelectorAll("script, style, link")]) el.remove();
+								return c.outerHTML;
+							};
+							return { text: b ? (b.textContent || "") : "", petMarkup: clean(pet) + clean(menu), reply: (document.querySelector(".pet-chat-reply") || {}).textContent || "" };
+						})()`,
+						returnByValue: true,
+					})
+				).result.value;
+				const hits = SELF_CLAIM.filter(
+					(w) => w.re.test(scan.text) || w.re.test(scan.petMarkup) || w.re.test(scan.reply),
+				).map((w) => w.label);
+				record(
+					"R-PET-11",
+					"用户可见文本里**不许自称 AI**（AI / 人工智能 / 程序 / 模型 / 机器人 / 大脑 / 未连接 / agent）",
+					hits.length === 0 && (run?.reply ?? "").length > 0,
+					`扫描范围 = 聊天面板文本（${scan.text.length} 字）+ 桌宠 DOM（${scan.petMarkup.length} 字符，含菜单）+ 答复元素（${scan.reply.length} 字）—— **不扫整页**（站内本来就有讲 AI 的文章，扫整页必然假红）；命中 [${hits.join(", ")}]（期望空）；这一轮走的是 enable:false 的本地兜底台词「${(run?.reply ?? "").replace(/\n/g, "⏎").slice(0, 40)}」`,
+				);
+			}
+			await closePetChat();
+
+			// ── ⑧ 关框之后台词气泡要回到宠物头顶 ────────────────────────────────
+			// 为什么要有这一条（自查发现的真缺陷）：聊天框的摆位会往 `.pet-bubble` 上写 inline
+			// `left/top`（视口坐标换算成 `.pet` 坐标系的值）。关框时**只**删掉 `--pet-chat-w/h`、
+			// 不删 left/top 的话，残留的 inline 值会**压过基类**的 `left:50%; bottom:calc(100% - 20px)`，
+			// 于是关框之后的第一句台词会出现在屏幕中间那块地方（错位、离宠物很远）。
+			await cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					const h = document.getElementById("pet-body");
+					h.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+					return true;
+				})()`,
+				returnByValue: true,
+			});
+			await sleep(350);
+			const sayGeo = (
+				await cdp.send("Runtime.evaluate", {
+					expression: `(() => {
+						const pet = document.getElementById("pet").getBoundingClientRect();
+						const b = document.getElementById("pet-bubble");
+						const r = b.getBoundingClientRect();
+						return {
+							chat: b.classList.contains("is-chat"),
+							dx: Math.round((r.left + r.width / 2) - (pet.left + pet.width / 2)),
+							gapY: Math.round(pet.top - r.bottom),
+							inlineLeft: b.style.left || "",
+							inlineTop: b.style.top || "",
+							text: (b.textContent || "").trim().slice(0, 24),
+						};
+					})()`,
+					returnByValue: true,
+				})
+			).result.value;
+			record(
+				"R-PET-11",
+				"关框之后台词气泡回到宠物头顶（聊天框残留的 inline left/top 不许顶掉基类定位）",
+				sayGeo?.chat === false &&
+					sayGeo?.inlineLeft === "" &&
+					sayGeo?.inlineTop === "" &&
+					Math.abs(sayGeo?.dx ?? 999) <= 60 &&
+					(sayGeo?.gapY ?? 999) >= -45 &&
+					(sayGeo?.gapY ?? 999) <= 25 &&
+					(sayGeo?.text ?? "").length > 0,
+				`关框后按 Enter 触发 \`say()\`：气泡相对宠物的水平偏差 ${sayGeo?.dx}px（居中 ≈ 0；残留 inline 值会让它偏出几百像素）、纵向间距 ${sayGeo?.gapY}px（基类的 bottom: calc(100% - 20px) ≈ −20）、残留 inline left/top「${sayGeo?.inlineLeft}|${sayGeo?.inlineTop}」（期望空串）、气泡文本「${sayGeo?.text}」`,
+			);
 		}
 
 		// ── ⑤⑥ 状态联动与复位（真机，`data-pet-state` 逐次采样）─────────────
