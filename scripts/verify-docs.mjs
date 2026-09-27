@@ -11,7 +11,9 @@
  *   2. 断言条数：文档里"当前口径"的数字 == 最近一次 `reports/verify-*.log` 里的实测值
  *   3. 截图张数：文档里"当前口径"的数字 == `reports/screenshots/*.png` 实际张数
  *   4. 排行页清单：`src/pages/rank/*.astro` == 文档里列出的 `/rank/xxx/`（prd 站点地图 + ARCH §5.2）
- *   5. 导航子项：prd R-NAV-02 里列的 `/rank/xxx/` == `navBarConfig.ts` 里「排行」的 children，且都有路由文件
+ *   5. 导航子项（**v1.41 起两态**）：「排行」组还在 → prd R-NAV-02 列的 `/rank/xxx/` == `navBarConfig.ts` 里
+ *      「排行」的 children 且都有路由文件；「排行」组已删（现在就是这一态）→ `navBarConfig.ts` 必须有
+ *      「学习路线」→ `/roadmap/`（**不带 children**、全文件无「排行」组），且 prd 的 R-NAV-02 行仍存在、不再列任何 `/rank/…`
  *   6. 需求编号闭环：ARCH / PROJECT_STATUS / README 引用的 R-xxx-nn 都能在 prd.md 找到定义
  *   7. 阻塞项：`阻塞项 N 条` == B-xx 行数，且编号连续
  *   8. 阶段状态：§2 标了 ✅ 的阶段，§3 的小节标题也必须带 ✅（反之亦然）
@@ -233,11 +235,18 @@ const allDocs = { "prd.md": prd, "ARCH.md": arch, "PROJECT_STATUS.md": status, [
 				: "navBarConfig.ts 里找不到「学习路线」项",
 		);
 		// prd 侧：R-NAV-02 行不许再挂 `/rank/…`（挂了就是"代码换了、文档没换"）
+		// ⚠️ **必须带 `navLine !== ""` 前置条件**（Task 3 审查修复）：光看 `prdUrls.length === 0`
+		//    在**整行被删掉**时也会为真（没有行 → 抓不到路径 → "0 条残留"），那是最典型的"判据空过"。
+		//    旧分支有 `urls.length > 0` 兜底，新分支不加就比旧的弱 —— 行不存在 = 文档没登记这件事，判红。
 		record(
 			"导航子项",
-			"prd R-NAV-02 行不再列任何 /rank/… 路径",
-			prdUrls.length === 0,
-			prdUrls.length ? `prd 仍列 ${prdUrls.join(",")}` : `R-NAV-02 行残留 /rank/ 路径 0 条`,
+			"prd R-NAV-02 行仍存在、且不再列任何 /rank/… 路径",
+			navLine !== "" && prdUrls.length === 0,
+			navLine === ""
+				? "prd 里找不到 `| R-NAV-02 |` 那一行（需求行被删了？）"
+				: prdUrls.length
+					? `prd 仍列 ${prdUrls.join(",")}`
+					: "R-NAV-02 行残留 /rank/ 路径 0 条",
 		);
 	} else {
 		// 「排行」那一组的 children：抓 RankXX 预设名，再去预设表里取 url

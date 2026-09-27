@@ -176,6 +176,14 @@ const COLLECT = `(() => {
     // R-PATH-06：桌面导航 + 移动抽屉里**所有**链接的文字，一次覆盖两层
     // （只查 navTops 会漏掉移动抽屉里那份独立的菜单树）
     navTexts: [...document.querySelectorAll("#navbar a, #nav-menu-panel a")].map((a) => (a.textContent || "").trim()),
+    // R-PATH-01（Swup 替代判据）：/roadmap/ 的**正向内容**标记 —— 光靠 URL 派生的状态
+    // （抽屉当前页项）在"报错页 / 空白页"上也可能成立，所以这里直接采"路由页的正文特征"：
+    // 路线页独有的 #roadmap-stats 文本 + 8 条主线区块数。任何页都能采，非路线页上恒为 0/空。
+    // ⚠️ 这一段在 COLLECT 的**模板字符串**里：注释里**不许出现反引号**（会把模板提前闭合，实测踩到）。
+    roadmapLanding: {
+      stats: (document.querySelector("#roadmap-stats")?.textContent || "").replace(/\\s+/g, " ").trim(),
+      lineCount: document.querySelectorAll("section.roadmap-line").length,
+    },
     mobileTops,
     allLabels,
     statRows: statsRoot ? statsRoot.querySelectorAll("div.justify-between").length : null,
@@ -383,9 +391,11 @@ const COLLECT = `(() => {
     // R-RANK-01 / SEO：静态产物下 canonical 不该带查询串（两个维度共用一张榜单页）
     canonical: (document.querySelector('link[rel="canonical"]') || {}).href || null,
     rowsText: (document.querySelector(".rank-rows") || {}).innerText || "",
-    // R-RANK-01：导航"当前页高亮"。桌面导航栏上游本来就没有当前页态，
-    // 有高亮的是移动端抽屉：NavMenuPanel 的 markActiveNav() 按 pathname 标 data-active
-    // 并把所在分组自动展开。收藏这几项就能验"排行子项高亮正确"。
+    // 导航"当前页高亮"：桌面导航栏上游本来就没有当前页态，有高亮的是移动端抽屉 ——
+    // NavMenuPanel 的 markActiveNav() 按 pathname 标 data-active（**单链接项**落在这里，
+    // 带子项的父级分组只在子项命中时自动展开）。收藏这几项就能验"抽屉把当前页标对"。
+    // ⚠️ v1.41 起判据**不再锚在排行子项**上（导航第 3 格已换成「学习路线」单链接），
+    //    见断言侧 R-RANK-01 的两条（P2R-6 会改名迁进 R-PATH）。
     mobileNavActive: [...document.querySelectorAll(".mobile-menu-item[data-active='true']")].map((i) =>
       (i.textContent || "").trim(),
     ),
@@ -2567,13 +2577,22 @@ async function main() {
 		record("R-RANK-02", "Swup 路径：点一次「单集」URL 只前进一档", false, SWUP_SKIP_REASON, true);
 		record("R-RANK-02", "Swup 路径：按一次后退就回到「全剧」", false, SWUP_SKIP_REASON, true);
 		// 取代它们的通用判据（R-PATH-01）：点导航第 3 格 → Swup 接管 → 落在 /roadmap/ 上且菜单态正确
+		// ⚠️ **必须带正向内容判据**（Task 3 审查修复）：只验"抽屉当前页项 == /roadmap/"与"没有榜单板"
+		//    的话，一个"URL 换对了、但页面报错/空白"的落地也会满足（抽屉态是按 pathname 算的，
+		//    `!rank` 在空页上更是必然为真）—— 那是典型的"判据空过"。这里改用正文特征：
+		//    Swup **换页后 title 仍是模板默认值**（实测不更新，所以不用它），改为断言路线页独有的
+		//    `#roadmap-stats` 文本含「133 篇 / 8 条主线」且 8 个主线区块都在（`roadmapLanding`）。
+		const landing = swupPage?.roadmapLanding;
 		record(
 			"R-PATH-01",
-			"经 Swup 点导航第 3 格能进 /roadmap/（落地页与抽屉当前页态都对）",
+			"经 Swup 点导航第 3 格能进 /roadmap/（落地页有正文、抽屉当前页态也对）",
 			swupPage?.nav === "clicked" &&
 				!swupPage?.rank &&
-				(swupPage?.mobileNavActiveItems ?? []).some((i) => i.href === "/roadmap/"),
-			`导航点击=${swupPage?.nav} ｜ 落地页有榜单板=${!!swupPage?.rank}（应为 false）｜ 抽屉当前页=${JSON.stringify(swupPage?.mobileNavActiveItems)}`,
+				(swupPage?.mobileNavActiveItems ?? []).some((i) => i.href === "/roadmap/") &&
+				/133 篇/.test(landing?.stats ?? "") &&
+				/8 条主线/.test(landing?.stats ?? "") &&
+				landing?.lineCount === 8,
+			`导航点击=${swupPage?.nav} ｜ 落地页有榜单板=${!!swupPage?.rank}（应为 false）｜ 抽屉当前页=${JSON.stringify(swupPage?.mobileNavActiveItems)} ｜ 落地正文「${landing?.stats}」主线区块 ${landing?.lineCount} 个`,
 		);
 		// D2：打印时两块榜单都要出现（没点过的「单集」榜不能因为没点过就印不出来）
 		const print = facts["rank-print"];
@@ -2872,9 +2891,12 @@ async function main() {
 			`第 3 格 = ${JSON.stringify(top3)}`);
 		// R-PATH-06：「排行」这个模块整体退场后，导航里不许留任何一层残留
 		// （navTexts 同时覆盖桌面导航与移动抽屉）
+		// ⚠️ 必须先守 `navTexts.length > 0`（Task 3 审查修复）：空数组上的 `.every()` **恒为真** ——
+		//    采集项缺失 / 选错键（例如误取 `-roadmap` 后缀那份）时，这条会"因为什么都没采到"而报绿。
+		const navTexts = facts["home-1440"]?.navTexts ?? [];
 		record("R-PATH-06", "「排行」不再出现在任何导航层（桌面 + 移动抽屉）",
-			(facts["home-1440"]?.navTexts ?? []).every((t) => !t.includes("排行")),
-			`导航文字 ${JSON.stringify(facts["home-1440"]?.navTexts)}`);
+			navTexts.length > 0 && navTexts.every((t) => !t.includes("排行")),
+			`导航文字 ${navTexts.length} 条：${JSON.stringify(navTexts)}`);
 	}
 
 	// ── P3 桌宠（R-PET-01 ~ R-PET-05）──
