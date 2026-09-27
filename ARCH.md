@@ -339,7 +339,7 @@ export interface RoadmapLine {
 
 | id | 线 | 篇数 | 阶段（篇数） | 备注 |
 | --- | --- | --- | --- | --- |
-| `cpp` | C++ 与 STL | 40 | C 与内存基础(11) → 面向对象与模板(6) → STL 容器与实现(17) → 现代 C++(6) | `cpp/vector`、`cpp/list`、`cpp/string` 与 `stl/vector`、`stl/list`、`stl/String` **同名** → 用 `name` 覆盖为「vector · 用法」/「vector · 模拟实现」 |
+| `cpp` | C++ 与 STL | 40 | C 与内存基础(11) → 面向对象与模板(6) → STL 容器与实现(17) → 现代 C++(6) | `cpp/vector`、`cpp/list`、`cpp/string` 与 `stl/vector`、`stl/list`、`stl/string` **同名**（**两边文件名都是小写**；frontmatter 标题才是大写）→ 用 `name` 覆盖为「vector · 用法」/「vector · 模拟实现」 |
 | `algo` | 算法与数据结构 | 26 | 基础技巧(3) → 查找与贪心分治(4) → 动态规划(4) → 图论(8) → 字符串与数学(4) → 进阶结构(2) → 总复习(1) | `algorithm/suanfacuotiben`（173KB）放**线尾**当总复习 |
 | `linux` | Linux 系统 | 27 | **总览(1) → 上手与工具(5) → 编译与调试(5) → 文件与系统(5) → 进程(6) → 信号与线程(4) → IPC(1)** | **发起人指定**：`linux/linux-jichuzhishidian` 放**开头** |
 | `net` | 网络 | 13 | 协议基础(7) → 编程接口(3) → 高并发 IO(3) | |
