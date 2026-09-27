@@ -3,8 +3,8 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | IMiss Blog |
-| 文档版本 | v1.34 |
-| 最后更新 | 2026-09-26 |
+| 文档版本 | v1.35 |
+| 最后更新 | 2026-09-27 |
 | 关联文档 | `ARCH.md`（架构与技术设计）、`PROJECT_STATUS.md`（阶段、进度、下一步、阻塞项） |
 | 基线代码 | Firefly v6.16.8（Astro 7 静态站点），来源 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\my_-blog\Blog template` |
 | 需求来源 | 项目发起人口述需求 + 参考站点 <https://firefly.cuteleaf.cn/series/> + 原型 `my_-blog\blog_test` + 排行榜参考图 `my_-blog\dosc\排行` |

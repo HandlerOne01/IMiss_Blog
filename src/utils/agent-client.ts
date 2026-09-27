@@ -70,6 +70,54 @@ const RETRY_GAP_MS = 500;
 const MAX_RESUME_ROUNDS = 2;
 /** `/ok` 探测结果的短缓存（§8.9.1：连接层错误只重试 1 次；这里再加 5 秒缓存，免得连问三句都先等超时） */
 const PROBE_CACHE_MS = 5000;
+/**
+ * **第三层兜底（`GET /threads/{id}/state`）的独立超时**。
+ * ⚠️ 这个 **1800ms** 是 P5 独立复核 D-4 的修复点：以前这一路复用 `agentConfig.timeoutMs`
+ * （整轮口径 = 60 秒），而它挂在**已经拿到答复之后**的关键路径上 —— `/state` 一旦挂住，
+ * 用户要等满 60 秒才看到那句早就到手的答复（复核实测 **60079ms**）。
+ * 现在的口径：① 只在"前两层都没有 `interrupt` 信号**且**本轮答复为空"时才调（正常轮次
+ * 一次都不多打，复核的请求账从 8 个降到 6 个）；② 它自己的超时与 `/ok` 探测同级。
+ */
+const STATE_TIMEOUT_MS = 1800;
+/**
+ * **单个 SSE 事件的大小上限**（复核 D-16）。
+ * 实测一个恶意/失控的 `values` 能塞 30 万字 → 气泡被撑成 **357,463px** 高的块。
+ * 64KB 的依据：真实答复实测最坏 496 字（≈1.5KB 的 JSON）、整条 `values` 快照也远小于它，
+ * 而 64KB 足够容纳 2 万字答复 —— 超了就是上游失控，按契约不符降级，不进渲染层。
+ */
+const MAX_EVENT_BYTES = 64 * 1024;
+/**
+ * **单条答复进渲染层的字数上限**（复核 D-16 的第二道闸）。
+ * 64KB 的闸门之后仍可能有"合法但荒谬"的长答复（例如 5 万字）：那种长度按 D-7 的气泡
+ * `max-height` 能滚，但滚动条长到没有意义。所以再加一道"可读性截断"：超了截断并**明说**。
+ * 口径：这是**上游失控的兜底**，真实答复（实测 439~496 字）永远碰不到它。
+ */
+const MAX_RENDER_CHARS = 4000;
+/** 截断时补的一句"我说到这儿"，保证用户知道后面还有（不是静默丢内容） */
+const TRUNCATED_HINT = "……（这条太长了，我先说到这儿。）";
+
+/**
+ * **禁词表（唯一真相源，§8.9.6 第 3 条 + 复核 D-6）**。
+ * 这五个词是**数据库内部输出**：实测检索轮的消息流里混着 `可用的表:blog, blog_content`
+ * （纯 `ai` 消息！）与 `CREATE TABLE blog (…)`（`tool` 消息）。契约只允许渲染"最后一条
+ * content 非空的 ai 消息"，但复核证明了最后一条 ai **也可能**就是 schema 行（工具输出
+ * 落到最后）→ 所以取答之后还必须有这一道闸门，命中就当"取不到答复"（降级），
+ * 而不是把 DB 内部信息端给访客。
+ * ⚠️ `scripts/verify-agent.mjs` 的 `leakMarkers` 与这里是**同一张表**，该脚本会读本文件的
+ * 字面量核对（脚本不许 import 业务代码）；改这里就要连带改 §8.9 与那份脚本。
+ */
+export const LEAK_MARKERS: readonly string[] = [
+	"可用的表",
+	"CREATE TABLE",
+	"word_count_min",
+	"user_preferences",
+	"user_intent",
+];
+
+/** 命中了禁词表里的哪个词（没命中回 `null`）——**给日志/断言看，绝不许进气泡** */
+export function leakMarkerIn(text: string): string | null {
+	return LEAK_MARKERS.find((m) => text.includes(m)) ?? null;
+}
 
 /** SSE 事件名白名单（§8.9.3）：出现名单外的名字 = 上游改了协议 → 当契约不符处理（降级） */
 const KNOWN_EVENTS = new Set([
@@ -133,8 +181,8 @@ let assistantId: string | null = null;
 let confirmedBase = "";
 /** `/threads` 建不出来时的短缓存（避免连续几问都卡在建线程上） */
 let threadAttemptAt = 0;
-/** `GET /ok` 的结果缓存（长时间不可用时不至于每次问都先等满探测超时） */
-let probeCache: { at: number; ok: boolean } | null = null;
+/** `GET /ok` 的结果缓存（长时间不可用时不至于每次问都先等满探测超时；**按 baseUrl 记**，见 D-13） */
+let probeCache: { at: number; ok: boolean; base: string } | null = null;
 
 /** 测试 / 排障用：清空会话状态（下次调用会重新探活、重新建线程） */
 export function resetSession(): void {
@@ -143,6 +191,26 @@ export function resetSession(): void {
 	confirmedBase = "";
 	threadAttemptAt = 0;
 	probeCache = null;
+}
+
+/**
+ * 测试 / 排障用：**只读**看一眼会话状态（`verify-agent-robust.mjs` 拿它证明
+ * "失效之后缓存真的被清了、新 id 真的换上了"）。
+ * ⚠️ 只回布尔与时间差，**不回 id 本身** —— 这条路径将来可能被 console 打出来，
+ * 契约 §8.10 第 1 条要求 `assistant_id` / `thread_id` 不进任何用户可见面。
+ */
+export function sessionSnapshot(): {
+	hasThread: boolean;
+	hasAssistant: boolean;
+	confirmedBase: string;
+	threadAttemptAgeMs: number;
+} {
+	return {
+		hasThread: Boolean(threadId),
+		hasAssistant: Boolean(assistantId),
+		confirmedBase,
+		threadAttemptAgeMs: threadAttemptAt ? Date.now() - threadAttemptAt : -1,
+	};
 }
 
 /* ── 对外类型（组件只认这几个）────────────────────────────────────────────── */
@@ -262,25 +330,67 @@ interface SSEEvent {
 
 type SSEHandler = (ev: SSEEvent) => void;
 
-/** 增量式 SSE 解析器：喂 chunk，吐完整事件（跨 chunk 的半截事件留在缓冲里） */
-class SSEParser {
+/** 解析器放弃继续解析的原因（`buffer-overflow` = 单事件超上限，见 `MAX_EVENT_BYTES`） */
+export type SSEOverflowReason = "buffer-overflow";
+
+/**
+ * 增量式 SSE 解析器：喂 chunk，吐完整事件（跨 chunk 的半截事件留在缓冲里）。
+ * 三个 `export` 出来是为了能在**不依赖真后端**的回归脚本（`verify-agent-robust.mjs`）里
+ * 直接喂畸形字节 —— 复核 D-17/D-18 的反例就是这么变成断言的。
+ */
+export class SSEParser {
 	private buf = "";
 	private name = "";
 	private data: string[] = [];
 
-	constructor(private readonly onEvent: SSEHandler) {}
+	constructor(
+		private readonly onEvent: SSEHandler,
+		private readonly onOverflow?: (reason: SSEOverflowReason) => void,
+	) {}
 
 	push(chunk: string): void {
+		// ⚠️ **不要把结尾那个孤立的 `\r` 立刻归一化**（复核 D-17）：
+		// 旧写法对整个缓冲做 `.replace(/\r/g,"\n")`，于是"chunk 以 `\r` 结尾、下一个 chunk
+		// 以 `\n` 开头"时会被提前消费掉，多行 `data:` 的 JSON 就被劈成两个半截事件（都丢弃）。
+		// 真后端的响应头是 `text/event-stream` + **实测用 `\r\n`**，所以这不是纸上谈兵。
+		// 现在的口径：只处理"确定完整"的换行 —— `\r\n`、或者**不在缓冲末尾**的孤立 `\r`；
+		// 末尾那个 `\r` 留在缓冲里等下一个 chunk（真的是行尾的话，下一轮就会处理）。
 		this.buf += chunk;
-		// 统一换行，省得后面每处都处理 \r
-		this.buf = this.buf.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-		let idx = this.buf.indexOf("\n");
-		while (idx >= 0) {
+		this.buf = normalizeNewlines(this.buf);
+		for (;;) {
+			// 单事件超上限：缓冲里已经攒了这么多字节还没换行 → 上游失控，别再喂了
+			if (this.buf.length > MAX_EVENT_BYTES) {
+				this.buf = "";
+				this.name = "";
+				this.data = [];
+				this.onOverflow?.("buffer-overflow");
+				return;
+			}
+			const idx = this.buf.indexOf("\n");
+			if (idx < 0) return;
 			const line = this.buf.slice(0, idx);
 			this.buf = this.buf.slice(idx + 1);
 			this.line(line);
-			idx = this.buf.indexOf("\n");
 		}
+	}
+
+	/**
+	 * **流结束时的收口**（复核 D-18）：SSE 规范要求"EOF 时把还没派发的事件派发掉"，
+	 * 旧实现 `if (chunk.done) break;` 之后什么都没有 → "事件没以空行结尾就断流"的那一轮
+	 * 会丢掉已经完整到手的那条 `values`，用户看到的是假降级。
+	 * 这里把余下缓冲当"最后一行 + 一个隐式空行"处理。
+	 */
+	flush(): void {
+		if (this.buf) {
+			this.line(this.buf);
+			this.buf = "";
+		}
+		// 隐式空行：有 event 名且有 data 就派发
+		if (this.name && this.data.length) {
+			this.onEvent({ name: this.name, data: this.data.join("\n") });
+		}
+		this.name = "";
+		this.data = [];
 	}
 
 	private line(line: string): void {
@@ -300,6 +410,16 @@ class SSEParser {
 	}
 }
 
+/**
+ * 把 `\r\n` 与"不在末尾的孤立 `\r`"归一成 `\n`，**末尾的 `\r` 原样留下**。
+ * 单独抽出来是为了能被回归脚本直接测（D-17 的病灶就在这一行）。
+ */
+export function normalizeNewlines(s: string): string {
+	// 先合 CRLF：末尾是 `\r` 时要留住它（它可能是 CRLF 的前半个，也可能是孤立 CR）
+	const body = s.endsWith("\r") ? s.slice(0, -1) : s;
+	return `${body.replace(/\r\n/g, "\n").replace(/\r/g, "\n")}${s.endsWith("\r") ? "\r" : ""}`;
+}
+
 /* ── 契约里的取法（§8.9.3 / §8.9.5）──────────────────────────────────────── */
 
 interface WireMessage {
@@ -307,18 +427,26 @@ interface WireMessage {
 	content?: unknown;
 }
 
-/** **最终答复的唯一正确取法**：最后一条 `content` 非空的 `ai` 消息 */
-function lastAiMessage(messages: unknown): string {
-	if (!Array.isArray(messages)) return "";
+/**
+ * **最终答复的唯一正确取法**：最后一条 `content` 非空的 `ai` 消息（§8.9.3）。
+ * ⚠️ **再补一道禁词闸门**（复核 D-6）：实测工具输出（`可用的表:blog, blog_content`）本身
+ * 就是一条 `ai` 消息，只是"今天恰好不是最后一条"。取法全押在"后端消息顺序"上太薄 ——
+ * 异常路径（工具输出落到最后）就会把 DB 内部信息端给访客。命中禁词 → 当"取不到答复"。
+ */
+function lastAiMessage(messages: unknown): { text: string; blocked: string | null } {
+	if (!Array.isArray(messages)) return { text: "", blocked: null };
 	const list = messages.filter(
 		(m): m is WireMessage => Boolean(m) && typeof m === "object",
 	);
 	for (let i = list.length - 1; i >= 0; i--) {
 		const m = list[i];
-		if (m.type === "ai" && typeof m.content === "string" && m.content.trim())
-			return m.content;
+		if (m.type !== "ai" || typeof m.content !== "string" || !m.content.trim())
+			continue;
+		const hit = leakMarkerIn(m.content);
+		if (hit) return { text: "", blocked: hit };
+		return { text: m.content, blocked: null };
 	}
-	return "";
+	return { text: "", blocked: null };
 }
 
 /** `__interrupt__` 的 value 可能是字符串，也可能是 `{value: …}` 形态，两种都认 */
@@ -343,6 +471,8 @@ interface Round {
 	state: Record<string, unknown>;
 	interrupt?: AgentInterrupt;
 	answer: string;
+	/** 取到的答复命中了禁词表（值就是命中的那个词）→ 当"取不到答复"处理（D-6） */
+	blockedAnswer?: string;
 	error?: string;
 }
 
@@ -359,7 +489,6 @@ async function runRound(
 	connectTimeoutMs: number,
 	signal: AbortSignal | undefined,
 	ev: AgentStreamEvents,
-	lastSent: { text: string },
 ): Promise<Round> {
 	const round: Round = { status: 0, state: {}, answer: "" };
 	// ── 三个**分开**的闸门（这是发起人 2026-09-26 明确提醒的那一点：别拿一个总时长把流掐断）──
@@ -387,7 +516,14 @@ async function runRound(
 		if (!round.error) round.error = error;
 	};
 
+	// ⚠️ 去重**只在本轮内生效**（复核 D-5）：以前这个"已推送文本"的初值来自调用方
+	// （`opts.lastReply`，而组件把**用户那句话**塞了进去）→ 用户回一句长话、后端只回 4 个字时，
+	// `text.length >= lastSent.text.length` 不成立 → 真答复被判成"空答复"→ 假降级。
+	// 现在初值是空串：本轮第一个非空答复一定上屏，之后的流式增量只有变长才再推。
+	let sentText = "";
 	const absorb = (e: SSEEvent): void => {
+		// 已经判出契约不符/上游 error 了：这一轮作废，同一个 chunk 里后面的事件一律不再看
+		if (round.error) return;
 		if (!KNOWN_EVENTS.has(e.name)) {
 			// 白名单外的事件名 = 上游改了协议（§8.9.6 条件 4）→ 显形并降级，**不往下渲染**
 			finish(`白名单外的事件名：${e.name}`);
@@ -405,9 +541,11 @@ async function runRound(
 				const ask = interruptValue(state.__interrupt__);
 				if (ask && !round.interrupt)
 					round.interrupt = { ask, reply: replyForAsk(ask), via: "values" };
-				const text = lastAiMessage(state.messages);
-				if (text && text.length >= lastSent.text.length) {
-					lastSent.text = text;
+				const { text, blocked } = lastAiMessage(state.messages);
+				// 命中禁词 = 取到的"答复"是 DB 内部输出 → 记下原因，**一个字都不上屏**（D-6）
+				if (blocked) round.blockedAnswer = blocked;
+				else if (text && text.length >= sentText.length) {
+					sentText = text;
 					round.answer = text;
 					ev.onReply?.(text);
 				}
@@ -450,7 +588,15 @@ async function runRound(
 		connect.signal.removeEventListener("abort", onConnectAbort);
 		const reader = res.body.getReader();
 		const dec = new TextDecoder();
-		const parser = new SSEParser(absorb);
+		// ⚠️ **判出契约不符就立刻收手**（复核 D-9）：旧实现只 `finish(...)` 记一笔，
+		// 然后**继续读流**到 60 秒看门狗才收口 —— 而这一轮其实已经废了，继续读既让用户白等，
+		// 又让"期间再问一句"被静默吞掉。现在 `absorb` 一旦判出错误，这里马上 cancel。
+		const parser = new SSEParser(absorb, (reason) =>
+			finish(`单个事件超上限（${reason}）`),
+		);
+		const stopNow = (): void => {
+			if (round.error) void reader.cancel().catch(() => {});
+		};
 		for (;;) {
 			// ② 流中途卡死判定：每读一次重置看门狗（`reader.cancel()` 让 `read()` 立刻返回）
 			let stallTimer: ReturnType<typeof setTimeout> | undefined;
@@ -466,7 +612,11 @@ async function runRound(
 			if (chunk === "stall") return round;
 			if (chunk.done) break;
 			parser.push(dec.decode(chunk.value, { stream: true }));
+			stopNow();
 		}
+		// ⚠️ 多余的尾字节（多字节字符被劈开）先吐出来，再 flush（复核 D-18）
+		parser.push(dec.decode());
+		parser.flush();
 		return round;
 	} catch (err) {
 		if (signal?.aborted) finish("aborted");
@@ -482,50 +632,63 @@ async function runRound(
 	}
 }
 
-/** 第三层兜底（§8.9.5 层③）：`GET /threads/{id}/state` 的 `interrupts[]` / `tasks[].interrupts[]` */
+/**
+ * 第三层兜底（§8.9.5 层③）：`GET /threads/{id}/state` 的 `tasks[].interrupts[]`。
+ * ⚠️ 两处口径是 P5 复核改的，别再改回去：
+ *   ① **超时独立**（`STATE_TIMEOUT_MS`，1.8 秒）—— 以前复用 `agentConfig.timeoutMs`（60 秒），
+ *      `/state` 一挂就把**已经到手的答复**压 60 秒（复核实测 60079ms）。
+ *   ② **`tasks[]` 为空时不再回退到 `interrupts[]`**（复核 D-15）：`interrupts[]` 是线程级字段，
+ *      会把"上一轮那句反问"贴到本轮答复后面（假后端可稳定造出）。
+ *      宁可漏判一次（前端还有"下一轮再判"的机会），也不要把旧问题当新问题。
+ */
 async function interruptFromState(
 	baseUrl: string,
 	thread: string,
 	timeoutMs: number,
 	signal?: AbortSignal,
 ): Promise<string | null> {
+	// 超时预算取小值；调用方传进来的整轮口径不采纳（见上面 ①）
+	const budget = Math.min(timeoutMs, STATE_TIMEOUT_MS);
+	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
-		const res = await requestOnce(
-			`${baseUrl}/threads/${thread}/state`,
-			jsonInit("GET"),
-			timeoutMs,
-			signal,
-		);
-		if (!res.ok) return null;
-		const st = (await res.json()) as {
-			interrupts?: unknown;
-			tasks?: { interrupts?: unknown }[];
-		};
-		// 同时有 `interrupts[]` 与 `tasks[].interrupts[]` 时**优先 tasks**：前者是历史累计
-		// （跑过几轮就有几条，会把"上一轮的旧问题"混进来），后者才是当前活跃任务。
+		const res = await Promise.race([
+			requestOnce(`${baseUrl}/threads/${thread}/state`, jsonInit("GET"), budget, signal),
+			new Promise<null>((resolve) => {
+				timer = setTimeout(() => resolve(null), budget);
+			}),
+		]);
+		if (!res?.ok) return null;
+		const st = (await res.json()) as { tasks?: { interrupts?: unknown }[] };
 		for (const task of Array.isArray(st.tasks) ? st.tasks : []) {
 			const v = interruptValue(task?.interrupts);
 			if (v) return v;
 		}
-		return interruptValue(st.interrupts);
+		return null;
 	} catch {
 		return null;
+	} finally {
+		clearTimeout(timer);
 	}
 }
 
 /* ── 约定词（§8.9.5 的暗号表）────────────────────────────────────────────── */
 
 /**
- * 挑该回给后端哪个约定词。
- * 实测的询问原文是「…篇幅（大概多少字、能看多久）。不想说也行，回我「不提供」——我按站里的
- * 常用范围替你挑…」，用户没明说字数时**默认回 `不提供`**（契约里标了它是默认值）。
+ * 挑该回给后端哪个约定词。**只在"问句本身明确在问什么"时才推词**（复核 D-8）。
+ * ⚠️ 旧实现有一条 `/要不要|需要我|要我/ → provide（需要）`，它把「要不要我按站里的常用范围
+ * 替你挑几篇？」这类**宽松提问**也翻成了 `需要` —— 而契约里 `需要` 的含义是"用户明确给了
+ * 字数/时长"，前端等于替用户表了态；后端人设又写着"回别的话我就当你没说"，猜错不报错、只跑偏。
+ * 现在的口径：
+ *   · 问句里明确出现**字数/篇幅/时长**类词，或明确问"要不要收进本子" → `provide`（收下这个活儿）；
+ *   · 其余（含"不提供/不想说"这类宽松提问）→ **默认词 `不提供`**；
+ *   · 推不出来一律默认，**不猜用户意图**。
+ * 已知脆弱点：这仍然是"靠问句形态推词"，根治要等后端在 `interrupt` 里带结构化载荷
+ * （见 `ARCH.md` §8.9.5 的已知脆弱点与 §8.9.7 未决项）。
  */
 function replyForAsk(ask: string): string {
-	if (/不提供|不想说|懒得说|不用挑/.test(ask))
-		return agentConfig.resumeWords.default;
-	if (/多少字|字数|篇幅|多长|时长|看多久/.test(ask))
-		return agentConfig.resumeWords.default;
-	if (/要不要|需要我|要我/.test(ask)) return agentConfig.resumeWords.provide;
+	// 后端反问"要不要收进本子"= 它准备把结果落盘，这时回 `需要` 是明确的"收下"
+	if (/收进本子|收进本|存下来|记下来/.test(ask)) return agentConfig.resumeWords.provide;
+	if (/多少字|字数|篇幅|多长|时长|看多久/.test(ask)) return agentConfig.resumeWords.provide;
 	return agentConfig.resumeWords.default;
 }
 
@@ -634,6 +797,14 @@ export async function createThread(
 /**
  * 确认"服务可用 **且** 配置的图存在"，返回 `assistant_id`；不可用回 `null`。
  * 三级缓存都是**短**的（`PROBE_CACHE_MS`）：降级后 5 秒就会重新探活，用户再问一句就能恢复。
+ *
+ * ⚠️ **探测缓存必须按 `baseUrl` 记，不能借 `confirmedBase` 当钥匙**（复核 D-13）：
+ * 旧写法是 `const cachedProbe = confirmedBase === baseUrl ? probeCache : null`，而
+ * `confirmedBase` **只在"成功拿到 assistant"时才会等于 `baseUrl`** —— 于是：
+ *   · 成功路径：`assistantId` 缓存先在 806 行命中、直接 return，**根本走不到探测缓存**；
+ *   · 失败路径：`confirmedBase` 还是旧值（空串），`cachedProbe` 永远是 `null` → **每次都真探测**。
+ * 两头都够不着 = `probeCache` 是死代码，而它的代价是"服务端口开着但不响应"时，
+ * **每问一句都要先白等满 2 秒探测超时**。现在按 `probeCache.base` 记，两条路径都能命中。
  */
 async function ensureAssistant(
 	baseUrl: string,
@@ -641,12 +812,10 @@ async function ensureAssistant(
 	now: number,
 ): Promise<string | null> {
 	if (assistantId && confirmedBase === baseUrl) return assistantId;
-	const cachedProbe = confirmedBase === baseUrl ? probeCache : null;
-	const fresh = Boolean(
-		cachedProbe && now - (cachedProbe?.at ?? 0) < PROBE_CACHE_MS,
-	);
+	const cachedProbe = probeCache?.base === baseUrl ? probeCache : null;
+	const fresh = Boolean(cachedProbe && now - cachedProbe.at < PROBE_CACHE_MS);
 	const reachable = fresh ? Boolean(cachedProbe?.ok) : await probe(baseUrl);
-	if (!fresh) probeCache = { at: now, ok: reachable };
+	if (!fresh) probeCache = { at: now, ok: reachable, base: baseUrl };
 	if (!reachable) return null;
 	const list = await listAssistants(baseUrl, timeoutMs);
 	const hit = list.find((a) => a.graphId === agentConfig.graphId);
@@ -696,65 +865,108 @@ export async function askAemeath(
 	if (!base) return mock("baseUrl 为空");
 
 	const signal = opts.signal;
-	const assistant = await ensureAssistant(
-		base,
-		cfg.timeoutMs,
-		Date.now(),
-	).catch(() => null);
-	debugLog("availability", {
-		base,
-		graph: agentConfig.graphId,
-		hasAssistant: Boolean(assistant),
-	});
-	// 调用方主动取消（关聊天框 / 切页）：不降级、不报错，交给调用方丢掉这个结果
-	if (signal?.aborted)
-		return done({
-			text: "",
-			status: "fallback",
-			fromMock: false,
-			reason: "aborted",
-		});
-	if (!assistant) return mock("Agent 不可达，或没有配置的图");
-
-	// ② 建线程（首次）——失败也算"Agent 不可用"，按契约降级
-	if (!threadId) {
-		// 建线程失败后 5 秒内不再重试：探活已经说了"不可用"，连续几个问题都去撞一遍没意义
-		// （用户下一次提问仍会重新探活，§8.9.6 第 4 条要求"能连续降级、能重试"）。
-		if (Date.now() - threadAttemptAt < PROBE_CACHE_MS)
-			return mock("建线程失败（短缓存内不重试）");
-		threadAttemptAt = Date.now();
-		try {
-			threadId = await createThread(base, cfg.timeoutMs);
-		} catch (err) {
-			return mock(`建线程失败：${err instanceof Error ? err.message : "未知"}`);
-		}
-	}
-	const thread = threadId;
 	// 只把"连接/首字节"这一档传下去；**整轮不再有固定超时**（长答复要允许继续流式收，
 	// 由 `runRound` 里的"流中途卡死 60 秒"与"硬上限 300 秒"两道闸门兜底）。
 	const connectTimeout = cfg.timeoutMs;
-	// 去重：流式增量会让同一个答复出现好几次，只有真的变长了才再推给气泡
-	const lastSent = { text: opts.lastReply ?? "" };
 	const events: AgentStreamEvents = { onReply: opts.events?.onReply };
+	// `opts.lastReply` 只用来判一件事：**用户这句是不是在回答上一轮的反问**（§8.9.5）。
+	// ⚠️ 它**不再**参与"答复去重"（复核 D-5：组件把用户那句话塞进来当基线，导致
+	// "答复比用户那句短"时真答复被丢、假降级）。
+	// ⚠️ 判据是"上一轮反问过 **且** 这句里出现了约定词"（`isResumeWord` 做子串匹配）——
+	// 这是 §8.9.5 那三条暗号能表达的全部信息量，**推不出来就按普通消息发**（不猜用户意图）。
+	// 副作用（已知、可接受）：用户用「好的 / 嗯」这种**非约定词**回答反问时，这句会作为新
+	// `input` 发出去，后端把它当新话题（推荐链路那一轮会白跑）。根治同样要等后端的结构化载荷
+	// （§8.9.7 未决项 #9）；当前口径是"宁可当新话题，也不替用户编一个约定词"。
 	const answeringInterrupt = Boolean(
 		opts.lastReply &&
 			isResumeWord(message, Object.values(agentConfig.resumeWords)),
 	);
 
-	let payload: Record<string, unknown> = {
-		input: { messages: [{ type: "human", content: message }] },
+	let assistant: string | null = null;
+	/** 失效自愈只做一次（复核 D-3），别把"服务真挂了"变成无限重试 */
+	let selfHealed = false;
+	/**
+	 * 拿到"可用的 assistant + 一个线程"，拿不到就返回一个哨兵字符串说明为什么。
+	 * ⚠️ `force` 是**自愈路径专用**：`threadAttemptAt` 那道 5 秒短缓存的本意是"建线程失败后
+	 * 别连续撞"，但自愈时我们已经判出"旧线程失效、必须新建"，被那道缓存挡住就会变成
+	 * "清了缓存却建不出新线程" —— 自愈等于没做（本脚本回归实测踩到）。
+	 */
+	const acquire = async (force = false): Promise<string | null> => {
+		assistant = await ensureAssistant(base, cfg.timeoutMs, Date.now()).catch(
+			() => null,
+		);
+		debugLog("availability", {
+			base,
+			graph: agentConfig.graphId,
+			hasAssistant: Boolean(assistant),
+		});
+		if (!assistant) return null;
+		// 建线程（首次）——失败也算"Agent 不可用"，按契约降级。
+		// ⚠️ **必须写回模块级的 `threadId`**（P5 复核的连带发现，本脚本回归钉住）：
+		// 旧实现只往一个**函数内局部**变量里放线程 id，模块级的 `threadId` 除了 `resetSession()`
+		// 之外**一个赋值都没有** → 每问一句都 `POST /threads` 建一个新线程，
+		// 会话上下文根本没接上（契约 §8.9.1 要求"一个会话一个线程、由前端持有"）。
+		// 这个 bug 以前被 D-3 的"永久降级"挡住看不出来，修完自愈才显形。
+		if (!threadId) {
+			// 建线程失败后 5 秒内不再重试：探活已经说了"不可用"，连续几个问题都去撞一遍没意义
+			// （用户下一次提问仍会重新探活，§8.9.6 第 4 条要求"能连续降级、能重试"）。
+			if (!force && Date.now() - threadAttemptAt < PROBE_CACHE_MS)
+				return "__no-thread__";
+			threadAttemptAt = Date.now();
+			try {
+				threadId = await createThread(base, cfg.timeoutMs);
+			} catch (err) {
+				return `__thread-error__:${err instanceof Error ? err.message : "未知"}`;
+			}
+			// ⚠️ **建成功要把时间戳清掉**（复核 D-3 的连带 bug，本脚本回归实测踩到）：
+			// 旧写法只记"什么时候尝试过"，于是一次成功建线程之后 5 秒内，任何"线程失效要新建"
+			// 的路径都会被这道缓存挡住 → 清了缓存却建不出新线程，**自愈等于没做**。
+			// 这道缓存的本意只是"**失败**之后别连续撞"，所以只该在失败分支里留着。
+			threadAttemptAt = 0;
+		}
+		return assistant;
 	};
+	{
+		const got = await acquire();
+		// 调用方主动取消（关聊天框 / 切页）：不降级、不报错，交给调用方丢掉这个结果
+		if (signal?.aborted)
+			return done({
+				text: "",
+				status: "fallback",
+				fromMock: false,
+				reason: "aborted",
+			});
+		if (!got) return mock("Agent 不可达，或没有配置的图");
+		if (got === "__no-thread__") return mock("建线程失败（短缓存内不重试）");
+		if (got.startsWith("__thread-error__"))
+			return mock(`建线程失败：${got.slice("__thread-error__:".length)}`);
+	}
+
+	// ⚠️ **首轮就要判"这句是不是在回答 `interrupt`"**（复核 D-2）：是的话，按 §8.9.5
+	// 「**用 `command` 而不是 `input`**（两者互斥）」发 `command.resume` —— 而不是把用户那句
+	// 当新消息用 `input` 发出去。旧实现只在**同一轮内**拿到过"无答复的 interrupt"时才会走
+	// `command`，而 `blog_agent` 的形态 A（先答复再反问）是**跨轮**的：用户隔一轮回答时，
+	// 那句被当成新 `input` 发出。真后端今天容忍这种写法（复核实测 200 + interrupt 被消费），
+	// 但那是**没写进契约的宽容行为**，后端一收紧这条链路就静默失效 —— 所以照契约发。
+	const firstRoundResume = answeringInterrupt ? resumeWordFor(message) : null;
+	let payload: Record<string, unknown> = firstRoundResume
+		? { command: { resume: firstRoundResume } }
+		: { input: { messages: [{ type: "human", content: message }] } };
 
 	for (let round = 0; round <= MAX_RESUME_ROUNDS; round++) {
+		// 每轮都现取一次"当前有效的 thread/assistant"：自愈之后这两个缓存已经换过值了，
+		// 拿闭包外的旧快照重试等于用失效的 id 再撞一次（本脚本回归实测踩到过）。
+		const liveThread = threadId;
+		const liveAssistant = assistant;
+		if (!liveThread || !liveAssistant) return mock("会话状态不完整");
 		const r = await runRound(
 			base,
-			thread,
+			liveThread,
 			payload,
-			assistant,
+			liveAssistant,
 			connectTimeout,
 			signal,
 			events,
-			lastSent,
 		);
 		debugLog("round", {
 			round,
@@ -762,6 +974,7 @@ export async function askAemeath(
 			error: r.error,
 			interruptVia: r.interrupt?.via,
 			answerChars: r.answer.length,
+			blockedAnswer: r.blockedAnswer,
 		});
 		if (signal?.aborted || r.error === "aborted") {
 			return done({
@@ -771,20 +984,54 @@ export async function askAemeath(
 				reason: "aborted",
 			});
 		}
+		// ③ **失效即自愈**（复核 D-3 + §8.9.7 未决项 #5「失效即降级/新建」）：
+		//   `thread_id` / `assistant_id` 都是**缓存**，而后端一重启两者就都失效（实测都回 404）。
+		//   旧实现遇到 4xx 直接降级，于是**永久降级到用户刷新页面为止**（`resetSession()` 没有调用方）。
+		//   现在的口径：4xx（尤其 404）→ 清缓存 → 重新探活/建线程 → **重试一次**；仍失败才降级。
+		if (r.status >= 400 && !selfHealed) {
+			selfHealed = true;
+			resetSession();
+			debugLog("self-heal", { status: r.status, reason: r.error });
+			// `force=true`：自愈要的是"重新建一个线程"，**不能被建线程失败那道 5 秒短缓存挡住**
+			const got = await acquire(true);
+			if (signal?.aborted)
+				return done({
+					text: "",
+					status: "fallback",
+					fromMock: false,
+					reason: "aborted",
+				});
+			if (!got) return mock("Agent 不可达，或没有配置的图");
+			if (got === "__no-thread__") return mock("建线程失败（短缓存内不重试）");
+			if (got.startsWith("__thread-error__"))
+				return mock(`建线程失败：${got.slice("__thread-error__:".length)}`);
+			// 重试一次**同一个 payload**：上一轮根本没跑起来（4xx），谈不上"重放半截答复"；
+			// `round--` 让这一轮不占用续跑配额（`MAX_RESUME_ROUNDS` 是给 interrupt 用的）
+			round--;
+			continue;
+		}
 		if (r.status === 0 || r.status >= 500)
 			return mock(`请求失败：${r.error ?? r.status}`);
 		if (r.status >= 400) return mock(`契约不符：${r.error ?? r.status}`);
 		if (r.error) return mock(`契约不符：${r.error}`);
+		// 取到的"答复"命中了禁词表（DB 内部输出）→ 一个字都不上屏，按降级处理（D-6）
+		if (r.blockedAnswer)
+			return mock(`答复命中禁词闸门：${r.blockedAnswer}`);
 
-		// ③ 三层检测的第三层：`values` / `updates` 都没给信号时，问一次 `GET .../state`（最可靠）
-		if (!r.interrupt) {
-			const ask = await interruptFromState(base, thread, cfg.timeoutMs, signal);
+		// ③ 三层检测的第三层：**只在"前两层没有信号、且本轮答复为空"时才问一次
+		//    `GET .../state`**（复核 D-4）。为什么不能在正常轮次里无条件多打一次：
+		//    它是纯开销（正常一轮 7 个请求里有它一个），而且它挂在关键路径上 —— 一旦挂住，
+		//    用户要等满它的超时才能看到那句**早就到手**的答复（实测 60079ms）。
+		//    有答复的轮次根本不需要判 interrupt（形态 A 的答复+反问都从 `values` 里拿）。
+		if (!r.interrupt && !r.answer.trim()) {
+			const ask = await interruptFromState(base, liveThread, cfg.timeoutMs, signal);
 			if (ask) r.interrupt = { ask, reply: replyForAsk(ask), via: "state" };
 		}
-		// ④ 命中 `interrupt`，分两种形态（§8.9.5 只描述了第一种，第二种是 P5-1 接线时实测到的）：
+		// ④ 命中 `interrupt`，分两种形态（§8.9.5 描述了前一种，第二种是 P5-1 接线时实测到的，
+		//    P5 复核又独立复现了一次；两种形态都真实存在，别只按文档写的那种实现）：
 		if (r.interrupt) {
 			// 形态 A（**先给答案再反问**，`blog_agent` 的检索链路）：最后一个 `values` 里同时有
-			//   522 字的文章列表与 `__interrupt__`「要不要我收进本子？」。这时**这一轮已经有答复了**，
+			//   482~522 字的文章列表与 `__interrupt__`「要不要我收进本子？」。这时**这一轮已经有答复了**，
 			//   再自动续跑一轮等于替访客做了决定（契约要求"必须续跑"针对的是**没有答复**的那种）。
 			//   → 直接把答复 + 反问一起交出去，用户回「需要 / 不需要」由下一轮走 `command.resume`。
 			if (r.answer.trim()) {
@@ -813,7 +1060,15 @@ export async function askAemeath(
 		}
 		// ⑤ 没有 `interrupt`：`values` 里最后一条非空 `ai` 消息就是最终答复
 		if (!r.answer.trim()) return mock("最终答复为空");
-		return done({ text: r.answer, status: "answer", fromMock: false });
+		return done({
+			// 上游失控的长答复：截断到可读长度并**明说**（D-16 的第二道闸；真实答复碰不到它）
+			text:
+				r.answer.length > MAX_RENDER_CHARS
+					? `${r.answer.slice(0, MAX_RENDER_CHARS)}\n${TRUNCATED_HINT}`
+					: r.answer,
+			status: "answer",
+			fromMock: false,
+		});
 	}
 	// 理论到不了这里（循环里每轮都有 return / continue），保险起见仍按降级处理
 	return mock("续跑次数用尽");

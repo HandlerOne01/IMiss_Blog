@@ -565,8 +565,16 @@ const CONTRAST_PAIRS = [
 const results = [];
 let _chrome = null;
 let _profileDir = null;
-const record = (id, desc, pass, detail = "") => {
-	results.push({ id, desc, pass, detail });
+/**
+ * 记一条断言。
+ * ⚠️ **`skipped` 必须真的存下来**（P5 复核对本仓库验收的硬要求）：R-AGT 段那两条"真往返"
+ * 在 Agent 没起 / 后端文章库不可用时会以 `record(..., true)` 记"跳过"，而旧实现的签名只有
+ * `(id, desc, pass, detail)` —— **第 5 个参数被静默丢掉**，于是"没跑到"的那两条在报告里
+ * 和"跑通了"长得一模一样（复核原话：R-AGT-08 多次 SKIP 却计成 ✅）。
+ * 教训：**多传的参数不会报错，只会静默失效** —— 这类"参数表不对齐"的坑和 T58 是一类。
+ */
+const record = (id, desc, pass, detail = "", skipped = false) => {
+	results.push({ id, desc, pass, detail, skipped: Boolean(skipped) });
 };
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -3982,28 +3990,89 @@ async function main() {
 			features: [{ name: "prefers-color-scheme", value: "dark" }],
 		});
 
-		// 交付物里 `agentConfig.enable` 必须已经是 `true`（P5-2 唯一允许改的默认值）
-		const bootChunk = await (
-			await cdp.send("Runtime.evaluate", {
-				expression: `(async () => { const t = await (await fetch("${BASE}/")).text(); const m = t.match(/src="([^"]*AemeathPet[^"]*\\.js)"/); return m ? (await (await fetch(m[1])).text()) : ""; })()`,
-				awaitPromise: true,
-				returnByValue: true,
-			})
-		).result.value;
+		/**
+		 * 在**页面自己的构建产物**里找一个 chunk 的源码文本（用于"产物里真的是什么"这类断言）。
+		 * ⚠️ **不要写死文件名**（P5 复核的 D-1/T59 就是这一类坑）：`agentConfig` 一度被打进
+		 * `AemeathPet.*.js`，v1.35 起因为适配层多导出了 `LEAK_MARKERS`，它被提升成了独立的
+		 * `config.*.js` chunk —— 写死文件名/只取一个 chunk 的旧断言会**静默失配**（判成"没落地"）。
+		 * 现在的口径：按 URL 列表（HTML 里的 script + 模块依赖链）**逐个取回**，返回**第一个**
+		 * 能满足 `probe(text)` 的那份，并把取到的文件名一起返回（detail 里打出来，下次再搬家能一眼看出）。
+		 * ⚠️ 定义必须放在 R-AGT 段的**最前面**：它是 `const`，下面第一条断言就要用它
+		 *    （写这段时踩过 TDZ：`Cannot access 'findChunk' before initialization`）。
+		 */
+		const findChunk = async (probe) => {
+			const urls = (
+				await cdp.send("Runtime.evaluate", {
+					expression: `(async () => {
+						const seen = new Set();
+						const out = [];
+						const fromText = (t) => {
+							for (const m of t.matchAll(/["'](\\/_astro\\/[^"']+\\.js)["']/g)) out.push(m[1]);
+							for (const m of t.matchAll(/src="(\\/_astro\\/[^"]+\\.js)"/g)) out.push(m[1]);
+						};
+						fromText(document.documentElement.outerHTML);
+						for (const s of [...document.querySelectorAll("script[src]")]) out.push(s.getAttribute("src"));
+						const queue = [...out];
+						for (let i = 0; i < queue.length && i < 40; i++) {
+							const u = queue[i];
+							if (seen.has(u)) continue;
+							seen.add(u);
+							try {
+								const t = await (await fetch(u)).text();
+								fromText(t);
+								for (const m of t.matchAll(/import\\s*\\(\\s*["']([^"']+)["']\\s*\\)/g)) queue.push(m[1]);
+								for (const m of t.matchAll(/from\\s*["'](\\.\\/[^"']+\\.js)["']/g)) {
+									queue.push(new URL(m[1], new URL(u, location.href)).pathname);
+								}
+							} catch {}
+						}
+						return [...seen];
+					})()`,
+					awaitPromise: true,
+					returnByValue: true,
+				})
+			).result.value ?? [];
+			for (const u of urls) {
+				try {
+					const text = await (
+						await cdp.send("Runtime.evaluate", {
+							expression: `(async () => { try { return await (await fetch(${JSON.stringify(u)})).text(); } catch { return ""; } })()`,
+							awaitPromise: true,
+							returnByValue: true,
+						})
+					).result.value;
+					if (text && probe(text)) return { text, file: u, scanned: urls.length };
+				} catch {}
+			}
+			return { text: "", file: null, scanned: urls.length };
+		};
+
+		// 交付物里 `agentConfig.enable` 必须已经是 `true`（P5-2 唯一允许改的默认值）。
+		// ⚠️ 判据是"**在产物里真的找到 `enable: true` 的 agent 配置**"，不是"某个写死的文件名里有"：
+		//    `agentConfig` 的落点会随打包变化（v1.35 起它在独立的 `config.*.js` 里），
+		//    所以用 `findChunk()` 扫一遍产物、取第一份满足的（并把文件名打出来）。
 		{
-			const on = /enable:\s*!0/.test(bootChunk) || /enable:\s*true/.test(bootChunk);
+			const boot = await findChunk(
+				(t) => /enable:\s*(!0|true)/.test(t) && /graphId:/.test(t),
+			);
+			const on = /enable:\s*(!0|true)/.test(boot.text);
 			record(
 				"R-AGT-08",
 				"交付物里 agentConfig.enable 是 true（前端默认真的接 Agent）",
-				on,
+				on && boot.file !== null,
 				on
-					? `桌宠脚本 chunk 里 enable 为真（${bootChunk.length} 字节）`
-					: "chunk 里找不到 enable 为真 → 打开 Agent 接线的那一步没落地",
+					? `在 ${boot.file} 里找到 agentConfig 的 enable 为真（该 chunk ${boot.text.length} 字节；共扫了 ${boot.scanned} 个产物 chunk）`
+					: `扫了 ${boot.scanned} 个产物 chunk，没找到 enable 为真的 agentConfig → 打开 Agent 接线的那一步没落地`,
 			);
 		}
 
-		/** 重载到干净首页，然后装上注入配置 + 计数器（配置在调用时才读，不必赶在脚本之前） */
-		const arm = async (cfg) => {
+		/**
+		 * 重载到干净首页，然后装上注入配置 + 计数器（配置在调用时才读，不必赶在脚本之前）。
+		 * `patchBody` 是给 P5 复核回归（D-2~D-9）用的：**在计数器之后**再包一层 fetch，
+		 * 用它造"假后端"（畸形响应 / 挂住的 `/state` / 长答复），从而**不依赖真后端**也能
+		 * 跑到这些路径。顺序很重要：先计数、后造假，这样"到底发了几次请求"仍然数得准。
+		 */
+		const arm = async (cfg, patchBody = "") => {
 			const loaded = cdp.once("Page.loadEventFired");
 			await cdp.send("Page.navigate", { url: `${BASE}/` });
 			await loaded;
@@ -4013,6 +4082,7 @@ async function main() {
 					window.__imissAgentConfig = ${JSON.stringify(cfg)};
 					window.__imissAgentUrls = [];
 					const orig = window.fetch.bind(window);
+					window.__imissRealFetch = orig;
 					window.fetch = (input, init) => {
 						try {
 							const u = typeof input === "string" ? input : input && input.url ? input.url : String(input);
@@ -4020,12 +4090,52 @@ async function main() {
 						} catch {}
 						return orig(input, init);
 					};
+					${patchBody}
 					window.__imissAgentInjected = "1";
 					return true;
 				})()`,
 				returnByValue: true,
 			});
 		};
+
+		/**
+		 * 假后端的公共片段（P5 复核回归用）：/ok、assistants/search、POST /threads 三条前置，
+		 * 加上一个由 `answer` 决定答复的 `/runs/stream`。把它拼进 `arm(cfg, patch)` 的 patch 里，
+		 * 就能在**同一份构建产物**上跑"没有真后端也能复现"的那些反例。
+		 */
+		const fakeBackendJs = (answer) => `
+					const enc = new TextEncoder();
+					const sse = (name, data) => "event: " + name + "\\r\\ndata: " + data + "\\r\\n\\r\\n";
+					const jsonRes = (o, status) => new Response(JSON.stringify(o), { status: status || 200, headers: { "content-type": "application/json" } });
+					const streamOf = (chunks, hold, status) => new Response(new ReadableStream({
+						start(c) {
+							for (const x of chunks) c.enqueue(enc.encode(x));
+							if (hold) return; // 故意不 close：模拟"流还挂着"
+							c.close();
+						},
+					}), { status: status || 200, headers: { "content-type": "text/event-stream" } });
+					const base = window.__imissRealFetch;
+					window.__fakeLog = [];
+					window.__fakeThreads = 0;
+					// ⚠️ 记录一律走 window.__fakeLog（**每次现取**）：后面的 patch 会把这个数组
+					//    整个换掉来"清空流水"，闭包抓住旧引用就会把清空前的纪录丢掉
+					//    （写 D-3 那条断言时踩到：流水里看不到第 1 问那一跳）。
+					//    ⚠️ 这段是**模板字符串**，注释里不许出现反引号（会提前结束模板）。
+					const push = (line) => { (window.__fakeLog || (window.__fakeLog = [])).push(line); };
+					window.fetch = (input, init) => {
+						const u = typeof input === "string" ? input : (input && input.url) ? input.url : String(input);
+						const method = ((init && init.method) || "GET").toUpperCase();
+						// 不认的地址交回真的 fetch（外层计数器已经记过一笔了，这里不重复记）
+						if (u.indexOf(${JSON.stringify(LIVE_FAKE)}) !== 0) return base(input, init);
+						push(method + " " + u.replace(${JSON.stringify(LIVE_FAKE)}, ""));
+						if (u.endsWith("/ok") && method === "GET") return Promise.resolve(jsonRes({ ok: true }));
+						if (u.endsWith("/assistants/search")) return Promise.resolve(jsonRes([{ graph_id: "blog_agent", assistant_id: "asst-fake" }]));
+						if (u.endsWith("/threads") && method === "POST") { window.__fakeThreads += 1; return Promise.resolve(jsonRes({ thread_id: "t" + window.__fakeThreads })); }
+						if (u.endsWith("/runs/stream")) return Promise.resolve(streamOf([sse("values", JSON.stringify({ messages: [{ type: "ai", content: ${JSON.stringify(answer)} }] }))], false));
+						return Promise.resolve(jsonRes({ detail: "no route" }, 404));
+					};`;
+
+		const LIVE_FAKE = "http://127.0.0.1:2026";
 
 		/** 页面里读"打到某个地址的请求数"（用注入的 urlish 做前缀匹配） */
 		const netCount = async (baseUrl) =>
@@ -4222,7 +4332,11 @@ async function main() {
 					// ⚠️ 必须同时要求"气泡已经是真答复"：只等 `busy=false && resume=null`
 					// 会在**请求还没真正开始**的那一瞬间就成立（`runAsk` 之前 busy 还是 false），
 					// 于是拿到的是"用户刚发出去的那句话"——看着像答复，其实是回声。
-					if (isRealReply(snap.reply, text) && snap.busy === false && snap.resume === null && Date.now() - lastChange > 700) break;
+					// ⚠️ 续跑轮的到位判定**不看 `resume`**：`resume` 只说明"后端这一轮又反问了一句"
+					//    （也可能是同一轮里先给答复再反问），它不该决定"答复到底到了没"。
+					//    旧口径把 `resume === null` 塞进判据 → 后端多问一句时会把整轮拖满超时
+					//    （实测一次 240120ms），拿到的是中途某个快照而不是最终答复。
+					if (isRealReply(snap.reply, text) && snap.busy === false && Date.now() - lastChange > 700) break;
 				} else if (snap.reply && snap.reply !== text && !/^嗯，我看一眼/.test(snap.reply) && Date.now() - lastChange > 900) {
 					// ⚠️ 必须"稳定 900ms"才算到位：刚提交时气泡里是**用户那句回声**，
 					//    它和 `text` 也可能不等（输入法/回车各写一次），不等就 break 会拿到回声
@@ -4415,14 +4529,27 @@ async function main() {
 				const leak = await leakScan();
 				facts["agt-live"] = { ...live, netBefore: before, netAfter: after, leak };
 				const persona = leak.personaText ?? [];
+				// ⚠️ 判据是"**不是本地 mock**"，不是"首字不是 `在的`"：旧写法用
+				//    `/^(嗯，我看一眼|好，我去翻|嗯，我听着呢|在。你说。|在的)/` 排除 mock，
+				//    但真后端**完全可能**回一句以「在的。」开头的正常答复（本轮实测就是
+				//    「在的。⏎⏎怎么还结巴上了，紧张什么~ 说吧，我听着。」，26 字）——
+				//    这是"把真答复判成 mock"的假红。现在按**出厂台词原文 + 回声**排。
+				const MOCK_LINES = [
+					"在。你说。",
+					"谢什么，这不就是我的活儿嘛。",
+					"好，我去翻。",
+					"嗯，我听着呢。",
+					"嗯，我看一眼。",
+				];
+				const notMock = !MOCK_LINES.some((m) => live.reply.includes(m));
 				record(
 					"R-AGT-08",
 					"enable:true —— 真机路径真的发起了往返（计数 > 0）并拿到人设化答复",
 					before === 0 &&
 						after > 0 &&
 						isRealReply(live?.reply, "在吗") &&
-						!/^(嗯，我看一眼|好，我去翻|嗯，我听着呢|在。你说。|在的)/.test(live.reply),
-					`打到 ${LIVE} 的请求数 ${before} → ${after}（>0 说明真发了）；气泡原文「${(live?.reply ?? "").replace(/\n/g, "⏎")}」（${live?.ms}ms，${live?.reply?.length ?? 0} 字）；data-pet-state 序列 ${JSON.stringify(live?.stateSeq)}`,
+						notMock,
+					`打到 ${LIVE} 的请求数 ${before} → ${after}（>0 说明真发了）；气泡原文「${(live?.reply ?? "").replace(/\n/g, "⏎")}」（${live?.ms}ms，${live?.reply?.length ?? 0} 字，不是本地 mock=${notMock}）；data-pet-state 序列 ${JSON.stringify(live?.stateSeq)}`,
 				);
 				record(
 					"R-AGT-08",
@@ -4449,7 +4576,7 @@ async function main() {
 				const interrupted = !!dbg1?.resume;
 				let q2 = null;
 				if (interrupted) {
-					q2 = await askPet(dbg1.resume, { timeout: 240000, waitFor: "settle" });
+					q2 = await askPet(dbg1.resume, { timeout: 300000, waitFor: "settle" });
 					q2.settled = (
 						await cdp.send("Runtime.evaluate", {
 							expression: `window.__imissChatDebug ? window.__imissChatDebug() : null`,
@@ -4476,16 +4603,26 @@ async function main() {
 						true,
 					);
 				} else {
+					// 「一轮收口」有两种**都合规**的结局，断言必须两种都认（否则会把后端的
+					// 正常行为判成前端回归）：
+					//   ① **收口**：续跑后拿到答复、`resume` 回到 `null`（推荐链路正常收尾）；
+					//   ② **先给答复再反问**（契约 §8.9.5 形态 A，实测 `blog_agent` 会这样）：
+					//      续跑后拿到了几百字的答复，**同时**后端又问了一句（要不要收进本子）。
+					// 两种都要满足的硬条件：气泡里是**真的后端答复**（不是 mock、不是回声）、
+					// 禁词 0 命中、人设禁项 0 命中。
+					const q2Reply = q2?.reply ?? "";
+					const closedInOneRound = q2?.settled?.resume === null;
+					const answeredThenAskedAgain = !!q2?.settled?.resume && q2Reply.length > 100;
 					record(
 						"R-AGT-08",
-						"interrupt 真机走通：后端反问进气泡 → 用组件给出的约定词续跑 → 这一轮收口（不再反问）",
+						"interrupt 真机走通：后端反问进气泡 → 用组件给出的约定词续跑 → 拿到答复（收口 或 先答复再反问，两种都合规）",
 						!!q2?.settled &&
-							q2.settled.resume === null &&
 							q2.settled.busy === false &&
-							!!q2?.reply &&
+							isRealReply(q2Reply, dbg1?.resume) &&
+							(closedInOneRound || answeredThenAskedAgain) &&
 							(leak2.hitsText.length ?? 1) === 0 &&
 							(leak2.personaText.length ?? 1) === 0,
-						`首轮气泡「${asked1.replace(/\n/g, "⏎").slice(0, 90)}」（${q1?.ms}ms，state 序列 ${JSON.stringify(q1?.stateSeq)}）→ 组件给出的续跑词「${dbg1?.resume}」→ 续跑 ${q2?.ms ?? "—"}ms，收口后 resume=${JSON.stringify(q2?.settled?.resume)}、busy=${q2?.settled?.busy}；续跑后气泡 ${(q2?.reply ?? "").length} 字「${(q2?.reply ?? "").replace(/\n/g, "⏎").slice(0, 70)}」；state 序列 ${JSON.stringify(q2?.stateSeq)}；禁词命中 [${leak2.hitsText.join(", ")}] / 人设禁项 [${leak2.personaText.join(", ")}]`,
+						`首轮气泡「${asked1.replace(/\n/g, "⏎").slice(0, 90)}」（${q1?.ms}ms）→ 组件给出的续跑词「${dbg1?.resume}」→ 续跑 ${q2?.ms ?? "—"}ms，收口后 resume=${JSON.stringify(q2?.settled?.resume)}（null = 一轮收口；非 null = 后端先答复再反问，形态 A）、busy=${q2?.settled?.busy}；续跑后气泡 ${q2Reply.length} 字「${q2Reply.replace(/\n/g, "⏎").slice(0, 70)}」；state 序列 ${JSON.stringify(q2?.stateSeq)}；禁词命中 [${leak2.hitsText.join(", ")}] / 人设禁项 [${leak2.personaText.join(", ")}]`,
 					);
 				}
 				// 「要不要我收进本子」那种形态下，后端对「不需要」**故意什么都不答**（实测 200 + 0 字）。
@@ -4561,6 +4698,300 @@ async function main() {
 			);
 		}
 
+		// ── ⑦ P5 独立复核（`reports/_p5r-REVIEW.md`）的反例回归 ────────────────
+		// ======================================================================
+		// 这一组的场景**真后端给不了**（它是个正常服务）：畸形响应、`/state` 挂住、
+		// 500 字长答复、assistant/thread 失效。所以用 `fakeBackendJs()` 在**页面里**包一层
+		// fetch 造假后端（地址 `http://127.0.0.1:2026`，**不监听任何端口**，纯内存应答），
+		// 走的仍然是**交付产物里的同一段适配层代码**、同一套真机路径（右键 → 聊天 → 真键盘）。
+		// 纯 Node 侧的那几条（SSE parser、`command.resume` 载荷）在 `pnpm verify:agent:robust`。
+		{
+			/** 打完一轮后读气泡几何：高 / 顶部 / 是否可滚 / 有没有被裁 */
+			const bubbleGeo = async () =>
+				(
+					await cdp.send("Runtime.evaluate", {
+						expression: `(() => {
+							const b = document.getElementById("pet-bubble");
+							if (!b) return null;
+							const r = b.getBoundingClientRect();
+							const reply = b.querySelector(".pet-chat-reply");
+							const cs = getComputedStyle(b);
+							return {
+								top: Math.round(r.top), bottom: Math.round(r.bottom), height: Math.round(r.height),
+								width: Math.round(r.width),
+								viewportH: window.innerHeight, viewportW: window.innerWidth,
+								overflowY: cs.overflowY, maxHeight: cs.maxHeight,
+								scrollHeight: b.scrollHeight, clientHeight: b.clientHeight,
+								canScroll: b.scrollHeight > b.clientHeight + 2,
+								replyChars: reply ? (reply.textContent || "").length : 0,
+								// 首行可见 = 气泡顶边在视口内（"第一行被顶出去"就是这个为假）
+								firstLineVisible: r.top >= 0,
+								// 没有被裁 = 气泡底边也在视口内
+								fullyInside: r.top >= -1 && r.bottom <= window.innerHeight + 1,
+							};
+						})()`,
+						returnByValue: true,
+					})
+				).result.value;
+
+			// ── ⑦.1 长答复（500 字）：气泡可读、可滚、不被顶出视口（复核 D-7 / D-16）──
+			{
+				const long = "爱弥斯的长答复测试。".repeat(50).slice(0, 500);
+				await arm({ enable: true, baseUrl: LIVE_FAKE, timeoutMs: 20000 }, fakeBackendJs(long));
+				const run = await askPet("说点长的", { timeout: 30000, waitFor: "settle" });
+				const geo = await bubbleGeo();
+				const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+				await fs.writeFile(path.join(OUT_DIR, "pet-agent-long-answer-1440.png"), Buffer.from(shot.data, "base64"));
+				facts["agt-long"] = { run, geo };
+				record(
+					"R-AGT-07",
+					"长答复（500 字）气泡**不被顶出视口**：首行可见 + 底边在视口内 + 超高时可滚动（复核 D-7/D-16）",
+					geo?.replyChars === 500 &&
+						geo.firstLineVisible === true &&
+						geo.fullyInside === true &&
+						geo.canScroll === true &&
+						geo.overflowY === "auto",
+					`答复 ${geo?.replyChars} 字 → 气泡 ${geo?.width}×${geo?.height}px、top=${geo?.top}、bottom=${geo?.bottom}（视口高 ${geo?.viewportH}）；overflow-y=${geo?.overflowY}、max-height=${geo?.maxHeight}、scrollHeight=${geo?.scrollHeight} > clientHeight=${geo?.clientHeight}（可滚=${geo?.canScroll}）；首行可见=${geo?.firstLineVisible}、整块在视口内=${geo?.fullyInside}；截图 reports/screenshots/pet-agent-long-answer-1440.png`,
+				);
+				// 反向断言：复核实测的病灶是"top=-15、overflow-y:visible、滚不动"——两条都要为假
+				record(
+					"R-AGT-07",
+					"长答复的**旧病灶**不复发：不出现 top<0、也不是 `overflow-y:visible` 撑到 35 万像素",
+					geo?.top >= 0 && geo?.overflowY !== "visible" && geo?.height <= Math.round(geo?.viewportH * 0.55),
+					`旧实现（278 字）实测高 436px、top=-15、overflow-y:visible；现在 500 字 → 高 ${geo?.height}px（≤${Math.round((geo?.viewportH ?? 0) * 0.55)}px）、top=${geo?.top}、overflow-y=${geo?.overflowY}`,
+				);
+			}
+
+			// ── ⑦.2 禁词闸门：最后一条 ai 就是 schema 行 → 气泡不许出现「可用的表」（D-6）──
+			{
+				await arm(
+					{ enable: true, baseUrl: LIVE_FAKE, timeoutMs: 20000 },
+					fakeBackendJs("可用的表:blog, blog_content"),
+				);
+				const run = await askPet("帮我找几篇讲 C++ 的文章", { timeout: 30000, waitFor: "settle" });
+				const leak = await leakScan();
+				const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+				await fs.writeFile(path.join(OUT_DIR, "pet-agent-leak-gate-1440.png"), Buffer.from(shot.data, "base64"));
+				facts["agt-leakgate"] = { run, leak };
+				record(
+					"R-AGT-03",
+					"禁词闸门：假后端把「可用的表」当最后一条 ai 答复 → 气泡**不上屏**、走 mock 台词（复核 D-6）",
+					// ⚠️ 判据是"气泡里有内容、且一个字都没泄漏"。**不**断言它包含具体哪句 mock：
+					//    `fallbackReply()` 按用户那句话挑台词，而这句问法（「找几篇…」）挑到的
+					//    正是"好，我去翻"那条 —— 钉死具体台词会让改台词变成假红。
+					(run?.reply ?? "").length > 0 &&
+						!run.reply.includes("可用的表") &&
+						leak.hitsText.length === 0 &&
+						leak.hitsPet.length === 0,
+					`气泡原文「${(run?.reply ?? "").replace(/\n/g, "⏎")}」（${run?.ms}ms，长度 ${(run?.reply ?? "").length}）；禁词命中 文本[${leak.hitsText.join(", ")}] 桌宠 DOM[${leak.hitsPet.join(", ")}]；state 序列 ${JSON.stringify(run?.stateSeq)}；截图 reports/screenshots/pet-agent-leak-gate-1440.png`,
+				);
+			}
+
+			// ── ⑦.3 thread 失效（404）→ 自愈：新建线程后这一问必须成（D-3）────────
+			{
+				const answer = "自愈之后的答复。";
+				// ⚠️ 记录要带"这一跳成不成"，否则外层假后端那一跳（成功）也算进来，
+				//    变成一条看着像"多打了一次"的流水。
+				// ⚠️ **失效要发生在第 2 问**，不是在场景一开场就把第 1 问打掉：
+				//    第一版把 `__failFirstRun` 在 patch 里就置 true，结果**第 1 问自己就自愈了一遍**
+				//    （流水：建 t1 → run t1 吃 404 → 建 t2 → run t2 成功；这反而证明自愈在工作，
+				//    但它不是"重启之后第 2 问自愈"那个场景）。所以这里只装"下一次 runs 就失败"
+				//    的开关，真正拉闸在**第 1 问成功之后**。
+				const healPatch = `
+					${fakeBackendJs(answer)}
+					(() => {
+						const inner = window.fetch;
+						window.__failNextRun = false;
+						// ⚠️ 这一层的**自有**流水（不共用假后端那个数组）：共用会让"清空 / 追加"的
+						//    时序互相干扰，断言读到的是两边的并集而不是这一层的真相（写这条断言时踩到）。
+						window.__healLog = [];
+						window.fetch = (input, init) => {
+							const u = typeof input === "string" ? input : (input && input.url) ? input.url : String(input);
+							if (u.indexOf(${JSON.stringify(LIVE_FAKE)}) !== 0) return inner(input, init);
+							if (u.endsWith("/runs/stream")) {
+								const failing = window.__failNextRun;
+								window.__failNextRun = false;
+								// ⚠️ 状态要**等响应回来再记**：先乐观写常量会把"这一跳成没成"记死
+								window.__healLog.push({ run: window.__healLog.length + 1, url: u.replace(${JSON.stringify(LIVE_FAKE)}, ""), forced404: failing });
+								if (failing)
+									return Promise.resolve(new Response("Thread not found", { status: 404 }));
+								const idx = window.__healLog.length - 1;
+								return Promise.resolve(inner(input, init)).then((r) => {
+									window.__healLog[idx].status = r.status;
+									return r;
+								});
+							}
+							return inner(input, init);
+						};
+					})();`;
+				await arm({ enable: true, baseUrl: LIVE_FAKE, timeoutMs: 20000 }, healPatch);
+				const q1 = await askPet("第一问", { timeout: 30000, waitFor: "settle" });
+				// 第 1 问之后看一眼流水（第 1 问到底打了哪几条的地面真值），然后**拉闸**：
+				// 下一次 `runs/stream` 强行 404（模拟"后端重启 → 旧线程失效"）
+				const log1 = (
+					await cdp.send("Runtime.evaluate", {
+						expression: `(() => ({ log: window.__fakeLog || [], heal: window.__healLog || [], threads: window.__fakeThreads || 0 }))()`,
+						returnByValue: true,
+					})
+				).result.value;
+				await cdp.send("Runtime.evaluate", {
+					expression: `(() => { window.__failNextRun = true; return true; })()`,
+					returnByValue: true,
+				});
+				// ⚠️ 两问之间必须**关掉聊天框**：`openPetChat()` 在框已经开着时直接返回
+				//    `{already:true}`，而上一轮的答复元素 / 会话号还挂着（写这条断言时实测踩到）。
+				await closePetChat();
+				// 清一次流水 + 打个标记，让 detail 里能清楚看到"第 1 问"与"第 2 问"的分界
+				// 第 2 问：**复用第 1 问那个线程**（线程跨轮持有的证据）→ 吃 404 → 自愈建新线程 → 重试成功
+				const q2 = await askPet("第二问", { timeout: 30000, waitFor: "settle" });
+				const tl = (
+					await cdp.send("Runtime.evaluate", {
+						expression: `(() => ({ log: window.__fakeLog || [], heal: window.__healLog || [], threads: window.__fakeThreads || 0 }))()`,
+						returnByValue: true,
+					})
+				).result.value;
+				const q1Runs = (log1.heal ?? []).length;
+				const q2Runs = (tl.heal ?? []).slice(q1Runs);
+				facts["agt-heal"] = { q1, q2, tl, log1 };
+				record(
+					"R-AGT-08",
+					"thread 失效（404）→ 前端**自愈**：新建线程并重试一次，第二问照样拿到答复（复核 D-3）",
+					q1?.reply?.includes("自愈之后的答复") === true &&
+						q2?.reply?.includes("自愈之后的答复") === true &&
+						// 第 1 问：只打 1 次 runs、只建 1 个线程（没有多余请求，也没有"每问都新建线程"）
+						log1.threads === 1 &&
+						q1Runs === 1 &&
+						q2Runs.length === 2 &&
+						q2Runs[0].forced404 === true &&
+						q2Runs[1].status === 200 &&
+						q2Runs[1].url.includes("/threads/t2/") &&
+						tl.threads === 2,
+					`第 1 问「${(q1?.reply ?? "").replace(/\n/g, "⏎").slice(0, 30)}」（${q1?.ms}ms，建线程 ${log1.threads} 次、runs ${q1Runs} 次）；第 2 问「${(q2?.reply ?? "").replace(/\n/g, "⏎").slice(0, 30)}」（${q2?.ms}ms，runs 两跳 → ${JSON.stringify(q2Runs)}）；POST /threads 累计 ${tl.threads} 次 —— 即「第 2 问**复用第 1 问那个线程**（线程跨轮持有的证据）吃 404 → 自愈**新建** t2 → 重试一次成功」`,
+				);
+			}
+
+			// ── ⑦.4 `/state` 挂住不影响答复上屏（D-4：旧实现 60079ms）────────────
+			{
+				const answer = "答复早就到了，别被 /state 压住。";
+				const hangPatch = `
+					${fakeBackendJs(answer)}
+					(() => {
+						const inner = window.fetch;
+						window.fetch = (input, init) => {
+							const u = typeof input === "string" ? input : (input && input.url) ? input.url : String(input);
+							if (u.indexOf(${JSON.stringify(LIVE_FAKE)}) === 0 && u.endsWith("/state")) {
+								window.__stateHang = (window.__stateHang || 0) + 1;
+								return new Promise(() => {}); // 永不响应（连响应头都不给）
+							}
+							return inner(input, init);
+						};
+					})();`;
+				await arm({ enable: true, baseUrl: LIVE_FAKE, timeoutMs: 60000 }, hangPatch);
+				const t0 = Date.now();
+				const run = await askPet("在吗", { timeout: 30000, waitFor: "settle" });
+				const elapsed = Date.now() - t0;
+				const stateCalls = (
+					await cdp.send("Runtime.evaluate", {
+						expression: `window.__stateHang || 0`,
+						returnByValue: true,
+					})
+				).result.value;
+				facts["agt-statehang"] = { run, elapsed, stateCalls };
+				record(
+					"R-AGT-03",
+					"`GET /state` 永挂时，答复仍在 1~3 秒内上屏（复核 D-4 实测 60079ms）",
+					run?.reply?.includes("别被") === true && elapsed < 4000,
+					`从提交到气泡出现答复 ${elapsed}ms（含真键盘输入）；气泡「${(run?.reply ?? "").replace(/\n/g, "⏎").slice(0, 40)}」；这一轮打到 /state 的次数 ${stateCalls}（0 = 有答复就不打第三层，这才是修法的核心）`,
+				);
+			}
+
+			// ── ⑦.5 协议不符立刻降级（D-9：旧实现要等 60 秒看门狗）──────────────
+			{
+				const bogusPatch = `
+					${fakeBackendJs("这条答复不该上屏")}
+					(() => {
+						const inner = window.fetch;
+						const enc = new TextEncoder();
+						window.fetch = (input, init) => {
+							const u = typeof input === "string" ? input : (input && input.url) ? input.url : String(input);
+							if (u.indexOf(${JSON.stringify(LIVE_FAKE)}) === 0 && u.endsWith("/runs/stream")) {
+								window.__bogusAt = Date.now();
+								return Promise.resolve(new Response(new ReadableStream({
+									start(c) { c.enqueue(enc.encode("event: bogus_event\\r\\ndata: {}\\r\\n\\r\\n")); }, // 之后不 close：流挂着
+								}), { status: 200, headers: { "content-type": "text/event-stream" } }));
+							}
+							return inner(input, init);
+						};
+					})();`;
+				await arm({ enable: true, baseUrl: LIVE_FAKE, timeoutMs: 60000 }, bogusPatch);
+				const t0 = Date.now();
+				const run = await askPet("在吗", { timeout: 30000, waitFor: "settle" });
+				const elapsed = Date.now() - t0;
+				facts["agt-bogus"] = { run, elapsed };
+				record(
+					"R-AGT-03",
+					"契约不符（白名单外事件）→ **立刻**降级，不等 60 秒看门狗（复核 D-9）",
+					(run?.reply ?? "").length > 0 && elapsed < 6000 && !run.reply.includes("不该上屏"),
+					`从提交到气泡出现降级台词 ${elapsed}ms（旧实现要等 60 秒 STALL 看门狗）；气泡原文「${(run?.reply ?? "").replace(/\n/g, "⏎")}」（不含假答复「这条答复不该上屏」= 判出不符后一个字都没渲染）`,
+				);
+			}
+
+			// ── ⑦.6 在飞时再按发送：不许静默吞掉（D-9 的第二个病灶）────────────
+			{
+				const busyPatch = `
+					${fakeBackendJs("这条答复要好一会儿")}
+					(() => {
+						const inner = window.fetch;
+						const enc = new TextEncoder();
+						window.fetch = (input, init) => {
+							const u = typeof input === "string" ? input : (input && input.url) ? input.url : String(input);
+							if (u.indexOf(${JSON.stringify(LIVE_FAKE)}) === 0 && u.endsWith("/runs/stream")) {
+								// 只发一个心跳就挂着不动 → 这一轮会飞很久，足够复现"在飞时又按发送"
+								return Promise.resolve(new Response(new ReadableStream({
+									start(c) { c.enqueue(enc.encode(":\\r\\n\\r\\n")); },
+								}), { status: 200, headers: { "content-type": "text/event-stream" } }));
+							}
+							return inner(input, init);
+						};
+					})();`;
+				await arm({ enable: true, baseUrl: LIVE_FAKE, timeoutMs: 60000 }, busyPatch);
+				const opened = await openPetChat();
+				await typeText("第一句");
+				await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, text: "\r" });
+				await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+				await sleep(1200);
+				const busyBefore = await petUi();
+				// 在飞时再打一句并提交：旧实现 `if (!text || chatBusy) return;` → 什么都不发生
+				await typeText("第二句");
+				await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, text: "\r" });
+				await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+				await sleep(700);
+				const afterSecond = await petUi();
+				const inputVal = (
+					await cdp.send("Runtime.evaluate", {
+						expression: `document.querySelector(".pet-chat input") ? document.querySelector(".pet-chat input").value : null`,
+						returnByValue: true,
+					})
+				).result.value;
+				const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
+				await fs.writeFile(path.join(OUT_DIR, "pet-agent-busy-feedback-1440.png"), Buffer.from(shot.data, "base64"));
+				facts["agt-busy"] = { opened, busyBefore, afterSecond, inputVal };
+				// ⚠️ CDP 合成键盘会把同一个字写两遍（实测「第第二二句句」），所以断言按
+				//    "每个字重复一次"的形态比（与 `isRealReply` 里的 `doubleCheck` 同一口径）。
+				const inputDoubled = "第二句".split("").map((c) => c + c).join("");
+				const inputKept = inputVal === "第二句" || inputVal === inputDoubled;
+				record(
+					"R-AGT-04",
+					"这一轮还在飞时又按发送：给**可见反馈** + 保留用户那句话（不再静默吞掉，复核 D-9）",
+					busyBefore.busy === true &&
+						afterSecond.busy === true &&
+						afterSecond.reply.includes("还忙着上一句") &&
+						inputKept,
+					`第一次提交后 busy=${busyBefore.busy}；在飞时提交第二句 → 气泡「${(afterSecond.reply ?? "").replace(/\n/g, "⏎").slice(0, 60)}」（含可见反馈=${afterSecond.reply.includes("还忙着上一句")}）、输入框仍留着「${inputVal}」（不清空 = 不丢用户刚打的字）、busy 仍是 ${afterSecond.busy}；截图 reports/screenshots/pet-agent-busy-feedback-1440.png`,
+				);
+			}
+		}
+
 		// ── ⑤⑥ 状态联动与复位（真机，`data-pet-state` 逐次采样）─────────────
 		{
 			// 用死端口跑这一组：**请求一定会失败**，于是"思考态 → failed → 复位"这条链
@@ -4629,6 +5060,30 @@ async function main() {
 		}
 	}
 
+	// ── 报告口径自检（不碰浏览器，纯记账逻辑）────────────────────────────
+	// 为什么要这一条：P5 复核点名「R-AGT-08 多次 SKIP 却计成 ✅」，而那个 bug 的成因是
+	// `record()` 的第 5 个参数（`skipped`）**被签名静默丢掉** —— 光靠"跑一遍真链路看报告"
+	// 是验不到的（后端健康时那条根本不会 SKIP）。所以这里直接**记账**验一次：
+	// 跳过项必须不计入"通过"、必须能被单独数出来、且 `pass` 不该被当作"跑过了"。
+	{
+		const probeResults = [];
+		const probeRecord = (id, desc, pass, detail = "", skipped = false) => {
+			probeResults.push({ id, desc, pass, detail, skipped: Boolean(skipped) });
+		};
+		probeRecord("UNIT-01", "真的跑过并通过", true, "ok");
+		probeRecord("UNIT-02", "没跑到（环境未就绪）", true, "跳过原因", true);
+		probeRecord("UNIT-03", "真的失败", false, "boom");
+		const ranThrough = probeResults.filter((r) => !r.skipped && r.pass).length;
+		const skippedN = probeResults.filter((r) => r.skipped).length;
+		const failedN = probeResults.filter((r) => !r.skipped && !r.pass).length;
+		record(
+			"UNIT",
+			"报告口径：`skipped` 会被记下来，且**不计入通过**（P5 复核点名的 SKIP 记账 bug 的回归）",
+			skippedN === 1 && ranThrough === 1 && failedN === 1,
+			`三条记账（通过 / 跳过 / 失败）→ 通过 ${ranThrough}、跳过 ${skippedN}、失败 ${failedN}（期望各 1）。⚠️ 这条同时钉住"record() 的第 5 个参数不许被签名丢掉"——多传的参数不会报错，只会静默失效`,
+		);
+	}
+
 	child.kill();
 	await fs.rm(profile, { recursive: true, force: true }).catch(() => {});
 
@@ -4640,12 +5095,28 @@ async function main() {
 	const failed = functional.filter((r) => !r.pass);
 	console.log("");
 	for (const r of results) {
-		console.log(`${r.pass ? "✅" : "❌"} [${r.id}] ${r.desc}${r.detail ? `\n      ${r.detail}` : ""}`);
+		// ⚠️ **SKIP 不许长得像 ✅**（P5 复核对本仓库验收的硬要求）：R-AGT 那两条"真往返"在
+		// Agent 没起 / 后端文章库不可用时会记 `skipped`，而旧实现只按 `pass` 打勾 ——
+		// 于是**没跑到的**那两条在报告里和"跑通了"长得一模一样（复核原话：多次 SKIP 却被计成 ✅）。
+		// 现在：`⏭️ [SKIP]` + 单独一行"跳过原因"，汇总行把跳过数**单独列**出来。
+		if (r.skipped) {
+			console.log(`⏭️  [SKIP] [${r.id}] ${r.desc}${r.detail ? `\n      ↳ 跳过原因：${r.detail}` : ""}`);
+		} else {
+			console.log(`${r.pass ? "✅" : "❌"} [${r.id}] ${r.desc}${r.detail ? `\n      ${r.detail}` : ""}`);
+		}
 	}
+	const ran = functional.filter((r) => !r.skipped);
+	const skipped = functional.filter((r) => r.skipped);
 	console.log(
-		`\n功能断言 ${functional.length} 项：通过 ${functional.length - failed.length}，失败 ${failed.length}` +
-			`（另有 ${informational.length} 条信息记录不计入）`,
+		`\n功能断言 ${functional.length} 项：✅ 通过 ${ran.length - failed.length}，❌ 失败 ${failed.length}，` +
+			`⏭️ 跳过 ${skipped.length}（另有 ${informational.length} 条信息记录不计入）`,
 	);
+	if (skipped.length) {
+		// 这一行是"别把 SKIP 读成绿"的最后一道保险
+		console.log(
+			`⚠️  本轮的 ${skipped.length} 项**没有执行**（不计入通过）：${skipped.map((r) => `[${r.id}] ${r.desc}`).join("；")}`,
+		);
+	}
 	process.exitCode = failed.length ? 1 : 0;
 }
 

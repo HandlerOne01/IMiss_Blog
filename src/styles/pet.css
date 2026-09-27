@@ -104,9 +104,30 @@
 	line-height: 1.62;
 	text-align: left;
 	box-shadow: 0 10px 30px -12px rgb(20 10 50 / 0.45);
+	/* ── 长答复的呈现（P5 复核 D-7 / D-16）───────────────────────────────
+	   实测：真后端答复 439~496 字，而气泡底部锚在宠物头顶上、会**向上**长；
+	   不留上限的话 278 字就能长到 436px 高、首行跑到视口外（`top=-15`），
+	   一个 30 万字的畸形事件更是把它撑成 **357,463px** 高的空块（完全不可读）。
+	   所以：① `max-height` 夹在视口内（留出宠物本体的高度）；② 超出可滚
+	   （`overscroll-behavior` 防滚动穿透）；③ 底部锚点不动 → 首行永远看得见，
+	   多出来的部分往下翻。滚动条用细样式，别在 226px 宽的气泡里抢走正文宽度。 */
+	max-height: min(48vh, 360px);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	scrollbar-width: thin;
 	opacity: 0;
 	pointer-events: none;
 	transition: opacity 0.3s ease;
+}
+
+/* 气泡自己的细滚动条（只在内容超高时出现；webkit 侧不写就会是一条 15px 的系统灰条） */
+.pet-bubble::-webkit-scrollbar {
+	width: 5px;
+}
+
+.pet-bubble::-webkit-scrollbar-thumb {
+	border-radius: 3px;
+	background: color-mix(in oklab, var(--primary) 45%, transparent);
 }
 
 :root.dark .pet-bubble,
@@ -209,6 +230,8 @@
 	font-size: 12.5px;
 	opacity: 0.9;
 	white-space: pre-wrap;
+	/* 长答复在 226px 宽的气泡里必须能断开长串（URL / 连续英文），否则会被横向裁掉 */
+	overflow-wrap: anywhere;
 }
 
 /* ── 右键菜单 ───────────────────────────────────────────── */

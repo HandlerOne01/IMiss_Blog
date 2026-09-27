@@ -175,9 +175,61 @@ async function main() {
 		}
 		if (src) {
 			const grab = (field, re) => re.exec(src)?.[1] ?? null;
+			// ⚠️ `baseUrl` / `graphId` 必须**同时认三种形态**（T51 的教训，ARCH.md §14.3）：
+			//   `baseUrl: "http://…"`            —— P5-0 的原始形态（字面量直写）
+			//   `baseUrl: DEFAULT_AGENT_BASE_URL`—— 抽成常量（常量声明在别处）
+			//   `baseUrl: resolveAgentBaseUrl()` —— P5-2 起：常量 + `import.meta.env` 回落
+			// 只认第一种形态的话，**源码重构一次脚本就永久失配**，而这项恰好是"交付证据"。
+			// 判据（防"正则恒真"的假绿）：字面量形态必须真的匹配到字面量；
+			// 引用形态必须能解析出被引用的那个名字，且该名字**确实在源码里被赋值成字符串**。
+			// 解析不出任何东西 → `null` → 照旧判失败（不是静默放行）。
+			//
+			// ⚠️ 引用形态还要多走一步（D-1 的正确修法）：`baseUrl: resolveAgentBaseUrl()` 这
+			// 种写法里，**真正的默认值在别处**——函数体回落到 `DEFAULT_AGENT_BASE_URL`，而后者
+			// 是个 `export const … = "http://…"`。所以解析顺序是：
+			//   ① 被引用的名字自己有没有 `= "字符串"`（`baseUrl: DEFAULT_AGENT_BASE_URL`）；
+			//   ② 没有就找"哪个常量声明里提到了这个名字"（`return url || DEFAULT_AGENT_BASE_URL`），
+			//      它多半就是那个真正兜底的默认值；
+			//   ③ 都找不到 → null（判失败）。
+			// 只认形态 ① 的话，`baseUrl` 一旦再被包一层函数就又会失配 —— 那正是 D-1 的成因。
+			const grabLiteralOrRef = (field, litRe, refRe) => {
+				const lit = grab(field, litRe);
+				if (lit) return { value: lit, via: "字面量" };
+				const ref = grab(field, refRe);
+				if (!ref) return { value: null, via: "没匹配到任何形态" };
+				const bare = ref.replace(/\(\)$/, "");
+				const direct = grab(
+					bare,
+					new RegExp(
+						`(?:const|let|var)\\s+${bare}\\s*(?::[^=]+)?=\\s*"([^"]+)"`,
+					),
+				);
+				if (direct) return { value: direct, via: `常量 ${bare}` };
+				for (const m of src.matchAll(
+					/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*"([^"]+)"/g,
+				)) {
+					const decl = src.slice(m.index, m.index + 320);
+					if (new RegExp(`\\b${bare}\\b`).test(decl.slice(m[0].length))) {
+						return { value: m[2], via: `常量 ${m[1]}（被 ${ref} 引用）` };
+					}
+				}
+				return { value: null, via: `引用了 ${ref}，但源码里找不到它的字符串值` };
+			};
+			const baseUrlRef = grabLiteralOrRef(
+				"baseUrl",
+				/baseUrl:\s*"([^"]+)"/,
+				/baseUrl:\s*([A-Za-z_$][\w$]*(?:\(\))?)/,
+			);
+			const graphIdRef = grabLiteralOrRef(
+				"graphId",
+				/graphId:\s*"([^"]+)"/,
+				/graphId:\s*([A-Za-z_$][\w$]*)\s*[,;}]/,
+			);
+			// `enable` 是"出厂开关"：脚本不改它的值，只用它证明"配置对齐这一项真的读到了源码"
+			const enable = grab("enable", /enable:\s*(true|false)/) === "true";
 			const actual = {
-				baseUrl: grab("baseUrl", /baseUrl:\s*"([^"]+)"/),
-				graphId: grab("graphId", /graphId:\s*"([^"]+)"/),
+				baseUrl: baseUrlRef.value,
+				graphId: graphIdRef.value,
 				timeoutMs: Number(grab("timeoutMs", /timeoutMs:\s*(\d+)/)),
 				default: grab("default", /default:\s*"([^"]+)"/),
 				provide: grab("provide", /provide:\s*"([^"]+)"/),
@@ -197,9 +249,11 @@ async function main() {
 			}
 			record(
 				"配置对齐",
-				"agentConfig.ts 的默认值与脚本内置契约常量一致",
+				"agentConfig.ts 的默认值与脚本内置契约常量一致（baseUrl/graphId 认字面量与常量两种形态）",
 				mismatch.length === 0,
-				mismatch.length ? mismatch.join("；") : `baseUrl/graphId/timeoutMs/resumeWords/knownGraphs(4) 全部一致`,
+				mismatch.length
+					? `${mismatch.join("；")} ｜ baseUrl 取值方式：${baseUrlRef.via}`
+					: `baseUrl/graphId/timeoutMs/resumeWords/knownGraphs(4) 全部一致 ｜ baseUrl 取值方式：${baseUrlRef.via}（${actual.baseUrl}）｜ graphId 取值方式：${graphIdRef.via} ｜ enable=${enable}`,
 			);
 		}
 	}
@@ -288,7 +342,10 @@ async function main() {
 					// 路由不同就会走不同的节点：直接答（只有 values）或经 extend_graph
 					// （metadata/messages.metadata/partial/complete）。契约只锁三条硬保证：
 					//   ① 事件流非空且事件名都在白名单内（上游改协议要显形）；
-					//   ② 最后一个事件必须是 values（前端就靠它拿最终状态）；
+					//   ② **末事件是 `values` 或 `updates`**（v1.35 放宽：取答仍只认最后一个
+					//      `values`，但没有 `values` 时要回退 `GET /state`；复核 D-2 实测
+					//      `recommended_agent` 的 resume 轮以 `updates` 收尾，旧口径"必须是
+					//      values"不成立 —— 照旧口径写断言会让 resume 轮无故变红）；
 					//   ③ metadata 若出现必须在**任何消息事件之前**（它是 run 起手帧）。
 					const uniq = [...new Set(round.names)];
 					const unknown = uniq.filter((n) => !CONTRACT.knownEvents.includes(n));
@@ -297,9 +354,14 @@ async function main() {
 						notes.push("事件流是空的");
 					}
 					const last = round.names[round.names.length - 1];
-					if (last !== "values") {
+					if (last !== "values" && last !== "updates") {
 						ok = false;
-						notes.push(`末个事件是 ${last}，契约要求 values（最终状态）`);
+						notes.push(`末个事件是 ${last}，契约要求 values（主收尾）或 updates（v1.35 放宽）`);
+					}
+					if (!round.names.includes("values")) {
+						// 末事件可以不收在 values 上，但**整轮一个 values 都没有**就必须回退 state，
+						// 那属于"取不到最终状态"的可疑情形，记下来
+						notes.push("本轮没有任何 `values` 事件 → 取答要回退 `GET /threads/{id}/state`（§8.9.3 #2）");
 					}
 					const metaIdx = round.names.indexOf("metadata");
 					const firstMsgIdx = round.names.findIndex((n) => n.startsWith("messages/"));
@@ -475,8 +537,23 @@ async function main() {
 					}
 				}
 				if (!rec.interruptValue) {
-					ok = false;
-					notes.push("第一轮没有检测到 interrupt（SSE 与 state 两层信号都没命中）");
+					// ⚠️ 区分"**后端依赖不可用**"与"**前端/契约没判出来**"（P5 复核点名的 R-AGT-08 问题）：
+					// 后端文章库偶发连不上时会**直接回一句"数据库连不上"**，这时**没有任何 interrupt**
+					// —— 那是环境依赖问题，按 SKIP 记（不计入通过）；除此之外判不出 interrupt 一律 FAIL。
+					// 以前两者都塞进"失败"里、报告又说它是通过，是复核方点名的那条"SKIP 被算成 ✅"。
+					const r1Text =
+						lastAiMessage(r1.state?.messages)?.content ?? "";
+					rec.round1Answer = r1Text;
+					const dbDown = /数据库|连不上|暂时取不了|取不了数/.test(r1Text);
+					if (dbDown) {
+						rec.skippedDbDown = true;
+						notes.push(
+							`后端依赖不可用（文章库连不上）：第一轮直接回了「${r1Text.replace(/\n/g, " ").slice(0, 80)}」，SSE 与 state 两层都没有 interrupt。**这一项没有执行**，请在 langgraph dev 的文章库恢复后重跑；前端行为无回归。`,
+						);
+					} else {
+						ok = false;
+						notes.push("第一轮没有检测到 interrupt（SSE 与 state 两层信号都没命中）");
+					}
 				} else {
 					notes.push(`检测方式：${rec.detectVia}`);
 					notes.push(`问题原文：「${String(rec.interruptValue).replace(/\n/g, " ").slice(0, 80)}…」`);
@@ -492,6 +569,18 @@ async function main() {
 						t2Budget,
 					);
 					rec.resumeStatus = r2.status;
+					// 原始证据（P5 复核 D-2 要求"续跑这一轮要留得下痕迹"）：
+					//   ① 两轮各自的**末事件名** —— 复核实测 resume 轮的末事件是 `updates` 而不是
+					//      `values`，契约 §8.9.3 的顺序保证 #2 因此不成立（v1.35 已改口径）；
+					//   ② 两轮各自的**事件名序列**与**线程状态快照**（与 GET /state 对照用）；
+					//   ③ 续跑响应体前 400 字节（证明"真的收到了 200 + 事件流"，不是脚本自说自话）。
+					rec.round1Last = r1.names[r1.names.length - 1] ?? null;
+					rec.round2Last = r2.names[r2.names.length - 1] ?? null;
+					rec.round2Names = [...new Set(r2.names)];
+					rec.round2RawHead = r2.raw.slice(0, 400);
+					notes.push(
+						`末事件：首轮 ${JSON.stringify(rec.round1Last)}、续跑 ${JSON.stringify(rec.round2Last)}；续跑事件名 ${rec.round2Names.join(", ")}`,
+					);
 					if (r2.status !== 200) {
 						ok = false;
 						notes.push(`resume → HTTP ${r2.status}；${r2.raw.slice(0, 200)}`);
@@ -518,14 +607,18 @@ async function main() {
 		record(
 			"推荐轮 · interrupt",
 			`能判出「需要续跑」并取到询问原文（约定词 resume「${CONTRACT.resumeDefault}」）`,
-			Boolean(rec.interruptValue),
+			Boolean(rec.interruptValue) || rec.skippedDbDown === true,
 			notes.slice(0, rec.interruptValue ? 2 : 9).join(" ｜ ") || "—",
+			rec.skippedDbDown === true,
 		);
 		record(
 			"推荐轮 · 最终答复",
 			`resume「${CONTRACT.resumeDefault}」后能拿到最终答复`,
-			ok && Boolean(rec.answer),
-			rec.answer ? `${rec.answer.length} 字 ｜ resume HTTP ${rec.resumeStatus}` : notes.join(" ｜ "),
+			(ok && Boolean(rec.answer)) || rec.skippedDbDown === true,
+			rec.answer
+				? `${rec.answer.length} 字 ｜ resume HTTP ${rec.resumeStatus} ｜ 首轮末事件 ${JSON.stringify(rec.round1Last)} ｜ 续跑末事件 ${JSON.stringify(rec.round2Last)}`
+				: notes.join(" ｜ "),
+			rec.skippedDbDown === true,
 		);
 	}
 
@@ -610,10 +703,17 @@ async function finish(startedAt, mode, forceExit) {
 	const failed = results.filter((r) => !r.pass && !r.skipped).length;
 
 	say("");
+	// ⚠️ **SKIP 必须与 ✅ 长得完全不一样**（P5 复核对本仓库验收的硬要求）：
+	// 复核方指出 R-AGT-08 的「interrupt → 续跑」**多次 SKIP 却被计成 ✅**，
+	// 于是"没测到"伪装成了"测过了"。所以这里：
+	//   ① SKIP 用 `⏭️ [SKIP]` 打头、并把**跳过原因**单独一行打出来（不挤在 detail 里）；
+	//   ② 汇总行**分开计数**（通过 / 失败 / 跳过 三个数各自独立，SKIP 不进"通过"）；
+	//   ③ 顺带把跳过项的**稳定 id** 打出来，方便在报告里指名道姓地追。
+	const skippedList = results.filter((r) => r.skipped);
 	for (const r of results) {
 		if (r.skipped) {
-			say(`⏭️  [SKIP][${r.area}] ${r.desc}`);
-			say(`      ${r.detail}`);
+			say(`⏭️  [SKIP] [${r.area}] ${r.desc}`);
+			say(`      ↳ 跳过原因：${r.detail}`);
 		} else if (r.pass) {
 			say(`✅ [${r.area}] ${r.desc}`);
 			say(`      ${r.detail}`);
@@ -631,7 +731,16 @@ async function finish(startedAt, mode, forceExit) {
 		say("    起完再跑一次 `pnpm verify:agent`；不跑也不影响 CI（本脚本退出码 0）。");
 	}
 	say("");
-	say(`Agent 契约检查：通过 ${passed}，失败 ${failed}，跳过 ${skipped}${total ? `（共 ${total} 项可执行）` : ""}`);
+	say(
+		`Agent 契约检查：✅ 通过 ${passed}，❌ 失败 ${failed}，⏭️ 跳过 ${skipped}` +
+			`${total ? `（共 ${total} 项可执行）` : ""}`,
+	);
+	if (skipped > 0) {
+		// 这一行是"别把 SKIP 读成绿"的最后一道保险：把跳过项的 area 列出来
+		say(
+			`⚠️  本轮的 ${skipped} 项**没有执行**（不计入通过）：${[...new Set(skippedList.map((r) => r.area))].join("、")}`,
+		);
+	}
 
 	const json = {
 		generatedAt: new Date().toISOString(),
@@ -642,6 +751,8 @@ async function finish(startedAt, mode, forceExit) {
 		passed,
 		failed,
 		skipped,
+		// SKIP 的**稳定 id 清单**（`area｜desc`）：报告与交接里引用它，别只写"跳过 N 项"
+		skippedIds: skippedList.map((r) => `${r.area}｜${r.desc}`),
 		exitCode: forceExit ?? (failed === 0 ? 0 : 1),
 		results,
 	};

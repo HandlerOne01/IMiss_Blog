@@ -242,10 +242,19 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		let stateTimer = 0;
 		/** 输入框里已经填过的上一位"爱弥斯说的话"（判约定词用；`closeChat()` 清空） */
 		let lastReply = "";
+		/**
+		 * 这一轮还在飞的时候用户又按了发送（P5 复核 D-9）。
+		 * 旧实现是 `if (!text || chatBusy) return;` —— **静默吞掉**：字留在输入框里、
+		 * 气泡没动静，用户看到的是"按了没反应"（复核实测连点 4 次，输入框内容一路累积到 24 字）。
+		 * 现在：留着用户那句话不清（不丢他的输入）＋ 给一句可见反馈，等这一轮落地后提醒他重发。
+		 */
+		let chatPendingRetry = false;
 		/** 后端反问时气泡里除了询问原文还会补这一行（人设口径，且不含任何内部信息） */
 		const INTERRUPT_HINT = "回我「不提供」也行，我替你挑。";
 		/** 等待时的占位文本：不是"错误提示"，是"正在翻"的可见反馈（R-AGT-04 的思考态要有落点） */
 		const THINKING_TEXT = "嗯，我看一眼。\n……等我一下。";
+		/** 忙的时候用户又按发送给的反馈（人设口径：不说"请求/服务/稍后再试"这类字样） */
+		const BUSY_HINT = "……我这儿还忙着上一句呢，等我落地你再发一次。";
 		/** 后端反问句最多显示多少字（气泡宽 260px，太长会顶到视口外；截断只发生在极长句上） */
 		const ASK_MAX_CHARS = 220;
 
@@ -910,6 +919,18 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			chatBusy = false;
 			clearTimeout(thinkTimer);
 			reEnableInput();
+			// 这一轮飞着的时候用户按过发送（D-9）：现在给一句**看得见**的交代 ——
+			// 他刚打的那句话还在输入框里，提醒他再发一次，而不是让他对着没反应的气泡猜。
+			if (chatPendingRetry) {
+				chatPendingRetry = false;
+				const input = bubble.querySelector<HTMLInputElement>(".pet-chat input");
+				const pendingText = (input?.value ?? "").trim();
+				if (pendingText) {
+					const reply = bubble.querySelector<HTMLElement>(".pet-chat-reply");
+					if (reply)
+						reply.textContent = `${reply.textContent?.trim() ?? ""}\n\n${BUSY_HINT}`.trim();
+				}
+			}
 			setState(state, hold);
 			if (hold > 0) {
 				// 一次性动画播完回到"聊天中该有的样子"（`running`），而不是回待机：
@@ -938,6 +959,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		function clearChatRuntime(): void {
 			chatSession++;
 			chatBusy = false;
+			chatPendingRetry = false;
 			chatAsk = null;
 			chatResume = null;
 			lastReply = "";
@@ -960,12 +982,20 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			chatBusy = true;
 			chatAsk = null;
 			chatResume = null;
+			chatPendingRetry = false;
 			// 「思考中」的可见反馈：状态切到 `running`（执行任务）+ 气泡里给一句占位。
-			// 等一会儿再补一次：后端可能先反问一句（`interrupt`），那一步也可能要几秒。
+			// ⚠️ 提交时已经往气泡里写了**用户那句话**，所以占位不能等答复元素为空才写
+			//    （P5 复核 D-19：旧写法 `if (!reply.textContent)` 在聊天路径上永远为假，
+			//    `THINKING_TEXT` 是死代码 —— 长回合里用户唯一的反馈只剩桌宠动画，
+			//    而动画还会被飞行落地抢掉（D-12））。
+			//    口径：占位**覆盖用户那句回声**，答复一到就被真答复替换（`setReply`）。
+			//    为什么覆盖回声是可以接受的：用户刚打完那句话，他当然知道说了什么；
+			//    而"它在看我这句话"必须在按下回车**立刻**可见（旧实现要等 1200ms 那次补写，
+			//    而那次也写不进去）。
 			const thinking = () => {
 				if (chatSession !== session || pet.dragging) return;
 				setState("running");
-				if (!reply.textContent) reply.textContent = THINKING_TEXT;
+				reply.textContent = THINKING_TEXT;
 			};
 			thinking();
 			thinkTimer = window.setTimeout(thinking, 1200);
@@ -996,20 +1026,33 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 					//   · `recommended_agent`：先反问、**没有**答复 → 气泡就是那句反问；
 					//   · `blog_agent` 检索链路：**先给答复、再反问**（要不要收进本子）→
 					//     答复必须留在气泡里，只显示反问会把刚查到的文章列表丢掉。
-					// 适配层已经按这个顺序拼好 `text`（答复在前、反问在后），这里原样上屏，
-					// 只有"纯反问"那一种才补一行提示。
-					setReply(reply, trimAsk(turn.text, turn.text.length > ASK_MAX_CHARS));
+					// 适配层已经按这个顺序拼好 `text`（答复在前、反问在后），这里原样上屏。
+					// ⚠️ **答复不许截断**（P5 复核 D-7）：`ASK_MAX_CHARS` 的初衷是"询问原文太长"，
+					//    旧实现把它套在整段（答复+反问）上 → 450 字的文章列表被砍成 221 字。
+					//    现在只对**纯反问**那一形态截断；长答复交给气泡的 `max-height` + 滚动（pet.css）。
 					const onlyAsk = !turn.text.includes("\n\n");
-					if (onlyAsk) setReply(reply, `${trimAsk(turn.text, true)}\n\n${INTERRUPT_HINT}`);
+					setReply(
+						reply,
+						onlyAsk
+							? `${trimAsk(turn.text, true)}\n\n${INTERRUPT_HINT}`
+							: turn.text,
+					);
 					endTrip(session, "running");
 					return;
 				}
-				if (turn.status === "disabled" || turn.status === "fallback") {
+				if (turn.status === "disabled") {
+					// 配置关闭**不是故障**：别播"困惑"动画（复核 D-11），也别按降级计
+					setReply(reply, turn.text);
+					endTrip(session, "running");
+					return;
+				}
+				if (turn.status === "fallback") {
 					setReply(reply, turn.text);
 					// 降级不改输入框的可用性：还能接着问（契约 §8.9.6 第 4 条）
 					endTrip(session, "failed", 1500);
 					return;
-				}				setReply(reply, turn.text);
+				}
+				setReply(reply, turn.text);
 				endTrip(session, "review", REVIEW_HOLD);
 			});
 		}
@@ -1439,7 +1482,18 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			form.addEventListener("submit", (e) => {
 				e.preventDefault();
 				const text = input.value.trim();
-				if (!text || chatBusy) return; // 请求还在飞就别再发一条（会白等两轮）
+				if (!text) return;
+				// 请求还在飞：**不许静默吞掉**（P5 复核 D-9）。留着用户那句话（别清输入框，
+				// 否则他刚打的字没了），并给一句可见反馈；这一轮落地后会再提醒他重发一次。
+				if (chatBusy) {
+					chatPendingRetry = true;
+					send.dataset.petBusy = "1";
+					// ⚠️ 反馈要**追加**，不能"只在气泡为空时写"：提交第一句时气泡里已经有
+					//    `THINKING_TEXT` 了，那条判断会让反馈永远写不进去（写这段时实测踩到）。
+					if (!reply.textContent?.includes(BUSY_HINT))
+						reply.textContent = `${reply.textContent?.trim() ?? ""}\n\n${BUSY_HINT}`.trim();
+					return;
+				}
 				input.value = "";
 				// 刻意**不** disable 输入框：`chatBusy` 已经挡住重复提交，而禁用会让
 				// "读到 disabled 就当坏了"的旁路判断和读屏体验都变差（气泡里的答复才是反馈）。
