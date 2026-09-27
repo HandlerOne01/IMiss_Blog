@@ -73,7 +73,7 @@ pnpm preview      # 另开一个终端窗口跑这个并保持运行
 pnpm verify:ui    # 再另开一个终端窗口跑这个
 ```
 
-期望输出：`功能断言 235 项：✅ 通过 234，❌ 失败 0，⏭️ 跳过 1`。
+期望输出：`功能断言 257 项：✅ 通过 257，❌ 失败 0，⏭️ 跳过 0`。
 若输出 `检测到 astro dev 服务器` 的提示，说明你对 `pnpm dev` 跑了它——
 那会把"关闭页面"等断言误判，请改成对 `pnpm preview` 跑。
 
@@ -114,7 +114,7 @@ pnpm verify:docs    # 期望输出：`文档检查 … ：通过 N，失败 0`�
 | `pnpm type-check` | `tsc --noEmit`，覆盖 `src/` 与 `scripts/` |
 | `pnpm build` | 生产构建：LQIP → VNDB 封面（未配置则跳过）→ Astro → 清理未用看板娘资源 → 字体子集 → 内联脚本压缩 → Pagefind 索引 |
 | `pnpm preview` | 预览 `dist/` |
-| `pnpm verify:ui` | 界面验收：235 项断言 + 泄漏扫描 + 对比度 A/B + 44 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
+| `pnpm verify:ui` | 界面验收：257 项断言 + 泄漏扫描 + 对比度 A/B + 54 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
 | `pnpm verify:posts` | 内容校验：frontmatter / slug / 图片存在性 / 站内链接 / 残留 Obsidian 语法 / 榜单配图（**改完文章或跑完迁移后跑一次**；有错退出码 1） |
 | `pnpm verify:docs` | 文档自检：核对三份文档与仓库事实是否一致（版本号、断言/截图数、排行页清单、导航子项、需求编号、阻塞项、阶段状态）。**改完东西收工前跑一次** |
 | `node scripts/import-posts.mjs --batch 1` | 迁移旧博客笔记（**默认 dry-run 只出报告**；加 `--write` 才落盘。详见下面「迁移旧笔记」一节） |
@@ -257,7 +257,10 @@ pnpm verify:posts                                # 落盘后校验
 | 右键菜单里有哪些项 | 说句话 / **落下去 · 飘起来**（按档位二选一：悬浮/固定档显示「落下去」把宠物放回地面并**真的带重力掉下去**，贴地档显示「飘起来」飘回悬浮）/ 和爱弥斯聊天。「跟过来」「睡一会儿」（R-PET-08）与「跳一下」（R-PET-09，左键单击宠物就能跳）都已按发起人要求删除 —— **能力都没删**：键盘 ←/→ 仍能指挥它走、Enter 仍等价于左键单击（`role="button"` 的无障碍激活路径）、45 秒无操作它仍会进「屏幕待机」 |
 | 跳 / 走的观感 | 跳是**原地动画**（R-PET-09）：跳跃那 0.7 秒里不叠加悬浮浮动、也不位移；悬浮档平时在 `±hoverAmplitude` 内上下浮动、每 30~90 秒自己轻轻飘一段（`petConfig.movement`） |
 | 行为（走、跳、拖、说话、对话） | `AemeathPet.astro` 里的脚本；状态表在 `src/utils/pet-utils.ts` |
-| 和它聊天 | 右键 →「和爱弥斯聊天」。**现在没有后端**，回复来自 `petConfig.mockReplies`（P5 接真 Agent） |
+| 和它聊天 | 右键 →「和爱弥斯聊天」→ 在**底部**的输入框里说一句（回车发送）。**接得上后端就走真实 Agent**（`agentConfig.enable: true`，默认指向本机 `127.0.0.1:2024` 的 `langgraph dev`）；**接不上就走本地 mock 台词**（`petConfig.mockReplies`），不报错、不提任何内部信息 |
+| 聊天框长什么样（R-PET-11） | 尺寸 / 思考中短句 / 折叠阈值都在 `petConfig.chat`：`width`·`height`（默认 **340×460**，窄屏按可用空间收窄、塞不下才改走宠物上下方）、`minWidth`·`minHeight`（收窄下限与上下兜底的高度下限）、`thinkingLines`（**至少 3 条**，默认 4 条，每 `thinkingRotateMs` 轮换）、`historyLimit`（历史条数上限）、`collapseChars`（超过多少字才折叠给「展开全文」） |
+| 聊天框摆在哪 | `AemeathPet.astro` 的 `placeChat()` → **复用右键菜单那份 `placePanel()`**（同一份选边 + 5 点遮挡抽样 + 让位 + 四边夹回视口）：默认贴宠物左边或右边，右侧还要避开右下角浮动按钮列；摆位结果写进 `data-pet-chat-side`（`left`/`right`/`above`/`below`）/ `data-pet-chat-occluded` / `data-pet-chat-w` / `data-pet-chat-h` |
+| 聊天框的文本口径 | 流式增量**不上屏**（只记字数），答复完成后由 `src/utils/pet-chat-text.ts` 的 `cleanMarkdown()` 整段清洗再上屏：`**粗**`/`# 标题`/表格 `\|`/`> 引用` 这些裸符号一个都不会漏给访客；用户自己那句话只压空白与长度 |
 
 > **怎么改运动模式（R-PET-06）**：打开 `src/config/petConfig.ts`，把 `movement.mode` 改成 `"float"`（默认：悬浮 + 偶尔到处飞）/ `"fixed"`（固定：不悬浮不飞行、拖放也不落地）/ `"ground"`（贴地走、松手落地）三者之一，**不用改任何代码**；
 > 飞行间隔 / 单次时长 / 浮动幅度与周期都在同一段 `movement` 里（默认 20~60 秒飞一次、单次 2.6 秒、上下浮动 ±6px）；`pnpm dev` 下改完自动生效，生产要重新 `pnpm build`。
