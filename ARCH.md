@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.39 |
+| 文档版本 | v1.40 |
 | 最后更新 | 2026-09-27 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -286,142 +286,132 @@ src/
 
 ---
 
-## 5. 排行子系统（R-RANK）
+## 5. 学习路线子系统（R-PATH）
+
+> **本章 v1.40 取代原「5. 排行子系统（R-RANK）」**。发起人 2026-09-27 决定：**删掉排行，换成学习路线**。理由是排行需要作者持续产出 5 份榜单数据 + 约 50 张 5.7:1 配图（阻塞项 **B-08**），而路线页的数据**全部来自站内已有的 133 篇笔记**。
+> 原章节（设计目标 / 文件清单 / 数据模型 / 页面与交互 / 视觉规格 / 空数据处理的完整正文）在 git 历史里：**v1.40 之前的最后一个提交**；被删代码的恢复路径见 **§14.4**。
 
 ### 5.1 设计目标
 
-- 视觉对齐参考图 `dosc\排行\*.jpg` 的"榜单板"：**名次 + 剧照背景 + 标题**。
-- **不做**右侧的得票率、升降箭头、涨幅（发起人明确不要）。
-- 数据只有一期、由作者手工维护；改数据不需要碰组件与样式。
-- 「全剧 / 单集」两个维度，状态写进 URL 可分享；**二游排行没有维度**（单一榜，R-RANK-07）。
+- **回答一个问题：「我该按什么顺序学」** —— 站内 133 篇笔记按「主线 → 阶段 → 篇目」组织成一条能从头读到尾的路。`/archive/` 已经能列出全部文章，路线页多出来的价值就是**顺序与阶段**。
+- **零新素材**：不引入任何图片、不新增需要作者维护的内容型数据；篇目全部是站内已有文章的引用，阅读时长复用文章页现成口径（§5.5）。
+- **纯静态、零 JS**（发起人 2026-09-27 选定）：无 JS 也能看到 8 条线、133 篇与每个可点链接（对应 `prd.md` §6.2「内容可见性不依赖 JS」）。**不做** localStorage 进度打勾、「下一站」推荐、拖拽排序。
+- 删掉排行同时**关闭 B-08**：不再需要那 5 份榜单数据与约 50 张配图。
 
 ### 5.2 文件清单
 
 | 文件 | 作用 |
 | --- | --- |
-| `src/types/rankConfig.ts` | 类型定义 |
-| `src/config/rankConfig.ts` | **唯一需要手工维护的数据文件**（日漫/国漫各 2 组维度数据 + 二游 1 份名单 + 文案） |
-| `src/config/index.ts` | 增加 `export { rankConfig } from "./rankConfig";` 与类型导出 |
-| `src/components/pages/rank/RankBoard.astro` | 榜单板渲染（接收 board + kind + kindLabels + dataStatus）；**「全剧 / 单集」切换、入场动效、配图存在性判定都写在这个组件里**（切换用 `<script is:inline>`，原计划的 `RankTabs.svelte` 已放弃，理由见 §5.4） |
-| `src/styles/pages/rank.css` | 榜单板全部版式（两档名次色、行高/名次列比例、scrim、缺图占位、移动端、入场动效） |
-| `src/pages/rank/index.astro` | `return Astro.redirect("/rank/jp/")` |
-| `src/pages/rank/jp.astro` | 读取 `rankConfig.boards.jp`，渲染 `<RankBoard>` |
-| `src/pages/rank/cn.astro` | 读取 `rankConfig.boards.cn`，渲染 `<RankBoard>` |
-| `src/pages/rank/game.astro` | 二游排行（R-RANK-07）：同一套榜单板，数据是单一数组 → 组件不渲染维度切换 |
-| `src/assets/images/rank/*.webp` | 条目配图（可选，缺图走占位）。现有的 `_demo-01.webp` / `_demo-02.webp` 是**演示图**，只在 `rankConfig` 的占位数据里引用，填真数据时一并删掉 |
+| `src/types/roadmapConfig.ts` | 类型定义（`RoadmapLine` / `RoadmapStage` / `RoadmapStop`） |
+| `src/config/roadmapConfig.ts` | **唯一需要手工维护的数据文件**：8 条线 × 阶段 × 篇目（顺序即数组顺序） |
+| `src/config/index.ts` | 增加 `export { roadmapConfig } from "./roadmapConfig";` 与类型导出 |
+| `src/pages/roadmap.astro` | **唯一页面**（单页 + 页内锚点） |
+| `src/styles/pages/roadmap.css` | 版式：线 / 阶段 / 轻量行 / 页顶数字 / 锚点索引 / 移动端 |
+| `src/components/pages/roadmap/PathLine.astro` | 单条线：线名 + 一句话说明 + 难度档 + 阶段 + 篇目行 |
+| `src/components/pages/roadmap/PathStop.astro` | 单篇**轻量行**：标题 + 分类 + 约 N 分钟（**不拉封面、不显 note**） |
+| `src/utils/reading-time.ts`（**仅当需要退路时才建**，见 §5.5） | 与 remark 插件同一套时长口径的共用入口 |
+
+**删除清单（排行）**：`src/pages/rank/*`（4 个）、`src/config/rankConfig.ts`、`src/types/rankConfig.ts`、`src/components/pages/rank/RankBoard.astro`、`src/styles/pages/rank.css`、`src/assets/images/rank/_demo-*.webp`（2 张演示图）、`navBarConfig.ts` 的 `LinkPresets.RankJP/RankCN/RankGame` 与「排行」子树。全仓 `src/` 下约 **440 处**、文档约 **142 处** 引用需要一并清理。
 
 ### 5.3 数据模型
 
 ```ts
-// src/types/rankConfig.ts（与真实文件一致，P2 完成后复核）
-export type RankKind = "all" | "ep";           // 全剧 / 单集
+// src/types/roadmapConfig.ts
+export type RoadmapLevel = "入门" | "进阶" | "实战";
 
-export interface RankEntry {
-  title: string;        // 必填，显示在剧照上的标题
-  original?: string;    // 可选，日文原名或副标题
-  note?: string;        // 可选，一句话短评（右端小胶囊）
-  cover?: string;       // 可选，形如 "assets/images/rank/frieren.webp"（src 相对路径）
+export interface RoadmapStop {
+	slug: string;          // 对应 src/content/posts/<category>/<slug>.md
+	category: string;      // 分类目录名；**必须与 slug 成对**（站内有同名篇目，见下）
+	name?: string;         // 显示名覆盖（只影响本页显示，**不改文章标题**）
+	crossLine?: boolean;   // 跨线引用标记（同一篇出现在多条线里）
 }
-
-export interface RankBoardConfig {
-  id: string;           // 短标识，同时用于路由 /rank/<id>/
-  title: string;        // 页面主标题，如「日漫排行」
-  description?: string; // 页面副标题
-  labels?: Partial<Record<RankKind, string>>;  // 覆盖默认的「全剧 / 单集」
-  /**
-   * 两种形态（判据 Array.isArray）：
-   *  · Record<RankKind, RankEntry[]> —— 有「全剧 / 单集」两个维度（日漫、国漫）
-   *  · RankEntry[]                  —— 单一榜，页面没有维度切换（二游排行，R-RANK-07）
-   */
-  data: Record<RankKind, RankEntry[]> | RankEntry[];
-}
-
-export interface RankConfig {
-  kindLabels: Record<RankKind, string>;         // 有维度的榜共用一套维度名称
-  dataStatus: "placeholder" | "final";          // placeholder 时页面显示"当前为占位数据"
-  boards: Record<string, RankBoardConfig>;
+export interface RoadmapStage { title: string; stops: RoadmapStop[] }
+export interface RoadmapLine {
+	id: string;
+	name: string;
+	summary: string;       // 一句话说明（结构的一部分，保留）
+	level: RoadmapLevel;
+	stages: RoadmapStage[];
 }
 ```
 
-**约定**
+**线的构成（8 条，合计 133 篇，一篇不落）**
 
-- 数组顺序 = 名次，第 1 项是第 1 名；不写名次数字。
-- **单一榜不引入假维度**：二游排行在 `rankConfig` 里直接写数组，组件按 `Array.isArray(board.data)` 决定是否渲染切换按钮——不要靠 `board.id === "game"` 这类硬编码判断（加榜时容易忘）。类型收窄必须在**同一个表达式**里做 `Array.isArray` 判断（先存进布尔变量再判，TS 收窄不到，`board.data[k]` 会报 ts(7053)）。
-- `cover` 用**不带前导 `/`** 的相对路径（与 `siteConfig` 里壁纸写法一致），交给 `ImageWrapper` 的 glob 解析；以 `/` 开头则视为 `public` 资源原样引用。
-- 没有 `cover`、或 `cover` 指向的文件不存在时渲染主题色渐变占位（§5.5/§5.6），不出现裂图。
-- 数据规模按 10~30 条/榜设计，不做分页。
+| id | 线 | 篇数 | 阶段（篇数） | 备注 |
+| --- | --- | --- | --- | --- |
+| `cpp` | C++ 与 STL | 40 | C 与内存基础(11) → 面向对象与模板(6) → STL 容器与实现(17) → 现代 C++(6) | `cpp/vector`、`cpp/list`、`cpp/string` 与 `stl/vector`、`stl/list`、`stl/String` **同名** → 用 `name` 覆盖为「vector · 用法」/「vector · 模拟实现」 |
+| `algo` | 算法与数据结构 | 26 | 基础技巧(3) → 查找与贪心分治(4) → 动态规划(4) → 图论(8) → 字符串与数学(4) → 进阶结构(2) → 总复习(1) | `algorithm/suanfacuotiben`（173KB）放**线尾**当总复习 |
+| `linux` | Linux 系统 | 27 | **总览(1) → 上手与工具(5) → 编译与调试(5) → 文件与系统(5) → 进程(6) → 信号与线程(4) → IPC(1)** | **发起人指定**：`linux/linux-jichuzhishidian` 放**开头** |
+| `net` | 网络 | 13 | 协议基础(7) → 编程接口(3) → 高并发 IO(3) | |
+| `mysql` | MySQL | 6 | 基础(5) → 深入(1) | **发起人指定**：从「网络与 MySQL」里**拆出来单独一条** |
+| `interview` | 面试八股 | 12 | 总览与语言(3) → 计算机基础(6) → 手撕与刁钻(3) | |
+| `project` | 项目实战 | 6 | HTTP 小项目(1) → My_Server 框架(3) → 搜索引擎(2) | 与 `/series/`（My_Server 4 篇 / 搜索引擎 2 篇）有重叠：**series 是"同一项目的连载"，路线是"读的顺序"，两者并存** |
+| `ai` | AI 应用 | 3 | 依次递进(3) | **发起人指定补上**（`sdd` → `langchain-nengli-xiangjie` → `langgraph-nengli-xiangjie-xuexibiji`） |
+
+**三条建模规矩**
+
+1. **顺序 = 数组顺序**，不写显式「第 N 步」数字 —— 改顺序时不会漏改编号。
+2. **`slug` + `category` 成对定位**：站内确实存在同名篇目（`cpp` 与 `stl` 下的 `vector` / `list` / `string`），只按 slug 查会命中错的那篇。
+3. **允许跨线引用**（`crossLine: true`，全站限制在 2~3 处）：例如「HTTP 协议」既在 `net` 线、也是 `project` 线的前置；「设计模式」既在 `interview` 线、也贴 `cpp` 线。**不做"一篇只归一条线"**（那样会有几篇被硬塞进不合适的线）。
 
 ### 5.4 页面与交互
 
-```astro
----
-// src/pages/rank/jp.astro（cn.astro / game.astro 同构，只换 board id）
-// game.astro 的区别只有一个：它的 data 是数组（单一榜），组件因此不渲染维度切换
-import RankBoard from "@/components/pages/rank/RankBoard.astro";
-import { rankConfig } from "@/config";
-import MainGridLayout from "@/layouts/MainGridLayout.astro";
-import "@/styles/pages/rank.css";
+- **`/roadmap/` 单页**（不拆 8 个子页：拆了导航要挂 8 个子项、手机上会爆，而路线本身是"一条从头读到尾的路"）。结构：
+  - 页顶：一行**站点数字**（构建期实算，见 §5.6）+ **8 个锚点索引**
+  - 主体：8 个 `h2`（线）→ 线的一句话说明 + 难度档 + `N 篇 · 约 M 小时` → `h3`（阶段）→ 篇目轻量行
+- **轻量行**：`标题 · 分类 · 约 N 分钟`（**没有封面、没有 note**）。一页 133 行**不许拉图**（否则首屏体积爆），这条写成断言（§5.7 #8）。
+- **纯静态**：不用 Svelte island、不写 localStorage、不依赖任何运行期 JS。
+- **导航**：顶层第 3 格（原「排行」，固定位置在「文章」与「我的」之间）= **「学习路线」→ `/roadmap/`，不带子项**；「文章」下拉（归档 / 分类 / 标签 / 系列）**一根手指都不动**。
+- **旧地址 `/rank/`、`/rank/jp/`、`/rank/cn/`、`/rank/game/` 直接删，不做 301**（站点尚未上线、没有外部链接指向它；上线后若确需再补）。
 
-const board = rankConfig.boards.jp;
-if (!board) return Astro.redirect("/404/");     // 数据被删时别炸在页面里
----
-<MainGridLayout title={board.title} description={board.description ?? ""}>
-  <div class="card-base ..."><RankBoard board={board} kindLabels={rankConfig.kindLabels} dataStatus={rankConfig.dataStatus} /></div>
-</MainGridLayout>
-```
+### 5.5 阅读时长口径：复用，不另造
 
-**切换行为（P2 实现，与原计划的差异已在这里对齐）**
+文章页现成口径是 `src/plugins/remark-reading-time.mjs`（`reading-time` 包 → `Math.max(1, Math.round(minutes))`，写进 `remarkPluginFrontmatter.minutes`）。
 
-> **改动说明**：原计划用 `RankTabs.svelte`（Svelte 岛）做切换，实测后改成组件内的 `<script is:inline>`，**没有新增 Svelte 岛**。两个理由：
-> ① 站是静态输出，服务端**读不到 `?kind=`**——SSR 只能先渲染「全剧」，若交给 Svelte 在 `onMount` 里纠正，会先闪一下「全剧」再跳；内联脚本在**解析期**就落定，无闪烁。
-> ② 两个按钮的显隐切换不值得付一次 hydration；两组面板都在 DOM 里，切换零请求。
+路线页要 133 篇的时长，两条路：
 
-**单一榜（二游排行，R-RANK-07）**：`data` 是数组时组件只生成**一块面板**、整个不渲染 `.rank-tabs`，内联脚本里所有与维度切换有关的代码（`apply`/`kindFromUrl`/click/键盘/popstate）都跳过；入场动效照旧运行（守卫条件是"有面板"而不是"有按钮"，第一版写成后者会让单一榜丢掉动效）。
+1. **首选**：对每个 entry 调 `render()`，取 `remarkPluginFrontmatter.minutes` —— **与文章页逐字一致**。代价是一页要渲染 133 篇，**必须实测构建耗时增量**。
+2. **退路（当增量 > 15 秒时）**：把公式抽成 `src/utils/reading-time.ts`，路线页用它、插件也改用它（**一处公式、两处使用**）。此时两处数值可能**差 1 分钟** —— 这种情况必须写进文档，不许悄悄存在。
 
-1. 服务端固定渲染「全剧」为初始选中态（`kind` prop 默认 `"all"`）。
-2. 客户端脚本在**解析期**读 `location.search` 里的 `?kind=` 并纠正选中态（直接打开分享链接就是对的榜单；实测面板翻转约 63ms，早于首帧 80ms，不会闪一下「全剧」）。
-3. 两个面板的 DOM **都输出**，靠 `rank-panel--off` 这个 class 显隐（规则挂在 `html[data-rank-js="1"]` 上，见 T24 —— **不用 `hidden` 属性**，否则 Tailwind preflight 的分层 `!important` 会让"打印/无 JS 也要显示"的兜底静默失效）。
-4. 点击切换：`history.pushState` 更新 `?kind=`（**只在维度真的变了时写历史**，连点同一个按钮不会堆历史记录）→ 浏览器后退能回到上一个维度；`popstate` 复用面板实例上的 `apply()`。
-5. 语义用 `role="tablist" / role="tab" / aria-selected` + **roving tabindex**（只有选中的那个能 Tab 进来，←/→ 切换并聚焦）；非当前面板加 `aria-hidden="true"` 与 `inert`（键盘/读屏都进不去，不只是"看不见"）。
-6. Swup 切页时容器内脚本会重跑（`@swup/scripts-plugin`）+ `astro:page-load` 再触发一次 → 每个 root 用 `root.dataset.rankReady` 做**幂等守卫**。⚠️ 少这一层守卫就会把 click 绑两遍、一次点击 pushState 两次、后退一次回不到上一个榜单（P2 独立审查抓到的阻断缺陷）；`window.__rankTabsInit` 只挡 document 级监听，挡不住"同一个 root 绑两遍"。另外 Swup 4.9.2 **没有** `swup:contentReplaced` 事件，别去监听它。
-
-### 5.5 视觉规格（对齐参考图）
-
-| 部位 | 规格（括号内为量自参考图的实测值） |
-| --- | --- |
-| 榜单块 | 单列，最大宽度跟随内容栏；块整体圆角 `var(--radius-large)`、`overflow: hidden`，块内行与行之间只留一条深色缝 |
-| 行容器 | `display: grid; grid-template-columns: var(--rank-badge-w) minmax(0, 1fr);`；**行高 = 内容宽的 1/5.7**（实测 96px / 图宽 551px = 17.4%）、**名次列 = 内容宽的 13.7%**（实测 75px）。实现见下方"比例必须用 cqw"；行间距 **2~4px**（实测相邻行几乎紧贴）；行自身圆角 **2px**（参考图行是近直角，只有整块是圆角） |
-| 名次列 | 宽度 = 内容宽的 **13.7%**（实测 75px）≈ 行高的 0.78 倍；底色纯色填充，数字水平垂直居中 |
-| 名次数字 | 字号 = 行高的 0.52（再用名次列宽 0.72 倍兜住窄屏，防止两位数顶出格子），字重 800，`font-variant-numeric: tabular-nums`；**颜色随档位变**：1~3 名白色，4 名以后 `#14100b` |
-| **名次底色（两档，不是金银铜）** | **1~3 名：粉 `#E2696B`**（参考图实测 `#EA7B7C`，采样区间 `#E78278`/`#EE7B7E`/`#EC7979`/`#E87E7E`；但白字压 `#EA7B7C` 只有 **2.76:1**、不达 WCAG AA 大字 3:1，因此加深一档到 `#E2696B` = **3.25:1**，肉眼几乎无差别）；**4 名及以后：橙 `#EFA662`**（实测 `#EBA972`/`#EFA965`/`#F0A667`/`#F1AB66`/`#EFA661`，深色数字压上去 9.29:1）。两档色写成 `rank.css` 顶部的 CSS 变量便于调整；正文里不做金银铜 |
-| 剧照层 | 整行铺满：`ImageWrapper`（`showOverlay={false}`）+ 自己的一层 scrim；标题区加暗罩保证白字可读（水平方向由左向右可略变浅），左缘与名次列用 `mask-image: linear-gradient(90deg, transparent, #000 14%)` 自然衔接 |
-| 标题 | 白字 + `text-shadow: 0 1px 2px rgb(0 0 0 / .6)`；字号 = 行高的 0.27（实测约 26px / 96px，上限 32px）；粗体 700；起始位置紧跟名次列留一个小间距；最多折 2 行（`-webkit-line-clamp: 2`，参考图第 5 名就是两行） |
-| 原名 | 标题下方一行小字，字号 = 行高的 0.13（上限 17px）、`rgba(255,255,255,.78)`；数据里没有就不占位 |
-| 短评胶囊 | **参考图里没有这一列**，所以默认不渲染；只有数据里写了 `note` 才在右端显示一枚小胶囊（窄屏隐藏）。它是网格的第 2 列（不是绝对定位），**永远不会压住标题**；宽度上限用 `40cqw` 这类长度（`%` 会把 auto 轨道里的它压扁，见 T26） |
-| **条目配图（背景版）—— 交付规格** | 每个名次**一张**图，作为整行背景（`object-fit: cover` + 居中，标题白字压在上面）。**推荐比例 5.7:1**（= 行宽÷行高；1440 屏实测 629×109px = 5.77:1），**推荐尺寸 1600×280**，**单张 ≤150KB**（每页 10 张 ≤1.5MB，`prd.md` §6.1）。格式不限：**jpg / png / webp / avif 都行**（Astro 构建期自动出 webp/avif 多档 + 生成 LQIP 占位色，实测 1600×914 的 JPG 会产出 6 档 webp）。命名建议 `榜单-维度-名次`：`jp-all-01.jpg`、`jp-ep-03.jpg`、`cn-all-01.jpg`、`game-01.jpg`（二游无维度），放进 `src/assets/images/rank/`。**给 16:9 截图也能用**，但会被居中裁掉约 70% 的高度（只留中间一条）——对照图见 `docs/imiss/rank-cover-guide.png`（由 `node scripts/make-rank-cover-guide.mjs` 生成）；某张图必须换取景点时告诉执行方，**暂时不加 `position` 字段**（发起人 2026-09-24 明确不要，等真有需要再加） |
-| 缺图占位 | **先铺不透明深色底** `hsl(var(--hue) 28% 20%)`，再叠 `linear-gradient(120deg, hsl(var(--hue) 62% 58% / .5), hsl(calc(var(--hue) + 40) 52% 44% / .42), hsl(calc(var(--hue) - 25) 58% 34% / .5))` + 一层极淡的点阵纹理（`radial-gradient` 平铺）。**深底是关键**：半透明渐变直接罩在卡片底上时，亮色主题下是浅粉、白字会糊（P2 亮色截图实测踩到，已改为不透明深底并加断言） |
-| 浅色主题 | 剧照上的白字方案两套主题通用；scrim 不变，只把 1~3 名的粉调深一档（`#e2696b`）以提高白字对比度。**缺图占位靠上面的不透明深底保证两套主题一致**（`verify:ui` 对暗/亮两套主题都断言"渐变最亮处对白字 ≥ 4.5:1"） |
-| 移动端（<768px） | 按 17.4cqw 算行高只剩约 68px（390px 宽），放不下 2 行标题 → 行高放宽到 `max(64px, 20cqw)`，**名次列仍保持 13.7%**，标题最多 2 行、字号不低于 15px；短评胶囊隐藏 |
-| 入场动效 | `IntersectionObserver` 逐行淡入上移，延迟 = `名次 × 40ms`；**隐藏态挂在 `html[data-rank-anim="1"]` 上**（该属性由组件内联脚本在解析期设置，仅当"JS 可用 + 未开启减少动态"时才存在）→ 无 JS / 爬虫 / 打印时看到的是完整榜单而不是空白；`@media print` 再兜一层强制显示 |
-
-> **比例必须用 cqw，不能用 vw**：行高说的是"内容宽（榜单板宽度）的 17.4%"，而 `17.4vw` 是"视口宽度的 17.4%"——1440 视口下 17.4vw = 250px，会被 `clamp` 上限卡住，而榜单板实际只有 629px 宽，实测行高比 **21%**（比参考图高一大截）。现在给 `.rank-board` 加 `container-type: inline-size`，行高与名次列都用 **cqw**（`max(76px, 17.4cqw)` / `max(44px, 13.7cqw)`），比例在任何屏宽下都成立；P2 实测 1440 → 629px 板宽 / 行高 109px = **17.3%**、1920 → 904px / 157px = **17.4%**；名次列两者都是 **13.7%**。下限（76px / 44px）在板宽 < 437px 时接管，此时比例会略高于 17.4%——这是有意为之（窄屏要放得下两行标题）。
-> 另外名次列**不能写成 `%` 再给 `font-size` 用**：同一个变量在 `grid-template-columns` 里 `%` 是"相对格宽"，在 `font-size` 的 `calc()` 里 `%` 是"相对父级字号"，会算出两个完全不同的值。cqw 是长度，到哪都指板宽的 1%。
-
-> **这些数值的来源**：对发起人提供的裁切参考图（551×992）逐像素量得——行高 96px、名次列 75~78px、1~3 名粉底白字、4 名以后橙底深色字。参考图的**右侧那三列（得票率 / 升降 / 涨幅）已被发起人裁掉，明确不做**。原图在 `my_-blog\dosc\排行\444e59a870dd4ec71d881b6e8866eda0.jpg`（含被裁掉的右侧列，不可照抄）。
-
-> 复用而不是新造：**配图解析直接用现成的 `ImageWrapper.astro`**（它内部用 `import.meta.glob("../../**/*.{png,jpg,jpeg,webp,avif}")` 把字符串路径解析成 `ImageMetadata`，缺图会在构建日志里报 `Image file not found`）。构建链会自动跑 `scripts/generate-lqips.ts` 为新图生成 LQIP 占位色。
+无论走哪条：页顶总时长与每线小计都**构建期实算**（§5.7 #7）。
 
 ### 5.6 空数据与错误处理
 
-| 情况 | 表现 |
+| 情况 | 行为 |
 | --- | --- |
-| 某组数据为空 | 显示居中的"榜单待更新"卡片，不渲染行 |
-| `cover` 指向的文件不存在 | `RankBoard` 自己先按 `/src/**` glob 判一次（`ImageWrapper` 只负责出图）：解析不到就**当没有配图**，走渐变占位，同时在构建日志里 `console.warn` 报路径。这样"路径写错"不会变成亮色主题下的白卡片 + 白字（`ImageWrapper` 找不到文件时**什么都不渲染**，见 T7） |
-| `title` 为空 | 校验脚本报错并阻断（不允许空标题） |
-| 条目超过 30 条 | 正常渲染（不做分页），但校验脚本给出提示 |
-| 数据还是占位内容 | `rankConfig.dataStatus = "placeholder"` → 榜单下方显示一条提示（含改法与文件路径）；填完真数据改成 `"final"` 即消失 |
+| `slug` + `category` 解析不到文章 | **构建期直接失败**（抛错，不是静默跳过）—— 这是 §5.7 #1 的实现基础 |
+| 某条线 0 篇 | 不渲染该线，构建日志 warning |
+| 某阶段 0 篇 | 不渲染该阶段，构建日志 warning |
+| 篇目并集 ≠ 站内总篇数 | 构建日志 warning（真正的把关交给 `verify:ui` 的 #2） |
+| 页顶数字 | 构建期由 `getCollection("posts")` 实算，**不许硬编码** |
 
----
+### 5.7 验证（约 16 条，取代排行那 44 条）
+
+| # | 断言 | 来源 |
+| --- | --- | --- |
+| 1 | 每个 `slug` + `category` 都解析到**真实文章**（改文章路径/分类立刻报错） | 新增（命根子） |
+| 2 | 8 条线篇目**并集 = 站内全部 133 篇**（有跨线引用时按并集算） | 新增（命根子） |
+| 3 | 每条线 ≥ 3 篇、每个阶段非空 | 新增 |
+| 4 | 页面上 8 条线的名称都在 | 新增 |
+| 5 | **关掉 JS 后**页面里仍有 133 条篇目 | 新增（纯静态的硬要求） |
+| 6 | 每个篇目链接 `href` 请求都能 200 | 新增 |
+| 7 | 页顶数字与构建期实算一致（防硬编码） | 新增 |
+| 8 | 轻量行里**不含 `<img>`**（防后来加封面拖爆首屏） | 新增 |
+| 9 | 页内 8 个锚点每个都能跳到对应区块（`elementFromPoint` 手法） | 新增 |
+| 10 | 390px 无横向溢出 | **迁移**自 R-RANK-06 |
+| 11 | 经 Swup 切页进入/离开路线页后，锚点与导航仍正常 | **迁移**自 R-RANK-02 |
+| 12 | 浏览器后退正常 | **迁移**自 R-RANK-02 |
+| 13 | 打印时 8 条线都在 | **迁移**自 R-RANK-02 兜底 |
+| 14 | canonical 正确（不带查询串） | **迁移**自 R-RANK-01 |
+| 15 | 导航：第三格是「学习路线」、`href=/roadmap/`、无子项；「排行」不存在 | 新增 |
+| 16 | `/rank/`、`/rank/jp/`、`/rank/cn/`、`/rank/game/` 不在 sitemap 且请求返回 404 | 新增（替换原「`/rank/` 存根跳转」那条） |
+
+**那 44 条 R-RANK 的处置**：约 **10 条**属通用能力（上表 #10~#14）→ **重新指向 `/roadmap/`**；约 **34 条**是排行专属（名次两档配色与对比度、全剧/单集切换与 URL、短评胶囊不压标题、缺图占位、二游单一榜、占位提示、榜单 10 条、`/rank/` 存根跳转）→ **删除**，并在 `PROJECT_STATUS.md` §8 变更日志里逐类写明"删了什么、为什么"。
+**断言总数**：257 − 44 + 16 = **约 229**（`verify-docs` 的「4 组/5 份数据」与「`rankConfig.dataStatus`」两条检查随排行一起删）。
+
+### 5.8 文档落点
+
+`prd.md` 新增 **R-PATH-01…R-PATH-06**（§3.5R），原 **R-RANK-01~07 标记为「已废弃（v1.40 移除）」但不删行**（保住编号历史）；`prd.md` §2 导航树去掉「排行」；`ARCH.md` 本表 §5 换章、§4.1 导航树同步、§11 断言数 257 → 229、§13 体积口径复核；`PROJECT_STATUS.md` §2/§3 的 P2 由「已完成」改「已移除」、新增 P2R 任务块、**B-08 关闭**、§8 变更日志 + 版本 v1.40；`README.md` 同步命令与目录说明。三份文档共用 **v1.40**。
 
 ## 6. 背景与动态壁纸子系统（R-BG）
 
@@ -1760,3 +1750,11 @@ P1 按发起人要求删掉了**订阅（RSS/Atom）**。删除是有意为之�
 
 > 全部文件都能从上游 Firefly v6.16.8 原样取回（它们是主题自带功能，删除时未做任何修改）。
 > 删除本身只涉及"删文件 + 摘掉 4 处引用"，没有改动 `feed-utils` 的实现，所以恢复不需要重新适配。
+
+**本站自己的模块被移除时，同样要在这里留恢复路径**（v1.40 起）：
+
+| 要恢复什么 | 需要找回的文件 | 还需要接回的位置 |
+| --- | --- | --- |
+| **排行子系统**（R-RANK，v1.40 被「学习路线 R-PATH」取代） | `src/pages/rank/index.astro`、`src/pages/rank/jp.astro`、`src/pages/rank/cn.astro`、`src/pages/rank/game.astro`、`src/components/pages/rank/RankBoard.astro`、`src/styles/pages/rank.css`、`src/config/rankConfig.ts`、`src/types/rankConfig.ts`、`src/assets/images/rank/_demo-*.webp` | `navBarConfig.ts` 的 `LinkPresets.RankJP/RankCN/RankGame` 与「排行」子树；`verify-ui.mjs` 里那 44 条 R-RANK 断言（**约 34 条在 v1.40 被删**，只能从 git 历史取回）；`verify-docs.mjs` 的排行相关检查 |
+
+> 排行的完整身影在 **v1.40 之前的最后一个提交**里（`git log --diff-filter=D -- src/pages/rank` 可定位删除提交；`git show <v1.40 前一个提交>:src/pages/rank/jp.astro` 直接取文件）。设计正文也在同一提交的 `ARCH.md` §5。**恢复的前提**：先决定 `/roadmap/` 是否保留 —— 两者抢同一格导航位。

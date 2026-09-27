@@ -155,36 +155,50 @@ const allDocs = { "prd.md": prd, "ARCH.md": arch, "PROJECT_STATUS.md": status, [
 	);
 }
 
-// ── 4. 排行页清单：实际路由文件 ↔ 文档 ────────────────────
+// ── 4. 模块路由清单：实际路由文件 ↔ 文档 ────────────────────
+// ⚠️ **v1.40 起这一节是"模块无关"的**：P2R 用「学习路线」替换掉「排行」，同一份文档在两个状态下都得自洽。
+//    所以判据按"路由文件到底还在不在"分叉，而不是写死 `/rank/`：
+//      · `src/pages/rank/` 还在  → 每个路由文件都必须在 ARCH 里有登记（§5 或 §14.4 恢复路径表）
+//      · `src/pages/rank/` 已删  → 一个都不许剩，且 ARCH 必须提到替代它的 `src/pages/roadmap.astro`
+//    这样"删模块"这件事**要么被登记、要么被断言**，不会出现"代码删了、文档还写着有"或者反过来的静默漂移。
 {
-	let pages = [];
+	let rankFiles = [];
+	let rankGone = false;
 	try {
-		pages = (await fs.readdir(path.resolve(root, "src/pages/rank")))
-			.filter((f) => f.endsWith(".astro") && f !== "index.astro")
-			.map((f) => `/rank/${f.replace(/\.astro$/, "")}/`)
-			.sort();
+		rankFiles = (await fs.readdir(path.resolve(root, "src/pages/rank"))).filter((f) =>
+			f.endsWith(".astro"),
+		);
 	} catch {
-		pages = [];
+		rankGone = true;
 	}
 	// prd 站点地图（§2）里列出的排行页
 	const prdPages = [...prd.matchAll(/\|\s*\*\*([^*]+排行)\*\*\s*\|\s*`(\/rank\/[^`]+)`/g)]
 		.map((m) => m[2])
 		.sort();
-	// ARCH §5.2 文件表里列出的路由文件
-	const archFiles = [...arch.matchAll(/`src\/pages\/rank\/([a-z]+)\.astro`/g)].map((m) => `/${m[1]}/`);
-	const archPages = [...new Set(archFiles.map((p) => `/rank${p === "/index/" ? "/" : p}`))].sort();
+	const actualPages = rankFiles
+		.filter((f) => f !== "index.astro")
+		.map((f) => `/rank/${f.replace(/\.astro$/, "")}/`)
+		.sort();
 
 	record(
-		"排行页清单",
-		"prd §2 站点地图 == src/pages/rank 实际路由",
-		pages.length > 0 && JSON.stringify(pages) === JSON.stringify(prdPages),
-		`实际 ${pages.join(",")} ｜ prd ${prdPages.join(",")}`,
+		"模块路由清单",
+		rankGone
+			? "排行已删除：prd §2 站点地图里不许再留 `/rank/` 条目"
+			: "prd §2 站点地图 == src/pages/rank 实际路由",
+		rankGone ? prdPages.length === 0 : JSON.stringify(actualPages) === JSON.stringify(prdPages),
+		rankGone
+			? `src/pages/rank/ 已不存在；prd 残留 ${prdPages.join(",") || "无"}`
+			: `实际 ${actualPages.join(",")} ｜ prd ${prdPages.join(",")}`,
 	);
+	// 删除前：每个路由文件都要在 ARCH 里被登记（§5 或 §14.4）；删除后：ARCH 必须提到替代模块的页面文件
+	const unregistered = rankFiles.filter((f) => !arch.includes(`src/pages/rank/${f}`));
 	record(
-		"排行页清单",
-		"ARCH §5.2 文件表覆盖全部路由文件",
-		pages.every((p) => archPages.includes(p)),
-		`ARCH 列出 ${archPages.join(",")}`,
+		"模块路由清单",
+		rankGone
+			? "排行已删除：ARCH 必须提到替代模块的页面（`src/pages/roadmap.astro`）"
+			: "ARCH 里能找到每一个排行路由文件（删之前必须有登记）",
+		rankGone ? arch.includes("src/pages/roadmap.astro") : unregistered.length === 0,
+		rankGone ? `ARCH 提到 roadmap.astro = ${arch.includes("src/pages/roadmap.astro")}` : `未登记：${unregistered.join(",") || "无"}`,
 	);
 }
 
