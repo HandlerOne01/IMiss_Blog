@@ -1,0 +1,28 @@
+---
+import type { ResolvedLine } from "@utils/roadmap-utils";
+// src/components/pages/roadmap/PathLine.astro
+import PathStop from "./PathStop.astro";
+
+interface Props {
+	line: ResolvedLine;
+}
+const { line } = Astro.props;
+const hours = Math.max(1, Math.round(line.minutes / 60));
+---
+
+<section class="roadmap-line" id={`line-${line.id}`}>
+	<h2 class="roadmap-line-name">
+		{line.name}
+		<span class="roadmap-line-level">{line.level}</span>
+	</h2>
+	<p class="roadmap-line-summary">{line.summary}</p>
+	<p class="roadmap-line-count">{line.stopCount} 站 · 约 {hours} 小时</p>
+	{line.stages.map((stage) => (
+		<div class="roadmap-stage">
+			<h3 class="roadmap-stage-title">{stage.title}</h3>
+			<ol class="roadmap-stops">
+				{stage.stops.map((stop) => <PathStop stop={stop} />)}
+			</ol>
+		</div>
+	))}
+</section>

@@ -1,0 +1,51 @@
+/* src/styles/pages/roadmap.css */
+.roadmap { max-width: 56rem; margin-inline: auto; }
+.roadmap-head { margin-bottom: 2rem; }
+.roadmap-title { font-size: 1.75rem; font-weight: 700; }
+.roadmap-stats { color: var(--content-meta); font-size: 0.875rem; margin-top: 0.35rem; }
+.roadmap-index { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.9rem; }
+.roadmap-index a {
+	border: 1px solid var(--line-divider);
+	border-radius: 999px;
+	padding: 0.2rem 0.7rem;
+	font-size: 0.8125rem;
+}
+.roadmap-line { margin-top: 2.25rem; scroll-margin-top: 5rem; } /* 锚点跳转别被导航盖住 */
+.roadmap-line-name { font-size: 1.25rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem; }
+.roadmap-line-level { font-size: 0.75rem; font-weight: 500; border-radius: 999px; padding: 0.1rem 0.5rem; background: var(--btn-regular-bg); }
+.roadmap-line-summary { color: var(--content-meta); font-size: 0.9rem; margin-top: 0.35rem; }
+.roadmap-line-count { font-size: 0.8125rem; color: var(--content-meta); margin-top: 0.25rem; }
+.roadmap-stage { margin-top: 1.25rem; }
+.roadmap-stage-title { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; }
+.roadmap-stops { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.roadmap-stop-link {
+	display: flex; align-items: baseline; gap: 0.6rem;
+	border-radius: 0.5rem; padding: 0.45rem 0.7rem;
+	background: var(--card-bg);
+	overflow-wrap: anywhere; /* 390px 下长 slug 不许撑破 */
+}
+.roadmap-stop-title { font-weight: 500; }
+.roadmap-stop-cross { font-size: 0.7rem; color: var(--content-meta); border: 1px dashed var(--line-divider); border-radius: 999px; padding: 0 0.4rem; }
+.roadmap-stop-meta { margin-left: auto; font-size: 0.75rem; color: var(--content-meta); white-space: nowrap; }
+@media (max-width: 640px) {
+	.roadmap-stop-link { flex-wrap: wrap; }
+	.roadmap-stop-meta { margin-left: 0; }
+}
+
+/* ── 暗色下的正文色（Task 2 实测补的两行，见 task-2-report.md 的"self-review findings"）──
+ * 为什么必须补：`--deep-text` 是 oklch(.25 .02 345)（深色主题下也是深色），而本页这几处
+ * 标题**没有显式颜色** → 继承到 `rgb(0,0,0)`。实测：
+ *   暗色 `.roadmap-title` / `.roadmap-line-name` / `.roadmap-stage-title` / `.roadmap-stop-title`
+ *   = #000 压 --card-bg oklch(.23 .015 345) → 对比度 **1.24:1**（WCAG AA 正文要 4.5:1，大字要 3:1）
+ *   —— 同一时刻 `--content-meta` 那几行是 6.83:1，所以"整页看过去只有标题和篇名是黑的"。
+ *   兄弟页面都自己指定了颜色（`/dynamic/` = rgba(255,255,255,.898) → 13.83:1；`/about/` = #fff）。
+ * 亮色**不用改**（实测 #000 压 #fff 卡片底，本来就正常），所以只在 `:root.dark` 下改写。
+ * 取值沿用仓库既有写法 `:root.dark` + `rgb(255 255 255 / 90%)`（src/styles/pages/dynamic.css:668）。 */
+:root.dark .roadmap-title,
+:root.dark .roadmap-line-name,
+:root.dark .roadmap-line-level,
+:root.dark .roadmap-stage-title,
+:root.dark .roadmap-stop-title,
+:root.dark .roadmap-index a {
+	color: rgb(255 255 255 / 90%);
+}

@@ -450,6 +450,27 @@ const COLLECT_POST = `(async () => {
   };
 })()`;
 
+// ─── 学习路线页事实采集（R-PATH-01 ~ R-PATH-05）──────────
+// 学习路线页：只取"可判定"的事实，判定留给下面的断言块
+const COLLECT_ROADMAP = `(() => {
+	const root = document.querySelector("#roadmap");
+	if (!root) return { missing: true };
+	const stops = [...root.querySelectorAll("li.roadmap-stop a.roadmap-stop-link")];
+	return {
+		missing: false,
+		lineNames: [...root.querySelectorAll("h2.roadmap-line-name")].map((h) => h.firstChild?.textContent?.trim() ?? ""),
+		lineIds: [...root.querySelectorAll("section.roadmap-line")].map((s) => s.id),
+		indexHrefs: [...root.querySelectorAll("#roadmap-index a")].map((a) => a.getAttribute("href")),
+		stopCount: stops.length,
+		stopHrefs: stops.map((a) => a.getAttribute("href")),
+		uniqueHrefs: new Set(stops.map((a) => a.getAttribute("href"))).size,
+		imgCount: root.querySelectorAll("img").length,
+		statsText: document.querySelector("#roadmap-stats")?.textContent?.replace(/\\s+/g, " ").trim() ?? "",
+		crossCount: root.querySelectorAll("span.roadmap-stop-cross").length,
+		overflowX: document.documentElement.scrollWidth - window.innerWidth,
+	};
+})()`;
+
 // ─── 对比度采集（R-ID-02 的验收要求）──────────────────────
 // 思路：不靠肉眼。把 --hue 在 345（本站）与 165（上游原值）之间切换，
 // 用同一个 WCAG 公式算出几组"文字/背景"配色的对比度，做 A/B：
@@ -789,6 +810,9 @@ async function main() {
 		// R-RANK-07 二游排行：单一榜（没有全剧/单集）
 		{ name: "rank-game-1440", path: "/rank/game/", width: 1440, height: 1000, mobile: false },
 		{ name: "rank-game-390", path: "/rank/game/", width: 390, height: 844, mobile: true },
+		// P2R 学习路线
+		{ name: "roadmap-1440", path: "/roadmap/", width: 1440, height: 1000, mobile: false, roadmap: true },
+		{ name: "roadmap-390", path: "/roadmap/", width: 390, height: 844, mobile: true, roadmap: true },
 		// P3 桌宠：必须用"只有视口、不整页"的截图，否则 position:fixed 的宠物会按初始位置被画到长图里
 		{ name: "pet-1440", path: "/", width: 1440, height: 900, mobile: false, fullPage: false },
 		{ name: "pet-390", path: "/", width: 390, height: 844, mobile: true, fullPage: false },
@@ -855,6 +879,16 @@ async function main() {
 				awaitPromise: true,
 			});
 			facts[`${page.name}-post`] = postRes.result.value;
+		}
+
+		// P2R：学习路线页的 DOM 契约事实
+		if (page.roadmap) {
+			const rmRes = await cdp.send("Runtime.evaluate", {
+				expression: COLLECT_ROADMAP,
+				returnByValue: true,
+				awaitPromise: true,
+			});
+			facts[`${page.name}-roadmap`] = rmRes.result.value;
 		}
 
 		const shot = await cdp.send("Page.captureScreenshot", {
@@ -2762,6 +2796,45 @@ async function main() {
 			);
 		}
 		record("R-WDG-04", "首页在 390px 下无横向溢出", (facts["home-390"].overflowX ?? 99) <= 2, `溢出 ${facts["home-390"].overflowX}px`);
+	}
+
+	// ── P2R 学习路线（R-PATH-01 ~ R-PATH-05）──
+	{
+		// 采集器写的是 `facts["<page>-roadmap"]`（与既有 `<page>-post` 同一套命名），
+		// 不是 `facts[<page>].roadmap` —— `COLLECT` 里根本没有 roadmap 字段。
+		// 计划 Step 5 的采集器与 Step 6 的断言在这点上互相矛盾（一处带后缀、一处不带），
+		// 以**采集器**为准（它是被明确指派"照 COLLECT_POST 写法"的那一处），断言侧只改取值路径，
+		// 六条判据一个字未改。
+		const rm = facts["roadmap-1440-roadmap"];
+		const rm390 = facts["roadmap-390-roadmap"];
+		const EXPECT_LINES = ["C++ 与 STL", "算法与数据结构", "Linux 系统", "网络", "MySQL", "面试八股", "项目实战", "AI 应用"];
+
+		record("R-PATH-01", "路线页可访问且 8 条主线都在（顺序一致）",
+			!!rm && !rm.missing && JSON.stringify(rm.lineNames) === JSON.stringify(EXPECT_LINES),
+			`实际 ${JSON.stringify(rm?.lineNames)}`);
+		// ⚠️ 这里全部用 `?.`：页面整块缺失时采集器只回 `{missing:true}`，
+		// 写成 `rm.indexHrefs.length` 会抛 TypeError **把整个脚本打断** ——
+		// 于是"6 条该红的断言"只会报成 1 条崩溃、其余全静默（重放 RED 时实测踩到过）。
+		// 断言必须做到"页面没了也照样给出 6 条失败"。
+		record("R-PATH-01", "页内 8 个锚点与 8 个区块一一对应",
+			!!rm && rm.indexHrefs?.length === 8 && rm.indexHrefs.every((h) => rm.lineIds?.includes(h.slice(1))),
+			`索引 ${JSON.stringify(rm?.indexHrefs)} ｜ 区块 ${JSON.stringify(rm?.lineIds)}`);
+		record("R-PATH-02", "停靠点数 136（含 3 处跨线），跨线标记可见",
+			rm?.stopCount === 136 && rm?.crossCount === 3,
+			`停靠点 ${rm?.stopCount} ｜ 跨线标记 ${rm?.crossCount}`);
+		record("R-PATH-03", "同名篇目成对定位：vector / list 的用法与模拟实现各指各的",
+			!!rm &&
+				rm.stopHrefs?.includes("/posts/stl/vector/") &&
+				rm.stopHrefs?.includes("/posts/cpp/vector/") &&
+				rm.stopHrefs?.includes("/posts/stl/list/") &&
+				rm.stopHrefs?.includes("/posts/cpp/list/"),
+			`含 stl/vector=${rm?.stopHrefs?.includes("/posts/stl/vector/")} cpp/vector=${rm?.stopHrefs?.includes("/posts/cpp/vector/")} stl/list=${rm?.stopHrefs?.includes("/posts/stl/list/")} cpp/list=${rm?.stopHrefs?.includes("/posts/cpp/list/")}`);
+		record("R-PATH-04", "篇目并集 == 站内全部 133 篇（命根子）",
+			rm?.uniqueHrefs === 133,
+			`去重后 ${rm?.uniqueHrefs} 篇（停靠点 ${rm?.stopCount} 个，差值是跨线复用）`);
+		record("R-PATH-05", "轻量行不含 <img>，且页顶数字与实算一致",
+			rm?.imgCount === 0 && /133 篇/.test(rm?.statsText ?? "") && /8 条主线/.test(rm?.statsText ?? ""),
+			`img=${rm?.imgCount} ｜ 页顶「${rm?.statsText}」｜390px 溢出 ${rm390?.overflowX}px`);
 	}
 
 	// ── P3 桌宠（R-PET-01 ~ R-PET-05）──

@@ -1,0 +1,17 @@
+---
+// src/components/pages/roadmap/PathStop.astro
+import type { ResolvedStop } from "@utils/roadmap-utils";
+
+interface Props {
+	stop: ResolvedStop;
+}
+const { stop } = Astro.props;
+---
+
+<li class="roadmap-stop">
+	<a class="roadmap-stop-link" href={stop.href}>
+		<span class="roadmap-stop-title">{stop.display}</span>
+		{stop.crossLine && <span class="roadmap-stop-cross">跨线</span>}
+		<span class="roadmap-stop-meta">{stop.category} · 约 {stop.minutes} 分钟</span>
+	</a>
+</li>
