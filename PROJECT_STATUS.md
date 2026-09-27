@@ -233,7 +233,7 @@
 
 ### P2R 学习路线（R-PATH，v1.40 取代排行）　🔵 已定案、待实施
 
-> 设计已冻结（发起人 2026-09-27 逐项选定）：**单页 `/roadmap/` + 纯静态零 JS + 轻量行卡片 + 不填 note + 页顶静态数字**。完整设计见 **`ARCH.md` §5**、需求见 **`prd.md` §3.5R**。
+> 设计已冻结（发起人 2026-09-27 逐项选定）：**单页 `/roadmap/` + 纯静态零 JS + 轻量行卡片 + 不填 note + 页顶静态数字**。完整设计见 **`ARCH.md` §5**、需求见 **`prd.md` §3.5R**、**逐步骤实施计划见 `docs/imiss/plans/2026-09-27-roadmap.md`**（6 个任务、每步都有命令与预期输出、含 16 条断言的红绿对照）。
 
 - [ ] **P2R-1 数据文件与类型**：`src/types/roadmapConfig.ts` + `src/config/roadmapConfig.ts`（8 条线 × 阶段 × 篇目；顺序=数组顺序；`slug`+`category` 成对；`name?` 覆盖同名篇目；允许 2~3 处 `crossLine`）；`src/config/index.ts` 导出
 - [ ] **P2R-2 8 条线的初稿**：C++ 与 STL(40) / 算法与数据结构(26) / Linux 系统(27，**`linux-jichuzhishidian` 放开头**) / 网络(13) / **MySQL(6，从网络里拆出)** / 面试八股(12) / 项目实战(6) / **AI 应用(3)**；总复习型长文（算法错题本等）放线尾
