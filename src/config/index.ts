@@ -56,6 +56,13 @@ export type {
 	FontSelectionConfig,
 } from "../types/fontConfig"; // 字体类型定义
 export type { RankBoardConfig, RankConfig, RankEntry, RankKind } from "../types/rankConfig"; // 排行榜类型（本站新增）
+export type {
+	RoadmapConfig,
+	RoadmapLine,
+	RoadmapLevel,
+	RoadmapStage,
+	RoadmapStop,
+} from "../types/roadmapConfig"; // 学习路线类型（R-PATH，本站新增）
 export type { AgentConfig, AgentResumeWord } from "../types/agentConfig"; // Agent 接口契约类型（R-AGT-07，本站新增，P5-0）
 export { agentConfig } from "./agentConfig"; // Agent 接口契约配置（R-AGT-02 / R-AGT-07，本站新增，P5-0）
 export { analyticsConfig } from "./analyticsConfig"; // 统计分析配置
@@ -83,6 +90,7 @@ export { petConfig } from "./petConfig"; // 桌宠配置（R-PET，本站新增�
 export { plantumlConfig } from "./plantumlConfig"; // PlantUML 图表配置
 export { profileConfig } from "./profileConfig"; // 用户资料配置
 export { rankConfig } from "./rankConfig"; // 排行榜数据（R-RANK，本站新增）
+export { roadmapConfig } from "./roadmapConfig"; // 学习路线数据（R-PATH，本站新增）
 // 布局配置
 export { sidebarLayoutConfig } from "./sidebarConfig"; // 侧边栏布局配置
 // 核心配置
