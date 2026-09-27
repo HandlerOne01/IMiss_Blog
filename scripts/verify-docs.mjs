@@ -203,51 +203,82 @@ const allDocs = { "prd.md": prd, "ARCH.md": arch, "PROJECT_STATUS.md": status, [
 }
 
 // ── 5. 导航子项 ↔ navBarConfig.ts ────────────────────────
+// ⚠️ **v1.41 起这一节也是"两态"的**（写法照第 4 节）：P2R 把导航第 3 格从「排行」下拉换成
+//    「学习路线」单链接，而**只改其中一处**的漂移在这条检查里最不容易看出来 ——
+//    所以判据按"「排行」那一组到底还在不在"分叉，两条断言的名额和记录区名「导航子项」都不动：
+//      · 「排行」组还在  → 老判据：prd R-NAV-02 列的 `/rank/…` == `LinkPresets.Rank*` 的实际 url，
+//                          且每个子项都有对应路由文件（不是死链）
+//      · 「排行」组已删  → 新判据：`navBarConfig.ts` 必须有「学习路线」→ `/roadmap/` 且**不带 children**，
+//                          同时全文件不许再出现「排行」组；prd 的 R-NAV-02 行也不许再列 `/rank/…`
 {
 	const navSrc = await readAny("src/config/navBarConfig.ts");
-	// 「排行」那一组的 children：抓 RankXX 预设名，再去预设表里取 url
-	const groupMatch = navSrc.match(/name: "排行"[\s\S]*?children: \[([\s\S]*?)\]/);
-	const presetNames = groupMatch
-		? [...groupMatch[1].matchAll(/LinkPresets\.(\w+)/g)].map((m) => m[1])
-		: [];
-	const urls = presetNames
-		.map((name) => {
-			const m = navSrc.match(new RegExp(`${name}:\\s*\\{[^}]*url:\\s*"([^"]+)"`));
-			return m?.[1] ?? null;
-		})
-		.filter(Boolean)
-		.sort();
+	const groupGone = !/name:\s*"排行"/.test(navSrc);
 	// prd R-NAV-02 行里列的 /rank/... 路径
 	// ⚠️ 必须用行首锚点：文档里还有一行以 `| R-NAV-02 |` 结尾的表格行（"无「排行」"那行），
 	//    不锚定行首就会匹配到它、抓出空清单（第一版就这么错了）
 	const navLine = prd.match(/^\|\s*R-NAV-02\s*\|.*$/m)?.[0] ?? "";
 	const prdUrls = [...new Set([...navLine.matchAll(/`(\/rank\/[^`]+)`/g)].map((m) => m[1]))].sort();
 
-	record(
-		"导航子项",
-		"prd R-NAV-02 的排行子项 == navBarConfig 实际配置",
-		urls.length > 0 && JSON.stringify(urls) === JSON.stringify(prdUrls),
-		`配置 ${urls.join(",")} ｜ prd ${prdUrls.join(",")}`,
-	);
+	if (groupGone) {
+		// 「学习路线」那一项：从 `name: "学习路线"` 到对象收尾的 `}` 之间取 url 与 children
+		const rmMatch = navSrc.match(/name:\s*"学习路线"[\s\S]*?\n\t\}/);
+		const rmBlock = rmMatch?.[0] ?? "";
+		const rmUrl = rmBlock.match(/url:\s*"([^"]+)"/)?.[1] ?? null;
+		record(
+			"导航子项",
+			"「排行」已改「学习路线」：navBarConfig 里是指向 /roadmap/ 的单链接、再无排行组",
+			rmUrl === "/roadmap/" && !/children\s*:/.test(rmBlock) && !/name:\s*"排行"/.test(navSrc),
+			rmMatch
+				? `学习路线 url=${rmUrl} ｜ 块内 children=${/children\s*:/.test(rmBlock)} ｜ navBarConfig 残留「排行」组=${/name:\s*"排行"/.test(navSrc)}`
+				: "navBarConfig.ts 里找不到「学习路线」项",
+		);
+		// prd 侧：R-NAV-02 行不许再挂 `/rank/…`（挂了就是"代码换了、文档没换"）
+		record(
+			"导航子项",
+			"prd R-NAV-02 行不再列任何 /rank/… 路径",
+			prdUrls.length === 0,
+			prdUrls.length ? `prd 仍列 ${prdUrls.join(",")}` : `R-NAV-02 行残留 /rank/ 路径 0 条`,
+		);
+	} else {
+		// 「排行」那一组的 children：抓 RankXX 预设名，再去预设表里取 url
+		const groupMatch = navSrc.match(/name: "排行"[\s\S]*?children: \[([\s\S]*?)\]/);
+		const presetNames = groupMatch
+			? [...groupMatch[1].matchAll(/LinkPresets\.(\w+)/g)].map((m) => m[1])
+			: [];
+		const urls = presetNames
+			.map((name) => {
+				const m = navSrc.match(new RegExp(`${name}:\\s*\\{[^}]*url:\\s*"([^"]+)"`));
+				return m?.[1] ?? null;
+			})
+			.filter(Boolean)
+			.sort();
 
-	// 每个导航子项都要有对应路由文件（否则是死链）
-	// Astro 的文件路由：/rank/jp/ → src/pages/rank/jp.astro（不是目录 + index.astro）
-	const deadLinks = [];
-	for (const u of urls) {
-		if (!u.startsWith("/rank/") || u === "/rank/") continue;
-		const slug = u.replace(/^\/rank\//, "").replace(/\/$/, "");
-		try {
-			await fs.access(path.resolve(root, `src/pages/rank/${slug}.astro`));
-		} catch {
-			deadLinks.push(`${u}（缺 src/pages/rank/${slug}.astro）`);
+		record(
+			"导航子项",
+			"prd R-NAV-02 的排行子项 == navBarConfig 实际配置",
+			urls.length > 0 && JSON.stringify(urls) === JSON.stringify(prdUrls),
+			`配置 ${urls.join(",")} ｜ prd ${prdUrls.join(",")}`,
+		);
+
+		// 每个导航子项都要有对应路由文件（否则是死链）
+		// Astro 的文件路由：/rank/jp/ → src/pages/rank/jp.astro（不是目录 + index.astro）
+		const deadLinks = [];
+		for (const u of urls) {
+			if (!u.startsWith("/rank/") || u === "/rank/") continue;
+			const slug = u.replace(/^\/rank\//, "").replace(/\/$/, "");
+			try {
+				await fs.access(path.resolve(root, `src/pages/rank/${slug}.astro`));
+			} catch {
+				deadLinks.push(`${u}（缺 src/pages/rank/${slug}.astro）`);
+			}
 		}
+		record(
+			"导航子项",
+			"每个排行子项都有实际路由（不是死链）",
+			deadLinks.length === 0 && urls.length > 0,
+			deadLinks.length ? `缺路由：${deadLinks.join(",")}` : `${urls.length} 个子项都有路由文件`,
+		);
 	}
-	record(
-		"导航子项",
-		"每个排行子项都有实际路由（不是死链）",
-		deadLinks.length === 0 && urls.length > 0,
-		deadLinks.length ? `缺路由：${deadLinks.join(",")}` : `${urls.length} 个子项都有路由文件`,
-	);
 }
 
 // ── 6. 需求编号闭环 ─────────────────────────────────────

@@ -10,12 +10,13 @@ import {
 // NavBar Configuration - Dynamically generate navigation bar links based on order
 //
 // IMiss Blog 的最终导航结构（需求见 prd.md 第 2 章，落点见 ARCH.md §4.1）：
-//   主页 / 文章(归档·分类·标签·系列) / 排行(日漫排行·国漫排行)
+//   主页 / 文章(归档·分类·标签·系列) / 学习路线
 //        / 我的(动态·项目·相册·书签导航·轻小说·番剧·关于我) / 链接 / 留言
 //
 // 相对上游 Firefly 的改动：
 //   · R-NAV-01：删除「社交」父项，「留言」提升为顶层项并放在最后（「链接」之后）
-//   · R-NAV-02：在「文章」与「我的」之间新增「排行」（日漫排行 / 国漫排行）
+//   · R-NAV-02：在「文章」与「我的」之间新增顶层项 —— **v1.40 起是「学习路线」`/roadmap/`（单链接、
+//               无子项）**，取代原先的「排行」及其三个子菜单（原项随 P2R 排行模块一起退场）
 //   · R-NAV-03：「我的」里删掉「哔哩哔哩」「番组计划」；VNDB→「轻小说」、AnimeList→「番剧」
 //               （都只改名，URL 与功能不变）；「关于我」移到最后一项
 //   · R-NAV-04：删除顶层「关于」父项（「打赏」随之彻底移除，「关于我」并入「我的」）
@@ -53,24 +54,15 @@ const getDynamicNavBarConfig = (): NavBarConfig => {
 		],
 	});
 
-	// 排行及其子菜单（本站新增，位置固定为「文章」与「我的」之间）
-	// 注意：排行页是本站新增页面，不属于 siteConfig.pages 的开关体系，所以这两个预设**不带 pageKey**。
-	// （顺带纠正一个容易搞反的规则：nav-menu-utils 的判据是 `pages[key] !== false`，
-	//   所以随便写一个不存在的 pageKey 其实**不会**隐藏，而是照常显示——别指望用它来"先藏起来"。）
+	// 学习路线（R-PATH-01：本站新增页面，不属于 siteConfig.pages 的开关体系，所以**不带 pageKey**；
+	// 8 条主线用页内锚点，导航**不挂子项** —— 挂 8 个子项在手机上会爆）
+	// 位置固定为「文章」与「我的」之间（原「排行」占的那一格，v1.41 换成本页）
+	// ⚠️ 顺手记下一条容易搞反的规则：nav-menu-utils 的判据是 `pages[key] !== false`，
+	//    所以随便写一个不存在的 pageKey 其实**不会**隐藏，而是照常显示——别指望用它来"先藏起来"。
 	links.push({
-		name: "排行",
-		url: "#",
-		icon: "material-symbols:leaderboard",
-		children: [
-			// 日漫排行
-			LinkPresets.RankJP,
-
-			// 国漫排行
-			LinkPresets.RankCN,
-
-			// 二游排行（R-RANK-07：单一榜，页面上没有全剧/单集切换）
-			LinkPresets.RankGame,
-		],
+		name: "学习路线",
+		url: "/roadmap/",
+		icon: "material-symbols:route",
 	});
 
 	// 我的及其子菜单
@@ -169,23 +161,6 @@ export const LinkPresets: Record<string, NavBarLink> = {
 		name: "系列",
 		url: "/series/",
 		icon: "material-symbols:layers",
-	},
-	// ─── 排行（本站新增，无 pageKey）────────────────────────
-	RankJP: {
-		name: "日漫排行",
-		url: "/rank/jp/",
-		icon: "material-symbols:emoji-events",
-	},
-	RankCN: {
-		name: "国漫排行",
-		url: "/rank/cn/",
-		icon: "material-symbols:military-tech",
-	},
-	// R-RANK-07：二游排行只有一份名单（页面上没有全剧/单集切换），数据也直接是数组
-	RankGame: {
-		name: "二游排行",
-		url: "/rank/game/",
-		icon: "material-symbols:sports-esports",
 	},
 	// ─── 留言（原「社交」的子项，现提升为顶层最后一项）──────
 	Guestbook: {

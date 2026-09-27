@@ -39,12 +39,9 @@ const CHROME_CANDIDATES = [
 // 横幅取景锚点：与 src/config/backgroundWallpaper.ts 的 banner.position 保持一致（R-BG-04）
 const EXPECT_BANNER_POSITION = "50% 35%";
 // 顶层导航顺序与子项顺序（prd.md R-NAV-01~04 / 第 2 章）
-const EXPECT_TOP_NAV = ["主页", "文章", "排行", "我的", "链接", "留言"];
-const EXPECT_RANK_CHILDREN = [
-	{ name: "日漫排行", href: "/rank/jp/" },
-	{ name: "国漫排行", href: "/rank/cn/" },
-	{ name: "二游排行", href: "/rank/game/" },
-];
+// ⚠️ v1.41（P2R）：第 3 格由「排行」下拉换成「学习路线」单链接（R-PATH-01）——
+//    它没有 children，所以 EXPECT_RANK_CHILDREN 这条常量随之退休（不再有人用）。
+const EXPECT_TOP_NAV = ["主页", "文章", "学习路线", "我的", "链接", "留言"];
 const EXPECT_MY_CHILDREN = [
 	{ name: "动态", href: "/dynamic/" },
 	{ name: "项目", href: "/projects/" },
@@ -64,7 +61,9 @@ const EXPECT_ABSENT_STAT_TEXT = ["运行时长", "最后活动", "天前"];
 const FORBIDDEN_ROUTES = ["/friends/", "/bilibili/", "/bangumi/", "/sponsor/"];
 // R-ID-06：订阅功能整体移除后，这 4 条路由**连存根都没有**（文件已删），应该是真 404
 const REMOVED_FEED_ROUTES = ["/rss/", "/atom/", "/rss.xml", "/atom.xml"];
-const ALLOWED_ROUTES = ["/", "/about/", "/guestbook/", "/vndb/", "/myanimelist/", "/booknav/", "/dynamic/", "/projects/", "/gallery/", "/archive/", "/rank/jp/", "/rank/cn/", "/rank/game/"];
+// R-PATH-01：v1.41 起 /roadmap/ 顶上导航第 3 格，必须进 ALLOWED_ROUTES 才能被"路由 200"那一趟扫到
+// （/rank/* 三条**先留着** —— 排行页到 P2R-6 才删，删的那一轮再一起摘掉）
+const ALLOWED_ROUTES = ["/", "/about/", "/guestbook/", "/vndb/", "/myanimelist/", "/booknav/", "/dynamic/", "/projects/", "/gallery/", "/archive/", "/roadmap/", "/rank/jp/", "/rank/cn/", "/rank/game/"];
 // P2 之前：/rank/jp/、/rank/cn/ 还不存在，这里是"待建路由"的登记处。
 // P2 建好后两条路由已进 ALLOWED_ROUTES（断言 200），登记处随之清空——
 // 留着这个常量是为了下个阶段再出现"说好要建但还没建"的路由时有地方记，别再退回"catch 住就算过"的假绿写法。
@@ -152,7 +151,8 @@ const COLLECT = `(() => {
       name: txt(i.querySelector("span")),
       href: i.getAttribute("href"),
     }));
-    return { name: txt(head), children };
+    // href 只有"单链接"顶层项才有（带子菜单的顶层项是 <button data-dropdown-trigger>，没有 href）
+    return { name: txt(head), href: head?.getAttribute?.("href") ?? null, children };
   }) : [];
   const panel = document.getElementById("nav-menu-panel");
   const mobileTops = panel ? [...panel.querySelectorAll(".mobile-menu-list .mobile-menu-item-root")].map((r) => {
@@ -173,6 +173,9 @@ const COLLECT = `(() => {
     hueInline: document.documentElement.style.getPropertyValue("--hue").trim(),
     hueComputed: getComputedStyle(document.documentElement).getPropertyValue("--hue").trim(),
     navTops: tops,
+    // R-PATH-06：桌面导航 + 移动抽屉里**所有**链接的文字，一次覆盖两层
+    // （只查 navTops 会漏掉移动抽屉里那份独立的菜单树）
+    navTexts: [...document.querySelectorAll("#navbar a, #nav-menu-panel a")].map((a) => (a.textContent || "").trim()),
     mobileTops,
     allLabels,
     statRows: statsRoot ? statsRoot.querySelectorAll("div.justify-between").length : null,
@@ -965,10 +968,13 @@ async function main() {
 		await cdp.send("Page.navigate", { url: `${BASE}/` });
 		await loaded;
 		await sleep(700);
-		// 点桌面导航里的「日漫排行」链接，让 Swup 接管这次跳转
+		// 点桌面导航里的「学习路线」链接，让 Swup 接管这次跳转
+		// ⚠️ v1.41（P2R）：原来点的是导航里的「日漫排行」，但那一格已换成「学习路线」单链接，
+		//    再没有指向 /rank/jp/ 的导航入口 —— 点不到就回一个哨兵值（而不是让 undefined.click() 抛错），
+		//    下面三条断言按 SKIP 如实记账（理由见那段开头的长注释），等 P2R-6 随排行页一起退休。
 		const { result: clickedNav } = await cdp.send("Runtime.evaluate", {
 			expression: `(() => {
-				const a = document.querySelector('a[href="/rank/jp/"]');
+				const a = document.querySelector('#navbar a[href="/roadmap/"]') || document.querySelector('a[href="/roadmap/"]');
 				if (!a) return "no-link";
 				a.click();
 				return "clicked";
@@ -1002,6 +1008,16 @@ async function main() {
 			returnByValue: true,
 		});
 		facts["rank-via-swup-back"] = swupBack.value;
+	}
+
+	// ⚠️ **隔离**：上面那段以「点导航进 /roadmap/」起步，而 /roadmap/ 上不存在榜单，
+	// 于是它后面所有依赖"当前页 = 排行页"的采集（打印兜底、键盘、缺图等）都会采到空值。
+	// 原来这里是隐式的（点 /rank/jp/ 的导航链接自然落在排行页），导航第 3 格换掉后必须显式回来。
+	{
+		const loaded = cdp.once("Page.loadEventFired");
+		await cdp.send("Page.navigate", { url: `${BASE}/rank/jp/` });
+		await loaded;
+		await sleep(700);
 	}
 
 	// ── R-RANK-02 兜底：打印时两块榜单都要在纸上 ──
@@ -2382,12 +2398,16 @@ async function main() {
 	const mobileHome = facts["home-390"];
 
 	record("R-NAV-01~04", "顶层导航顺序", same(home.navTops.map((t) => t.name), EXPECT_TOP_NAV), JSON.stringify(home.navTops.map((t) => t.name)));
-	const rank = home.navTops.find((t) => t.name === "排行");
-	record("R-NAV-02", "排行子项与链接", !!rank && same(rank.children, EXPECT_RANK_CHILDREN), JSON.stringify(rank?.children));
+	// R-NAV-02 的判据随导航第 3 格一起换（v1.41 / P2R）：原来是「排行 + 三个 /rank/ 子项」，
+	// 现在是「学习路线」单链接 —— 同一条需求、同一条断言位，只是被测对象换了
+	// （「排行」子项 ↔ 路由 的死链核对在 `pnpm verify:docs` 的「导航子项」里）
+	const top3 = home.navTops[2];
+	record("R-NAV-02", "第 3 格「学习路线」是单链接、指向 /roadmap/", top3?.name === "学习路线" && top3?.href === "/roadmap/" && (top3?.children?.length ?? -1) === 0, JSON.stringify(top3));
 	const my = home.navTops.find((t) => t.name === "我的");
 	record("R-NAV-03", "我的子项顺序与链接", !!my && same(my.children, EXPECT_MY_CHILDREN), JSON.stringify(my?.children));
 	record("R-NAV-01~04", "已删除的导航项不再出现", EXPECT_ABSENT_LABELS.every((l) => !home.allLabels.includes(l)), home.allLabels.filter((l) => EXPECT_ABSENT_LABELS.includes(l)).join(",") || "无残留");
-	record("R-NAV-01", "移动端菜单最后一项是「留言」且含「排行」", mobileHome.mobileTops.at(-1)?.name === "留言" && mobileHome.mobileTops.some((t) => t.name === "排行"), JSON.stringify(mobileHome.mobileTops.map((t) => t.name)));
+	// 移动抽屉与桌面共用同一份 navBarConfig，所以顺序断言对两边都成立（「排行」不再出现在任何一层）
+	record("R-NAV-01", "移动端菜单最后一项是「留言」且第 3 格是「学习路线」", mobileHome.mobileTops.at(-1)?.name === "留言" && mobileHome.mobileTops.some((t) => t.name === "学习路线"), JSON.stringify(mobileHome.mobileTops.map((t) => t.name)));
 	record("R-ID-01", "站点名 IMiss Blog（标题 + 导航栏品牌）", home.title.includes("IMiss Blog") && (home.brand ?? "").includes("IMiss Blog"), `title=${home.title} brand=${home.brand}`);
 	record("R-ID-02", "主题色相 = 345", home.hueComputed === EXPECT_HUE || home.hueInline === EXPECT_HUE, `inline=${home.hueInline} computed=${home.hueComputed}`);
 	record("R-ID-04", "favicon 已换成 imiss", home.favicons.some((h) => (h ?? "").includes("imiss-32.png")), JSON.stringify(home.favicons));
@@ -2530,27 +2550,31 @@ async function main() {
 
 		// D1 回归：经 Swup 切页进来时，按钮监听不能被绑两遍（否则一次点击 = 两次 pushState）
 		const swupPage = facts["rank-via-swup"];
-		const swupClicked = facts["rank-via-swup-click"]?.rank;
-		const swupBack = facts["rank-via-swup-back"]?.rank;
+		// 下面这两份采集本轮已经没有断言用（原三条 Swup 判据改成 SKIP，见上），
+		// 保留是因为它们是"这一段确实跑过"的现场记录，P2R-6 删排行时会连同采集一起删
+		void facts["rank-via-swup-click"]?.rank;
+		void facts["rank-via-swup-back"]?.rank;
+		// ── D1 回归（R-RANK-02）在 v1.41 的处境 ──────────────────────────────
+		// 原来这三条钉的是"经 Swup 点导航进 /rank/jp/ 后，点一次「单集」只 pushState 一次"。
+		// 导航第 3 格换成「学习路线」单链接后，**导航里再也没有通往 /rank/jp/ 的入口**，
+		// 这条路径在 UI 上已经不可达 —— 但它钉的 D1 缺陷（@swup/scripts-plugin 重跑内联脚本 →
+		// 监听绑两遍 → 一次点击 pushState 两次）**依然存在**，只是没法再从导航触发。
+		// 所以：三条按 SKIP 记账（**不许长得像 ✅**，见文件末尾的记账规矩），
+		// 并由下面那一条把"导航点击 → Swup 接管 → 落地页正确"搬到新的可达路径（/roadmap/）上；
+		// 等 P2R-6 删掉排行页时，这三条随 R-RANK 一起退休，那条通用判据迁进 R-PATH。
+		const SWUP_SKIP_REASON = "导航已无 /rank/jp/ 入口（第 3 格换成「学习路线」），这条 Swup 路径不可达；P2R-6 随排行页删断言时一并退休";
+		record("R-RANK-02", "经 Swup 点导航进排行页能正常渲染", false, SWUP_SKIP_REASON, true);
+		record("R-RANK-02", "Swup 路径：点一次「单集」URL 只前进一档", false, SWUP_SKIP_REASON, true);
+		record("R-RANK-02", "Swup 路径：按一次后退就回到「全剧」", false, SWUP_SKIP_REASON, true);
+		// 取代它们的通用判据（R-PATH-01）：点导航第 3 格 → Swup 接管 → 落在 /roadmap/ 上且菜单态正确
 		record(
-			"R-RANK-02",
-			"经 Swup 点导航进排行页能正常渲染",
-			swupPage?.rank?.kind === "all" && (swupPage?.rank?.rows?.length ?? 0) === 10,
-			`导航点击=${swupPage?.nav} kind=${swupPage?.rank?.kind} 行数=${swupPage?.rank?.rows?.length}`,
+			"R-PATH-01",
+			"经 Swup 点导航第 3 格能进 /roadmap/（落地页与抽屉当前页态都对）",
+			swupPage?.nav === "clicked" &&
+				!swupPage?.rank &&
+				(swupPage?.mobileNavActiveItems ?? []).some((i) => i.href === "/roadmap/"),
+			`导航点击=${swupPage?.nav} ｜ 落地页有榜单板=${!!swupPage?.rank}（应为 false）｜ 抽屉当前页=${JSON.stringify(swupPage?.mobileNavActiveItems)}`,
 		);
-		record(
-			"R-RANK-02",
-			"Swup 路径：点一次「单集」URL 只前进一档",
-			swupClicked?.kind === "ep" && (swupClicked?.search ?? "").includes("kind=ep"),
-			`kind=${swupClicked?.kind} search=${swupClicked?.search}`,
-		);
-		record(
-			"R-RANK-02",
-			"Swup 路径：按一次后退就回到「全剧」",
-			swupBack?.kind === "all",
-			`后退后 kind=${swupBack?.kind}${swupBack?.kind === "ep" ? "（监听被绑了两遍的典型症状）" : ""}`,
-		);
-
 		// D2：打印时两块榜单都要出现（没点过的「单集」榜不能因为没点过就印不出来）
 		const print = facts["rank-print"];
 		record(
@@ -2754,20 +2778,25 @@ async function main() {
 			);
 		}
 
-		// R-RANK-01 的"导航两个子项高亮正确"：桌面导航栏上游没有当前页态，
-		// 真正带高亮的是移动端抽屉（按 pathname 标 data-active + 自动展开父级分组）
-		const mobExpanded = facts["rank-jp-390"].mobileNavExpanded ?? [];
+		// R-RANK-01 的"导航子项高亮正确"（v1.41 / P2R 重指）：桌面导航栏上游没有当前页态，
+		// 真正带高亮的是移动端抽屉（按 pathname 标 data-active）。
+		// 原判据锚在「日漫排行」这个导航子项上，而那一格已换成「学习路线」单链接 —— 于是改锚到
+		// **当前导航里真实存在的项**上（同样验"进对应页 → 抽屉把该项标成当前页"这条通用能力）。
+		// 数据取 `facts["roadmap-390"]`（主 COLLECT 采的），**不是** `-roadmap` 后缀那一份
+		// （那份是 COLLECT_ROADMAP 的产物，只含路线页 DOM 契约，没有导航字段）。
+		// ⚠️ 这两条是 R-RANK 里的**通用判据**，P2R-6 删排行时会按 ARCH §5.7 在 R-PATH 名下重写。
+		const rmActive = facts["roadmap-390"]?.mobileNavActiveItems ?? [];
 		record(
 			"R-RANK-01",
-			"移动端导航把「日漫排行」标成当前页",
-			(facts["rank-jp-390"].mobileNavActiveItems ?? []).some((i) => i.href === "/rank/jp/" && i.inSubmenu),
-			`当前页项 ${JSON.stringify(facts["rank-jp-390"].mobileNavActiveItems)}`,
+			"移动端导航把「学习路线」标成当前页",
+			rmActive.some((i) => i.href === "/roadmap/" && !i.inSubmenu),
+			`当前页项 ${JSON.stringify(rmActive)}`,
 		);
 		record(
 			"R-RANK-01",
-			"含当前页的「排行」分组自动展开",
-			mobExpanded.some((t) => t.startsWith("排行")),
-			`展开的分组 ${JSON.stringify(mobExpanded)}`,
+			"导航里已无「日漫排行」项，移动端自然不再把它标成当前页",
+			!(facts["home-390"]?.mobileNavActiveItems ?? []).some((i) => i.href === "/rank/jp/"),
+			`首页抽屉当前页项 ${JSON.stringify(facts["home-390"]?.mobileNavActiveItems)}`,
 		);
 
 		// R-RANK-05：缺图行要"够暗"，白字标题才立得住 —— 亮色主题最危险
@@ -2835,6 +2864,17 @@ async function main() {
 		record("R-PATH-05", "轻量行不含 <img>，且页顶数字与实算一致",
 			rm?.imgCount === 0 && /133 篇/.test(rm?.statsText ?? "") && /8 条主线/.test(rm?.statsText ?? ""),
 			`img=${rm?.imgCount} ｜ 页顶「${rm?.statsText}」｜390px 溢出 ${rm390?.overflowX}px`);
+		// R-PATH-01：导航第 3 格（「文章」与「我的」之间）必须换成学习路线，且**不许挂子项**
+		// （8 条主线走页内锚点；桌面上挂 8 个子项会爆）
+		const top3 = facts["home-1440"]?.navTops?.[2];
+		record("R-PATH-01", "导航第 3 格是「学习路线」、指向 /roadmap/、且没有子项",
+			top3?.name === "学习路线" && top3?.href === "/roadmap/" && (top3?.children?.length ?? -1) === 0,
+			`第 3 格 = ${JSON.stringify(top3)}`);
+		// R-PATH-06：「排行」这个模块整体退场后，导航里不许留任何一层残留
+		// （navTexts 同时覆盖桌面导航与移动抽屉）
+		record("R-PATH-06", "「排行」不再出现在任何导航层（桌面 + 移动抽屉）",
+			(facts["home-1440"]?.navTexts ?? []).every((t) => !t.includes("排行")),
+			`导航文字 ${JSON.stringify(facts["home-1440"]?.navTexts)}`);
 	}
 
 	// ── P3 桌宠（R-PET-01 ~ R-PET-05）──
@@ -6055,7 +6095,11 @@ async function main() {
 	// 不参与通过/失败计数，免得"功能没做"被算成 ✅、也免得报告看起来比实际更绿。
 	const functional = results.filter((r) => !r.id.startsWith("INFO"));
 	const informational = results.filter((r) => r.id.startsWith("INFO"));
-	const failed = functional.filter((r) => !r.pass);
+	// ⚠️ `skipped` 的项**不算失败**（Task 3 修正）：SKIP 的记账约定是"传 pass=false + skipped=true"，
+	//    旧实现只滤 `!r.pass`，于是每一条 SKIP 都同时被算进"失败"——汇总行会出现
+	//    "跳过 4、失败 3"自相矛盾、退出码也跟著变 1（实测踩到）。`probeResults` 的同类统计
+	//    早就写了 `!r.skipped && !r.pass`，这里补齐成一致。原本没有 SKIP 的轮次结果不变。
+	const failed = functional.filter((r) => !r.skipped && !r.pass);
 	console.log("");
 	for (const r of results) {
 		// ⚠️ **SKIP 不许长得像 ✅**（P5 复核对本仓库验收的硬要求）：R-AGT 那两条"真往返"在

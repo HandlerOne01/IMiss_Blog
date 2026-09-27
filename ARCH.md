@@ -195,8 +195,8 @@ src/
 ```
 主页            /                      （LinkPresets.Home，原样保留）
 文章 ▾          归档 /archive/ · 分类 /categories/ · 标签 /tags/ · 系列 /series/
-排行 ▾ 【新增】  日漫排行 /rank/jp/ · 国漫排行 /rank/cn/ · 二游排行 /rank/game/
-                                                   ← 放在「文章」与「我的」之间
+学习路线        /roadmap/              【v1.41 新增】单链接、**无子项**（R-PATH-01）
+                                        ← 占的是「文章」与「我的」之间那一格（原「排行」下拉位）
 我的 ▾          动态 /dynamic/ · 项目 /projects/ · 相册 /gallery/ · 书签导航 /booknav/
                 轻小说 /vndb/（原 VNDB，改名不改功能） · 番剧 /myanimelist/（原 AnimeList）
                 关于我 /about/                                    ← 必须最后一项
@@ -209,14 +209,23 @@ src/
 1. **删除「社交」父项**，把 `LinkPresets.Guestbook` 作为顶层 `links.push({...LinkPresets.Guestbook})`，位置在所有项之后。
 2. **删除「关于」父项**：`LinkPresets.Sponsor` 与 `LinkPresets.About` 不再出现在 `links` 里；`About` 作为 `我的` 的最后一个 child。
 3. **改名两项**：`LinkPresets.VNDB.name = "轻小说"`、`LinkPresets.MAL.name = "番剧"`（URL、`pageKey`、图标都可保留，`VNDB` 的图标可换成 `material-symbols:menu-book` 之类更贴切的）。
-4. **新增三个预设**（放在 `LinkPresets` 里，便于复修）：
+4. **第 3 格（R-PATH-01 / v1.41）**：直接 `links.push` 一个内联对象，**不进 `LinkPresets`**（它只此一处用，无需复修入口）：
    ```ts
-   RankJP:   { name: "日漫排行", url: "/rank/jp/",   icon: "material-symbols:emoji-events" },
-   RankCN:   { name: "国漫排行", url: "/rank/cn/",   icon: "material-symbols:military-tech" },
-   RankGame: { name: "二游排行", url: "/rank/game/", icon: "material-symbols:sports-esports" },
+   links.push({
+       name: "学习路线",
+       url: "/roadmap/",
+       icon: "material-symbols:route",
+   });
    ```
-   注意：排行页是**新增页面**，不属于 `siteConfig.pages` 的开关体系（那套开关只覆盖模板自带页面），所以这三个预设**不带 `pageKey`**。
-   ⚠️ 加子项时**必须同时建好路由**（`src/pages/rank/<id>.astro`），否则导航里就是一个死链；`pnpm verify:docs` 会核对"导航子项 ↔ 实际路由"两边一致。
+   注意三点：① 它不属于 `siteConfig.pages` 的开关体系（那套开关只覆盖模板自带页面），所以**不带 `pageKey`**；
+   ② **不挂 `children`** —— 8 条主线走页内锚点，桌面/手机上挂 8 个子项会爆版；
+   ③ 顶层的**单链接**项渲染成 `:scope > a`（带 `href`），带子项的项渲染成 `<button data-dropdown-trigger>`（**没有 `href`**）——
+   `verify-ui.mjs` 的 `COLLECT` 正是靠这一点把 `navTops[2].href` 读成 `/roadmap/`。
+   > 原「排行」下拉与 `LinkPresets.RankJP/RankCN/RankGame` 三个预设随 P2R **一并删除**（全仓只被那一组引用，已 grep 核实）；
+   > 完整的原样代码留在本文件 §14.4「恢复路径表」与 v1.40 之前的最后一个提交里。
+   > ⚠️ 这条规则对**任何**导航项都成立：加子项时**必须同时建好路由**（如 `src/pages/rank/<id>.astro`），否则导航里就是一个死链；
+   > `pnpm verify:docs` 的「导航子项」检查会核对"导航项 ↔ 实际路由"两边一致（v1.41 起该检查是两态的：`navBarConfig.ts` 里
+   > 「排行」组在不在，决定它查 `/rank/…` 子项还是查「学习路线」→ `/roadmap/`）。
 5. 未使用的预设（`Friends`/`Bilibili`/`Bangumi`/`Sponsor`）从 `LinkPresets` 中删除，避免以后被误引用；对应页面文件保留（靠开关关掉）。
 
 ### 4.2 页面开关矩阵（`siteConfig.pages`）
