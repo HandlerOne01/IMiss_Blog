@@ -2899,6 +2899,222 @@ async function main() {
 			`导航文字 ${navTexts.length} 条：${JSON.stringify(navTexts)}`);
 	}
 
+	// ── P2R 学习路线：Task 5 迁进来的 7 条通用判据（R-PATH-01 / R-PATH-05）──
+	// 为什么**另起一个块**：这 7 条不是"读 facts 做判定"，有一半要**当场操作浏览器**
+	// （关 JS / 打印模拟 / 真点导航 / 按后退 / 读 head）。块首按 brief 的规矩**重新取一遍**
+	// 要用的事实键 —— `rm` / `rm390` 是上一个块里的 `const`，块级作用域出块即失效。
+	{
+		const rm = facts["roadmap-1440-roadmap"];
+		const rm390 = facts["roadmap-390-roadmap"];
+
+		// R-PATH 专用就地辅助：照 1081 行 clickMenu / 2216 行 clickZone 的写法就地写，
+		// 不另造名字各异的一套（brief 点名要求）。
+		const evalIn = async (expr) =>
+			(await cdp.send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true })).result.value;
+		const clickSel = async (sel) =>
+			evalIn(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (!el) return "missing"; el.click(); return "ok"; })()`);
+		/**
+		 * 开一个页面并等它加载完。
+		 * ⚠️ **`Page.navigate` 不保证触发 `Page.loadEventFired`**（真机实测，`reports/_task5-samedoc-probe.json`）：
+		 *    · 只**加** fragment（`/roadmap/` → `/roadmap/#line-linux`）→ 3 秒内**没有任何 load 事件**
+		 *      （裸等 30s 会抛"等 Page.loadEventFired 超时"把整轮打断）；
+		 *    · 去 fragment（`#x` → 无）70~80ms、**完全相同的 URL** 70~75ms、换文档 70~280ms → 都会触发。
+		 *    所以给 once 兜一个 8s 超时：真不触发时 DOM 本来就是对的，睡够即可继续，不会把整轮炸掉。
+		 */
+		const goto = async (url) => {
+			const loaded = cdp.once("Page.loadEventFired", 8000).catch(() => null);
+			await cdp.send("Page.navigate", { url });
+			await loaded;
+			await sleep(900);
+		};
+		/**
+		 * 轮询等条件**真的**成立：页内锚点滚动是 `scroll-behavior: smooth` 的动画，
+		 * 固定 sleep 在慢机器上会偶发误判（假红和假绿一样有害，T58 同类）。
+		 * 表达式抛错（元素没了 / null）按"还没成立"处理 —— 断言必须降级成红，不许把整个脚本炸掉
+		 * （Task 2 踩过：页面整块缺失时 `rm.x.length` 抛 TypeError，6 条该红的断言只剩 1 条崩溃）。
+		 */
+		const waitFor = async (expr, timeoutMs = 4000) => {
+			for (let waited = 0; waited <= timeoutMs; waited += 150) {
+				if (await evalIn(`(() => { try { return Boolean(${expr}); } catch { return false; } })()`)) return true;
+				await sleep(150);
+			}
+			return false;
+		};
+
+		// ① R-PATH-05：关掉 JS 后内容必须**全在**（prd §6.2「内容不许依赖 JS」的硬要求）
+		// 关脚本跑一趟 → 采完立刻**还原**（`value:false`），否则后面所有断言都会在无 JS 的页面上跑。
+		await cdp.send("Emulation.setScriptExecutionDisabled", { value: true });
+		await goto(`${BASE}/roadmap/`);
+		const noJs = await evalIn(`(() => ({
+			lines: document.querySelectorAll("section.roadmap-line").length,
+			stops: document.querySelectorAll("li.roadmap-stop a.roadmap-stop-link").length,
+			stats: (document.querySelector("#roadmap-stats") || {}).textContent || "",
+		}))()`);
+		// 还原后还要**整页重载一次**：上面那份文档是在"脚本被禁用"的状态下解析的，
+		// 光把开关拨回来不会让它的脚本补跑 —— 真机实测（`reports/_task5-samedoc-probe.json` ⑦）：
+		// 关 JS 时 `window.swup === undefined`，拨回开关 + 导航到**同一 URL**（load 事件 70ms）后变成 `object`。
+		// （下面的打印/锚点判据都要有 JS 的页面）
+		await cdp.send("Emulation.setScriptExecutionDisabled", { value: false });
+		await goto(`${BASE}/roadmap/`);
+		record(
+			"R-PATH-05",
+			"关掉 JS 后 8 条主线 / 136 个停靠点 / 页顶数字都在（内容不依赖 JS）",
+			noJs?.lines === 8 && noJs?.stops === 136 && /133 篇/.test(noJs?.stats ?? ""),
+			`线 ${noJs?.lines} 条 ｜ 停靠点 ${noJs?.stops} 个 ｜ 页顶「${(noJs?.stats ?? "").replace(/\s+/g, " ").trim()}」`,
+		);
+
+		// ② R-PATH-05：390px 下**真的**没有横向溢出（页面不许横向滚，内容也不许被裁）
+		// ⚠️ **不能直接用采集器那份 `overflowX`**（它算的是 `documentElement.scrollWidth - window.innerWidth`）：
+		//    在 `mobile:true` 的模拟下（= `roadmap-390` 那一趟的采法），内容一旦横向溢出，
+		//    `window.innerWidth` 会**跟着内容一起涨**（探针实测 390 → 900），两个数同向变大 → 差值**恒为 0**。
+		//    也就是说 brief 原稿的 `(rm390?.overflowX ?? 99) <= 2` 是一句**结构上不可能红**的空判据 ——
+		//    实测为证：注入一个把 `#roadmap` 撑到 900px 的样式后，那一轮 **0 失败**（`reports/_task5-inj2-overflow.log`）。
+		//    ⚠️ 既有 `R-WDG-04`「首页在 390px 下无横向溢出」用的是**同一套度量**，同样问题（已写进报告 concerns，不在本任务范围）。
+		//    改成当场量两个**不会自己膨胀**的数：
+		//      ① 页面级：`documentElement.scrollWidth - documentElement.clientWidth`（clientWidth 稳定 390）
+		//      ② 内容级：`#content-column.scrollWidth - clientWidth` —— 这一层是 `overflow-x: clip`（探针实测），
+		//         路线页自己的内容要是太宽（超长不可断词 / 宽表格 / 窄屏固定宽），页面**不会**横滚，而是被**裁掉** ——
+		//         只量①的话这种坏法永远看不见。
+		await cdp.send("Emulation.setDeviceMetricsOverride", {
+			width: 390,
+			height: 844,
+			deviceScaleFactor: 1,
+			mobile: true,
+		});
+		await goto(`${BASE}/roadmap/`);
+		const ovf = await evalIn(`(() => {
+			const de = document.documentElement;
+			const col = document.getElementById("content-column");
+			return {
+				doc: de.scrollWidth - de.clientWidth,
+				col: col ? col.scrollWidth - col.clientWidth : null,
+				scrollWidth: de.scrollWidth,
+				clientWidth: de.clientWidth,
+				innerWidth: window.innerWidth,
+			};
+		})()`);
+		// 量完立刻把视口还回 1440×900：下面点桌面导航、验打印、以及再后面的 P3 桌宠真机探针都按桌面假设
+		await cdp.send("Emulation.setDeviceMetricsOverride", {
+			width: 1440,
+			height: 900,
+			deviceScaleFactor: 1,
+			mobile: false,
+		});
+		record(
+			"R-PATH-05",
+			"390px 下路线页无横向溢出（页面级 + 内容级两个数当场量）",
+			ovf?.clientWidth === 390 && ovf?.doc <= 2 && ovf?.col !== null && ovf?.col <= 2,
+			`页面级 ${ovf?.doc}px（scrollWidth ${ovf?.scrollWidth} − clientWidth ${ovf?.clientWidth}）｜ 内容级 ${ovf?.col}px（#content-column 的 scrollWidth − clientWidth）｜ 该视口 innerWidth=${ovf?.innerWidth} ｜ 采集器那份 overflowX=${rm390?.overflowX}（差法不可信，仅存档）`,
+		);
+
+		// ③ R-PATH-05：页顶「约 N 小时」必须真的在，且 N ≥ 1（控制者追加的第 7 条）。
+		// 起因：`roadmap.astro` 的 `minutes: Math.max(1, Number(remarkPluginFrontmatter.minutes ?? 1))`
+		// 意味着**一分钟数都采不到时每行仍是「约 1 分钟」**、总时长也变成一个假数，
+		// 而 6 条 R-PATH 断言照样全绿（它们只钉篇数/停靠点/跨线）。这条把页顶那个数钉住。
+		const hoursHit = /约\s*(\d+)\s*小时/.exec(rm?.statsText ?? "");
+		const hoursN = hoursHit ? Number(hoursHit[1]) : null;
+		record(
+			"R-PATH-05",
+			"页顶 stats 出现「约 N 小时」且 N ≥ 1（防分钟数采空后总数变假）",
+			hoursN !== null && hoursN >= 1,
+			`匹配「${hoursHit?.[0] ?? "（没有）"}」｜ N=${hoursN} ｜ 全文「${rm?.statsText}」`,
+		);
+
+		// ④ R-PATH-01：打印（@media print）时 8 条主线都得**在纸上**
+		// ⚠️ 判据不能只数 DOM 节点：`querySelectorAll` 无视媒体查询 —— 谁将来写一条
+		//    `@media print { .roadmap-line { display:none } }`，旧写法照样数出 8 条而报绿。
+		//    所以同时要求 8 条都**真的渲染**（display 非 none、可见、有高度）。
+		// 自己先开一趟页面：不蹭上一步（②）留下的落点与媒体状态（判据之间不许有隐式依赖）。
+		await goto(`${BASE}/roadmap/`);
+		await cdp.send("Emulation.setEmulatedMedia", {
+			media: "print",
+			features: [{ name: "prefers-color-scheme", value: "dark" }],
+		});
+		await sleep(200);
+		const printFact = await evalIn(`(() => {
+			const secs = [...document.querySelectorAll("section.roadmap-line")];
+			const shown = secs.filter((s) => {
+				const cs = getComputedStyle(s);
+				return cs.display !== "none" && cs.visibility !== "hidden" && s.getBoundingClientRect().height > 0;
+			});
+			return { lines: secs.length, shown: shown.map((s) => s.id) };
+		})()`);
+		// 用完**复位为默认媒体**（`media:""`），并保持原有的暗色模拟 —— 别把后面几段的配色染成别的
+		await cdp.send("Emulation.setEmulatedMedia", {
+			media: "",
+			features: [{ name: "prefers-color-scheme", value: "dark" }],
+		});
+		record(
+			"R-PATH-01",
+			"打印时 8 条主线都在纸上（不是只留在 DOM 里）",
+			printFact?.lines === 8 && printFact?.shown?.length === 8,
+			`打印模式 ${printFact?.lines} 条线，其中真实渲染 ${printFact?.shown?.length} 条（${JSON.stringify(printFact?.shown)}）`,
+		);
+
+		// ⑤ R-PATH-01：从首页**真实点导航**走 Swup 进路线页，再点页内锚点
+		await goto(`${BASE}/`);
+		const navClick = await clickSel('#navbar a[href="/roadmap/"]');
+		const swupOk = await waitFor(`location.pathname === "/roadmap/" && !!document.querySelector("#roadmap")`, 5000);
+		// ⚠️ **必须等转场真的落定再点锚点**：落地判据在 ~230ms 就成立了，而 Swup 会把
+		//    `is-changing/is-animating` 挂到 `<html>` 上直到 ~560ms（探针实测），这期间的点击
+		//    **会被整个吞掉**（既不进 URL 也不滚）。brief 原稿写的是 `sleep(1200)`，
+		//    这里改成"等那段状态类消失 + 一点缓冲"，比死等固定毫秒稳（慢机器不会假红）。
+		await waitFor(
+			`!document.documentElement.classList.contains("is-changing") && !document.documentElement.classList.contains("is-animating")`,
+			3000,
+		);
+		await sleep(300);
+		const anchorClick = await clickSel('#roadmap-index a[href="#line-linux"]');
+		const anchorOk = await waitFor(
+			`location.hash === "#line-linux" && (document.querySelector("#line-linux")?.getBoundingClientRect().top ?? 1e9) < window.innerHeight`,
+			5000,
+		);
+		record(
+			"R-PATH-01",
+			"经 Swup 切页进路线页后页内锚点仍可用（切页没有把锚点吃掉）",
+			navClick === "ok" && swupOk && anchorClick === "ok" && anchorOk,
+			`导航点击=${navClick} ｜ Swup 落地=${swupOk} ｜ 锚点点击=${anchorClick} ｜ 锚点生效=${anchorOk}（当前 ${await evalIn("location.pathname + location.hash")}）`,
+		);
+
+		// ⑥ R-PATH-01：浏览器后退 —— 点一个页内锚点后按一次「后退」，应回到**不带 hash 的路线页**
+		// ⚠️ 只判 `hash === ""` 会**空过**：若后退退到了首页/别的页，hash 也是空的。所以连 pathname 一起判。
+		// ⚠️ 先回首页再进路线页（两趟**换文档**的整页加载）：这样历史栈里有一格干净的"无 hash 路线页"，
+		//    不依赖上一段把页面留在哪个 fragment 上（⑤ 结束时停在 `/roadmap/#line-linux`）——
+		//    判据之间不留隐式依赖（Task 3 §1.5.2 的教训）。
+		await goto(`${BASE}/`);
+		await goto(`${BASE}/roadmap/`);
+		const backAnchor = await clickSel('#roadmap-index a[href="#line-mysql"]');
+		await waitFor(`location.hash === "#line-mysql"`, 3000);
+		await evalIn(`history.back(); "back"`);
+		const backOk = await waitFor(`location.pathname === "/roadmap/" && location.hash === ""`, 4000);
+		record(
+			"R-PATH-01",
+			"浏览器后退能回到不带 hash 的路线页（且没被退到别的页）",
+			backAnchor === "ok" && backOk,
+			`锚点点击=${backAnchor} ｜ 后退后落在 ${await evalIn("location.pathname + location.hash")}`,
+		);
+
+		// ⑦ R-PATH-01：canonical 指向 /roadmap/ 且不带查询串
+		// ⚠️ 自己先开一趟路线页：canonical 读的是**当前文档**的 head，蹭上一段的落点会在
+		//    上一条红的连锁下读到别的页（第一轮 RED 里就抓到：读到的是首页的 canonical）——
+		//    判据之间不许有隐式依赖（Task 3 §1.5.2 的同类教训）。
+		await goto(`${BASE}/roadmap/`);
+		const rmCanonical = await evalIn(`document.querySelector('link[rel="canonical"]')?.getAttribute("href") ?? ""`);
+		record(
+			"R-PATH-01",
+			"canonical 指向 /roadmap/ 且不带查询串",
+			/\/roadmap\/$/.test(rmCanonical) && !/[?#]/.test(rmCanonical),
+			`canonical=${rmCanonical || "（没取到）"}`,
+		);
+
+		// 恢复现场：下一段 P3 桌宠的**真机探针**（`__imissSleepNow()` / `#pet-body`）依赖
+		// "当前页 = 首页且桌宠脚本已起来"，而本块为了验锚点/后退把页面开到了 /roadmap/。
+		// 关 JS 与打印模拟都在上面就近复位过了（脚本 false / 媒体 media:"" + 暗色），
+		// 这里再把页面开回首页并等桌宠脚本落定（与采集期 `await sleep(2400)` 同一口径）。
+		await goto(`${BASE}/`);
+		await sleep(2500);
+	}
+
 	// ── P3 桌宠（R-PET-01 ~ R-PET-05）──
 	{
 		const boot = facts["pet-boot"].pet;
