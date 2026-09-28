@@ -256,7 +256,14 @@ const COLLECT = `(() => {
         })(),
       };
     })(),
-    overflowX: document.documentElement.scrollWidth - window.innerWidth,
+    // ⚠️ **横向溢出必须量 scrollWidth − clientWidth，不能用 scrollWidth − innerWidth**
+    //    （v1.41 修复轮 2 从采集器根上改的）：在 mobile:true 的模拟下，内容一横向溢出，
+    //    **window.innerWidth 会跟着内容一起涨**（真机实测 390 → 900 / 1200），两个数同向变大
+    //    → 旧差法**恒为 0、结构上不可能红**（reports/_task5-overflow-consumers-probe.json、
+    //    reports/_task5-overflow-probe2.json）。clientWidth 恒等于布局视口宽（390），不会膨胀。
+    //    消费者：R-WDG-04（home-390）、R-RANK-06（rank-jp-390）、R-RANK-07（rank-game-390）。
+    // ⚠️ 这一段在 COLLECT 的模板字符串里：注释里不许出现反引号（T75，写这行时踩过一次）。
+    overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     // ── P3 桌宠（R-PET-01 ~ R-PET-05）──────────────────────
     pet: (() => {
       const el = document.getElementById("pet");
@@ -480,7 +487,11 @@ const COLLECT_ROADMAP = `(() => {
 		imgCount: root.querySelectorAll("img").length,
 		statsText: document.querySelector("#roadmap-stats")?.textContent?.replace(/\\s+/g, " ").trim() ?? "",
 		crossCount: root.querySelectorAll("span.roadmap-stop-cross").length,
-		overflowX: document.documentElement.scrollWidth - window.innerWidth,
+		// ⚠️ 与主 COLLECT 同一个口径（scrollWidth − clientWidth）：旧写法在 mobile 模拟下恒为 0，
+		//    见主采集器那段的说明。这一份现在只被两处当**参照值**打印（R-PATH-05 的 detail），
+		//    不作为任何判据的通过条件 —— 判据当场在 390 视口另量（页面级 + 内容级）。
+		// ⚠️ 这一段同样在模板字符串里：注释里不许出现反引号。
+		overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
 	};
 })()`;
 
@@ -2964,13 +2975,12 @@ async function main() {
 		);
 
 		// ② R-PATH-05：390px 下**真的**没有横向溢出（页面不许横向滚，内容也不许被裁）
-		// ⚠️ **不能直接用采集器那份 `overflowX`**（它算的是 `documentElement.scrollWidth - window.innerWidth`）：
-		//    在 `mobile:true` 的模拟下（= `roadmap-390` 那一趟的采法），内容一旦横向溢出，
-		//    `window.innerWidth` 会**跟着内容一起涨**（探针实测 390 → 900），两个数同向变大 → 差值**恒为 0**。
-		//    也就是说 brief 原稿的 `(rm390?.overflowX ?? 99) <= 2` 是一句**结构上不可能红**的空判据 ——
-		//    实测为证：注入一个把 `#roadmap` 撑到 900px 的样式后，那一轮 **0 失败**（`reports/_task5-inj2-overflow.log`）。
-		//    ⚠️ 既有 `R-WDG-04`「首页在 390px 下无横向溢出」用的是**同一套度量**，同样问题（已写进报告 concerns，不在本任务范围）。
-		//    改成当场量两个**不会自己膨胀**的数：
+		// 历史：brief 原稿用的是采集器那份 `overflowX`，而它当时算的是
+		//    `documentElement.scrollWidth - window.innerWidth` —— 在 `mobile:true` 模拟下内容一溢出，
+		//    `window.innerWidth` 会**跟着内容一起涨**（探针实测 390 → 900），两个数同向变大 → 差值**恒为 0**，
+		//    是句**结构上不可能红**的空判据（实测：把 `#roadmap` 撑到 900px 那一轮 0 失败）。
+		//    **v1.41 修复轮 2 已把这个差法从采集器根上改掉**（现在两份采集器都是 `scrollWidth − clientWidth`），
+		//    所以采集器那份现在是**可信的参照值**；但这条判据仍然当场量，因为它要多量一个采集器没有的数：
 		//      ① 页面级：`documentElement.scrollWidth - documentElement.clientWidth`（clientWidth 稳定 390）
 		//      ② 内容级：`#content-column.scrollWidth - clientWidth` —— 这一层是 `overflow-x: clip`（探针实测），
 		//         路线页自己的内容要是太宽（超长不可断词 / 宽表格 / 窄屏固定宽），页面**不会**横滚，而是被**裁掉** ——
@@ -3004,7 +3014,7 @@ async function main() {
 			"R-PATH-05",
 			"390px 下路线页无横向溢出（页面级 + 内容级两个数当场量）",
 			ovf?.clientWidth === 390 && ovf?.doc <= 2 && ovf?.col !== null && ovf?.col <= 2,
-			`页面级 ${ovf?.doc}px（scrollWidth ${ovf?.scrollWidth} − clientWidth ${ovf?.clientWidth}）｜ 内容级 ${ovf?.col}px（#content-column 的 scrollWidth − clientWidth）｜ 该视口 innerWidth=${ovf?.innerWidth} ｜ 采集器那份 overflowX=${rm390?.overflowX}（差法不可信，仅存档）`,
+			`页面级 ${ovf?.doc}px（scrollWidth ${ovf?.scrollWidth} − clientWidth ${ovf?.clientWidth}）｜ 内容级 ${ovf?.col}px（#content-column 的 scrollWidth − clientWidth）｜ 该视口 innerWidth=${ovf?.innerWidth} ｜ 采集器那份 overflowX=${rm390?.overflowX}（修复轮 2 起同一口径，交叉参照）`,
 		);
 
 		// ③ R-PATH-05：页顶「约 N 小时」不仅要**在**，还要与停靠点数**自洽**（控制者追加的第 7 条，
