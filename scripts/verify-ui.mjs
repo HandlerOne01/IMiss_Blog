@@ -63,7 +63,7 @@ const FORBIDDEN_ROUTES = ["/friends/", "/bilibili/", "/bangumi/", "/sponsor/"];
 const REMOVED_FEED_ROUTES = ["/rss/", "/atom/", "/rss.xml", "/atom.xml"];
 // R-PATH-01：v1.41 起 /roadmap/ 顶上导航第 3 格，必须进 ALLOWED_ROUTES 才能被"路由 200"那一趟扫到
 // ⚠️ Task 4（P2R-6）已把三条 `/rank/*` 摘掉 —— 排行整条删除（R-PATH-06），它们不再是"保留页面"，
-//    改由新断言钉住相反的事实："四个旧地址都返回 404、且都不在 sitemap 里"。
+//    改由新断言钉住相反的事实：四个旧地址"返回 404 / 不在 sitemap / llms.txt 里也没有残渣"。
 const ALLOWED_ROUTES = ["/", "/about/", "/guestbook/", "/vndb/", "/myanimelist/", "/booknav/", "/dynamic/", "/projects/", "/gallery/", "/archive/", "/roadmap/"];
 // 这里是"待建路由"的登记处：说好要建但还没建的路由写在这里，只记录状态、不参与"通过/失败"计数
 //（否则"功能没做"会被算成 ✅）—— 别再退回"catch 住就算过"的假绿写法。
@@ -788,8 +788,14 @@ async function main() {
 		});
 		// 本站主题跟系统（siteConfig.theme.colorScheme = system），所以要真的模拟
 		// prefers-color-scheme 媒体特性，Tailwind 的 `dark:` 变体才会跟着切。
+		// ⚠️ 这里**一律模拟暗色**：原先唯一要拍亮色的页面是 `rank-jp-light-1440`（排行缺图占位在亮色下
+		//    最容易糊），随排行模块删除后页面清单里再没有 `light: true` 的生产者 —— 原来的
+		//    `page.light ? "light" : "dark"` 就成了永远走不到另一个分支的死代码（Task 4 审查 Minor 5），
+		//    已改成写死 "dark"。**亮色主题的校验没有丢**：下面的 token 级对比度 A/B 仍按
+		//    `["light","dark"]` 两套跑。将来要再拍亮色页时，在这里按 `page.name` 判断，
+		//    **别只往 pages 项里加 `light: true`** —— 那不会生效。
 		await cdp.send("Emulation.setEmulatedMedia", {
-			features: [{ name: "prefers-color-scheme", value: page.light ? "light" : "dark" }],
+			features: [{ name: "prefers-color-scheme", value: "dark" }],
 		});
 		const loaded = cdp.once("Page.loadEventFired");
 		await cdp.send("Page.navigate", { url: `${BASE}${page.path}` });
@@ -2357,8 +2363,9 @@ async function main() {
 	// 短评胶囊不压标题、缺图占位、二游单一榜、占位提示、榜单 10 条、`/rank/` 存根跳转……）。
 	// 44 条里 **42 条删除**（41 条在本块、1 条 `/rank/` 存根跳转在 Step 1 换成了 R-PATH-06 的 404 判据）、
 	// **2 条改名保留**成 R-PATH-01（就在本块末尾）。此外还删了 3 条 `R-NAV-07 保留页面应 200：/rank/*`
-	// （三条旧路由不再是"保留页面"）——净变化 274 → 231，逐条对照见 reports/_task4-assert-diff.txt。
-	// 留下的 3 条**测的不是排行**：
+	// （三条旧路由不再是"保留页面"）——净变化 274 → **232**（含本任务新增的 3 条 R-PATH-06：
+	// 四个地址 404 / 不在 sitemap / llms.txt 无排行残渣），逐条对照见 reports/_task4-assert-diff.txt。
+	// 本块留下的 **4 条记录（3 类）** 测的都不是排行：
 	//   · R-PATH-01（Swup 点导航第 3 格 → 落地路线页）—— 就在下面；
 	//   · R-PATH-01（抽屉当前页高亮 / 无残留 `/rank/jp/` 项）—— 本块末尾那两条；
 	//   · R-WDG-04（首页 390px 无横向溢出）—— 与排行无关，只是当年顺手写在这块末尾。
@@ -3657,7 +3664,7 @@ async function main() {
 				(r) => sm.includes(r),
 			);
 			record("R-NAV-07", "sitemap 含保留页面（含学习路线）", kept.length === 5, kept.join(","));
-			// ── R-PATH-06：排行整条删除后，四个旧地址**一个都不许留在 sitemap 里** ──
+			// ── R-PATH-06：排行整条删除后，**产物里也不许留排行残渣**（sitemap + llms.txt）──
 			// ⚠️ **必须带正向锚点**：`filter(...).length === 0` 在"读到空串 / 读到 404 页 / 路径写错"
 			//    时**恒为真** —— 那是典型的"判据空过"（本项目已两次踩到同类写法）。
 			//    所以同时要求这份 sitemap 真的是本站产物、且含本轮确定存在的页面（/roadmap/）。
@@ -3668,6 +3675,20 @@ async function main() {
 				"/rank/* 四个地址都不在 sitemap 里",
 				sitemapSane && rankLeft.length === 0,
 				`残留 ${rankLeft.join(",") || "无"}（这份 sitemap 可解析=${sm.includes("<urlset")}、含 /roadmap/=${sm.includes("/roadmap/")}）`,
+			);
+			// llms.txt（AI 抓取入口）：**必须登记路线页、且不许留排行残渣**。
+			// 阳性那一半不是装饰：只有 `!/\/rank\//` 的话，"llms.txt 空了 / 被截断 / 路径读成别的文件"
+			// 都会让反向判据**恒真**（同一条坑）。两半一起判，这条才真的在判。
+			// （来源：`src/pages/llms.txt.ts` 的 KEY_PAGES —— 排行榜那三个条目已随模块删除、
+			//   换成一条「学习路线」→ `/roadmap/`。）
+			const llms = await fs.readFile(path.resolve("dist/llms.txt"), "utf8");
+			const llmsHasRoadmap = llms.includes("/roadmap/");
+			const llmsHasRank = llms.includes("/rank/");
+			record(
+				"R-PATH-06",
+				"llms.txt 登记了 /roadmap/ 且不含任何 /rank/ 残渣",
+				llmsHasRoadmap && !llmsHasRank,
+				`含 /roadmap/=${llmsHasRoadmap} ｜ 含 /rank/=${llmsHasRank}（共 ${llms.length} 字符）`,
 			);
 			// R-RANK-01 的「sitemap 不含 /rank/ 存根」已随排行删除（Task 4）：旧地址整条消失，
 			// 上面那条 R-PATH-06 已经把"四个地址都不在 sitemap"断言得更严（存根不是唯一要防的东西）。

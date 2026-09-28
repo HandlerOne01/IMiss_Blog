@@ -1467,12 +1467,12 @@ dosc/blog/**/*.md（只读）
 | 文章 | `src/content.config.ts` → `posts` | `title` `published` `updated?` `draft` `description` `image` `tags` `category` `lang` `pinned` `author` `series` `seriesOrder?` `comment` `password?` |
 | 动态 | 同上 → `dynamic` | `published` `pinned` `location` |
 | 项目 | 同上 → `projects` | `title` `published` `description` `image` `tags` `link[]` `status` |
-| 榜单 | `src/types/rankConfig.ts` | 见 §5.3 |
+| 学习路线 | `src/types/roadmapConfig.ts` | 见 §5.3（`lines[].stages[].stops[]`：`slug` + `category` 成对定位，`name?` 只覆盖显示名） |
 | 桌宠 | `src/types/petConfig.ts` | 见 §7.3 |
 | Agent 文章索引 | `agent/data/blog-index.json` | `slug` `title` `description` `tags` `category` `published` `url` `excerpt` |
 | Agent 榜单 | `agent/data/rank.json` | 与 `rankConfig` 同构 |
 
-**约定**：文章内图片一律用 `public` 路径（`/images/posts/<slug>/01.jpg`）；封面/壁纸/榜单配图/桌宠图集用 `src/assets` 相对路径（自动优化 + LQIP）。
+**约定**：文章内图片一律用 `public` 路径（`/images/posts/<slug>/01.jpg`）；封面/壁纸/桌宠图集用 `src/assets` 相对路径（自动优化 + LQIP）。
 
 **文章 URL 形态（P4 定型）**：`/posts/<分类目录>/<slug>/`（如 `/posts/linux-net/http-xieyi/`）。文件放 `src/content/posts/<分类目录>/<slug>.md`，**frontmatter 里不写 `slug`**——glob loader 见到 `slug` 会直接把它当 entry id，URL 就会丢掉分类层级（`/posts/http-xieyi/`），那样不同分类下的同名文章还会互相撞。重写双链时用的也是这个形态（`toPostId` / `createPostUrl` 与 `src/plugins/remark-wiki-link.js` 一致）。
 
@@ -1488,7 +1488,7 @@ dosc/blog/**/*.md（只读）
 | `pnpm preview` | 预览构建产物 | — |
 | `pnpm format` / `pnpm lint` | Biome 格式化与检查 | — |
 | `pnpm verify:posts` | **内容校验**（`scripts/verify-posts.mjs`，阻断式）：frontmatter 完整性 / slug 唯一且 ASCII / 正文非空 / **本地图片存在且非 0 字节** / `frontmatter.image` 存在性 / 站内链接目标存在 / 残留 Obsidian 语法 / 标题重复。`--quarantine` 可把出错文章移进 `src/content/_quarantine/` | ✅（P4 新增） |
-| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **231 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**P2R 学习路线全项**：8 条主线与页内锚点 / 停靠点与跨线 / 篇目并集 = 133 / 无 JS 与打印兜底 / Swup 切页与后退 / canonical / 导航第 3 格 / `/rank/*` 四个旧地址 404 且不在 sitemap（排行整块已删，Task 4）、**P4 内容迁移全项**：配图真实加载 / 编号顺序 / 移动端 / 不生成 figure 图注 / URL 形态 / 双链改写 / 无 Obsidian 残留 / 表格与代码块 / 无标题短笔记 / 归档与分类收录），并输出 **51 张**截图到 `reports/screenshots/`。P3 起含桌宠与壁纸全项（九状态触发 / 键盘 / 拖拽 / 菜单 / 联动 / reduced-motion / 与浮动按钮不重叠 / 移动端隐藏 / 取景与暗罩），**P3-R-PET-06 起含三档运动模式全项**：默认档为 `float` 且悬空（底部距视口底 > 120px）/ 强制起飞后坐标真的变化且飞行中带 `data-pet-flying` / 飞行全程不出视口 / 固定档 1.6s 两次采样坐标完全相同且拖放不落地 / 贴地档松手回地面高度 / 三档都不与右下角浮动按钮重叠 / reduced-motion 下 `float` 两帧 `transform` 相同（静态悬浮）/ 位置记忆仍生效且模式以配置为准；**R-PET-07 起含飞行手感与菜单摆位**（位移 60~180px / 时长 4~6s / row4 姿态 / 菜单四边在视口内）；**R-PET-08 起菜单判据全部换成左右摆位**（并排在宠物左/右、纵向顶部对齐、哪边够放哪边、5 点 `elementFromPoint` 命中、被遮挡换边、两侧都被挡的两级兜底、`data-pet-menu-side` 取值与层级不变），并新增**菜单项与下落/上升行为**断言（档位二选一显示「落下去」/「飘起来」、点「落下去」后 y 在 3 秒内落到地面线且 `data-pet-mode=ground`、点「飘起来」后反向回到悬浮档）。⚠️ **数字基准是"对 `pnpm preview` 的静态产物跑"**：对 `pnpm dev` 跑会少 7 条（4 条 noindex 存根 + 3 条产物/sitemap 检查；Task 4 删排行的同时摘掉了 llms.txt 2 条与 noscript/class 等排行专属的产物级判据，本轮之前那个"少 12 条"的分解已随之缩小），那时的旧口径 145 就是这么来的，别拿它当基准 | ✅（P1 新增，P2/P3/P4/R-PET-06/R-PET-07/R-PET-08 六次扩容） |
+| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **231 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**P2R 学习路线全项**：8 条主线与页内锚点 / 停靠点与跨线 / 篇目并集 = 133 / 无 JS 与打印兜底 / Swup 切页与后退 / canonical / 导航第 3 格 / `/rank/*` 四个旧地址 404、不在 sitemap、llms.txt 里也没有残渣（排行整块已删，Task 4）、**P4 内容迁移全项**：配图真实加载 / 编号顺序 / 移动端 / 不生成 figure 图注 / URL 形态 / 双链改写 / 无 Obsidian 残留 / 表格与代码块 / 无标题短笔记 / 归档与分类收录），并输出 **48 张**截图到 `reports/screenshots/`。P3 起含桌宠与壁纸全项（九状态触发 / 键盘 / 拖拽 / 菜单 / 联动 / reduced-motion / 与浮动按钮不重叠 / 移动端隐藏 / 取景与暗罩），**P3-R-PET-06 起含三档运动模式全项**：默认档为 `float` 且悬空（底部距视口底 > 120px）/ 强制起飞后坐标真的变化且飞行中带 `data-pet-flying` / 飞行全程不出视口 / 固定档 1.6s 两次采样坐标完全相同且拖放不落地 / 贴地档松手回地面高度 / 三档都不与右下角浮动按钮重叠 / reduced-motion 下 `float` 两帧 `transform` 相同（静态悬浮）/ 位置记忆仍生效且模式以配置为准；**R-PET-07 起含飞行手感与菜单摆位**（位移 60~180px / 时长 4~6s / row4 姿态 / 菜单四边在视口内）；**R-PET-08 起菜单判据全部换成左右摆位**（并排在宠物左/右、纵向顶部对齐、哪边够放哪边、5 点 `elementFromPoint` 命中、被遮挡换边、两侧都被挡的两级兜底、`data-pet-menu-side` 取值与层级不变），并新增**菜单项与下落/上升行为**断言（档位二选一显示「落下去」/「飘起来」、点「落下去」后 y 在 3 秒内落到地面线且 `data-pet-mode=ground`、点「飘起来」后反向回到悬浮档）。⚠️ **数字基准是"对 `pnpm preview` 的静态产物跑"**：对 `pnpm dev` 跑会少 7 条（4 条 noindex 存根 + 3 条产物/sitemap 检查；Task 4 删排行的同时摘掉了 llms.txt 2 条与 noscript/class 等排行专属的产物级判据，本轮之前那个"少 12 条"的分解已随之缩小），那时的旧口径 145 就是这么来的，别拿它当基准 | ✅（P1 新增，P2/P3/P4/R-PET-06/R-PET-07/R-PET-08 六次扩容） |
 | `node scripts/import-posts.mjs` | **旧博客迁移**（默认 dry-run）：`--write` 落盘、`--batch 1..5`、`--cat`、`--only`、`--limit`、`--src`；报告写 `reports/import-report.json` | ✅（P4 新增） |
 | `pnpm verify:docs` | **文档一致性自检**（`scripts/verify-docs.mjs`）：核对三份文档互相之间、以及文档与仓库事实是否一致——版本号与"最后更新"日期、断言/截图数与最近一次实测、**模块路由清单**（`src/pages/rank/` 在不在决定判据走哪一支：还在就要求每个路由文件都在 ARCH 登记，已删就要求 prd §2 不再列 `/rank/` 且 ARCH 登记 `src/pages/roadmap.astro`）与路由文件、导航子项与 `navBarConfig.ts`、需求编号引用闭环、阻塞项条数与编号连续、§2 与 §3 阶段状态，以及**配置事实**（`displaySettingsConfig.enable`）。**每次收工前跑一次**（P2 加二游排行时文档漂移了 12 处，就是没有这道关卡） | ✅（v1.12 新增；v1.41 随排行删除摘掉 `rankConfig.dataStatus` 与"4 组数据是否漏了第 5 份"两条检查） |
 | `pnpm verify:agent` | **Agent 接口契约自检**（`scripts/verify-agent.mjs`，零依赖）：把 `ARCH.md` §8.9 的契约变成 **14 项断言**——配置对齐（读 `agentConfig.ts` 原文核对，**baseUrl/graphId 同时认字面量、常量、函数回落三种形态**，见 T59）/ `GET /ok` / `GET /assistants/search` 去重后 4 张图 / 闲聊轮事件白名单+`values` 或 `updates` 收尾+与 `GET state` 一致+最终答复 / 检索轮「工具输出进了流但没进答复」/ 推荐轮 `interrupt`→`resume:「不提供」`（**原始汇总行会打出两轮的末事件名**）/ `configurable`+`context` 400 坑 / 降级探测（死端口不可用 + 活服务可用对照项）。**退出码规矩与其它 `verify:*` 不同**：Agent 没在跑 = **SKIP + 退出码 0**（打印 `langgraph dev` 启动命令），**契约不符 = 退出码 1**。⚠️ **SKIP 与 ✅ 必须长得不一样**（v1.35 起）：`⏭️ [SKIP]` 单列一行 + 单独打"跳过原因"，汇总行 `✅ 通过 N，❌ 失败 N，⏭️ 跳过 N` **三项分开计数**，并额外打一行"本轮 N 项**没有执行**（不计入通过）"；JSON 里带 `skippedIds`。产物 `reports/verify-agent.log` + `reports/verify-agent.json` | ✅（v1.33 / P5-0 新增；v1.35 修 D-1、SKIP 语义收紧） |
@@ -1566,9 +1566,9 @@ server {
   # 存根里的 meta refresh 目标是 /404/（带斜杠），这个路径本身没有产物，一并给 404
   location = /404/      { return 404; }
 
-  # /rank/ 是 /rank/jp/ 的跳转存根（静态产物下是 200 + meta refresh，且已从 sitemap 排除）
-  # 线上用真 301 接管，省掉那 2 秒的 meta refresh 等待
-  location = /rank/     { return 301 /rank/jp/; }
+  # ⚠️ 原「/rank/ → 301 /rank/jp/」的 location 已随排行模块删除（v1.41 / R-PATH-06）：
+  #    `/rank/`、`/rank/jp/`、`/rank/cn/`、`/rank/game/` 四个地址**一律不做 301**，由上面的 `=404` 规则
+  #    返回真 404（verify:ui 的 R-PATH-06 用 `redirect: "manual"` 按 404 断言 —— 这里再加任何跳转都会让它红）。
 
   location /api/ {
     proxy_pass http://127.0.0.1:8000;
@@ -1618,9 +1618,9 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | 首屏图片 | 单张 ≤ 400KB | webp q82、长边 ≤ 2560 |
 | 桌宠图集 | ≤ 350KB | 单文件 + CSS 取帧，无逐帧请求 |
 | 文章内图片 | 全量 ≤ 60MB | 已在源头压缩；`public` 直出，不进优化管线 |
-| 榜单配图 | 单页 ≤ 1.5MB（**单张 ≤150KB**，每页 10 张） | 5.7:1、推荐 1600×280（§5.5）；格式不限，构建期自动转 webp/avif 多档；配 `loading="lazy"` + `decoding="async"` |
-| JS 体积 | 不引入新运行时 | 桌宠与榜单切换用原生 JS/Svelte 岛，不引第三方动画库。⚠️ **例外（已实测）**：`displaySettingsConfig.wallpaperModeSwitchable` 开启（R-ID-07，访客可切壁纸模式）会让**每页 HTML +11.6 KB**（38 页合计 +439.7 KB；`_astro/*.js` 总量无变化）——低于上游注释估的 +33 KB/页，但仍是每页都要付的代价 |
-| 构建时间 | 全量内容 ≤ 10 分钟 | 文章图走 `public`；`src` 图片只保留封面/壁纸/榜单/桌宠 |
+| 学习路线页 | **页内 0 张图**（只有文字行） | 轻量行设计：标题 + 分类 + 时长，**不拉封面**（§5，零新素材）；页顶数字由 `render()` 实测的分钟数汇总 |
+| JS 体积 | 不引入新运行时 | 桌宠与壁纸换图用原生 JS/Svelte 岛，不引第三方动画库。⚠️ **例外（已实测）**：`displaySettingsConfig.wallpaperModeSwitchable` 开启（R-ID-07，访客可切壁纸模式）会让**每页 HTML +11.6 KB**（38 页合计 +439.7 KB；`_astro/*.js` 总量无变化）——低于上游注释估的 +33 KB/页，但仍是每页都要付的代价 |
+| 构建时间 | 全量内容 ≤ 10 分钟 | 文章图走 `public`；`src` 图片只保留壁纸 / Logo / 桌宠图集（排行配图已随模块删除） |
 | 动画性能 | 只改 `transform`/`opacity` | 桌宠与樱花统一由 `requestAnimationFrame` 驱动；后台暂停 |
 
 ---
