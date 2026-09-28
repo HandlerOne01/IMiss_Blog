@@ -3007,17 +3007,28 @@ async function main() {
 			`页面级 ${ovf?.doc}px（scrollWidth ${ovf?.scrollWidth} − clientWidth ${ovf?.clientWidth}）｜ 内容级 ${ovf?.col}px（#content-column 的 scrollWidth − clientWidth）｜ 该视口 innerWidth=${ovf?.innerWidth} ｜ 采集器那份 overflowX=${rm390?.overflowX}（差法不可信，仅存档）`,
 		);
 
-		// ③ R-PATH-05：页顶「约 N 小时」必须真的在，且 N ≥ 1（控制者追加的第 7 条）。
+		// ③ R-PATH-05：页顶「约 N 小时」不仅要**在**，还要与停靠点数**自洽**（控制者追加的第 7 条，
+		//    v1.41 修复轮 1 按其裁定收紧 —— 裁定原文：「我原本的意图就是"兜底不得静默通过"」）。
 		// 起因：`roadmap.astro` 的 `minutes: Math.max(1, Number(remarkPluginFrontmatter.minutes ?? 1))`
 		// 意味着**一分钟数都采不到时每行仍是「约 1 分钟」**、总时长也变成一个假数，
-		// 而 6 条 R-PATH 断言照样全绿（它们只钉篇数/停靠点/跨线）。这条把页顶那个数钉住。
+		// 而 6 条 R-PATH 断言照样全绿（它们只钉篇数/停靠点/跨线）。
+		// ⚠️ **为什么不是「N ≥ 1」**：兜底产物是 136 停靠点 × 1 分钟 ≈ 136 分钟 → `Math.round(136/60) = 2` 小时，
+		//    「约 2 小时」照样满足 N ≥ 1 —— 空判据。实测为证：把 136 处「约 N 分钟」全改成「约 1 分钟」+
+		//    页顶改「约 2 小时」的那一轮，旧写法 **0 失败**（`reports/_task5-inj9-fallback-oldN1.log`）。
+		// 现在的口径：**平均每站至少 2 分钟**（`N * 60 >= 停靠点 × 2`，不写死任何绝对数字，内容增减时两边一起动）。
+		//    真实数据 `68 × 60 = 4080 >= 136 × 2 = 272` 余量充足；兜底值 `2 × 60 = 120 < 272` 立刻红。
+		// 两层都要：① 必须能解析出「约 N 小时」（解析失败/文本缺失 → 红）；
+		//            ② 总时长与停靠点数自洽（`stopCount` 取不到时也判红 —— `?? 0` 会让右边变 0 而**空过**）。
 		const hoursHit = /约\s*(\d+)\s*小时/.exec(rm?.statsText ?? "");
 		const hoursN = hoursHit ? Number(hoursHit[1]) : null;
+		const stopCount = Number.isFinite(rm?.stopCount) ? rm.stopCount : 0;
+		const minutesFloor = stopCount * 2;
+		const perStop = hoursN === null || stopCount <= 0 ? null : Math.round((hoursN * 60) / stopCount);
 		record(
 			"R-PATH-05",
-			"页顶 stats 出现「约 N 小时」且 N ≥ 1（防分钟数采空后总数变假）",
-			hoursN !== null && hoursN >= 1,
-			`匹配「${hoursHit?.[0] ?? "（没有）"}」｜ N=${hoursN} ｜ 全文「${rm?.statsText}」`,
+			"页顶 stats 出现「约 N 小时」且总时长与停靠点数自洽（平均每站 ≥ 2 分钟）",
+			hoursN !== null && stopCount > 0 && hoursN * 60 >= minutesFloor,
+			`匹配「${hoursHit?.[0] ?? "（没有）"}」｜ N=${hoursN}（= ${hoursN === null ? "—" : hoursN * 60} 分钟）｜ 停靠点 ${rm?.stopCount} 个 → 下限 ${minutesFloor} 分钟 ｜ 平均 ${perStop === null ? "—" : `${perStop} 分钟/站`} ｜ 全文「${rm?.statsText}」`,
 		);
 
 		// ④ R-PATH-01：打印（@media print）时 8 条主线都得**在纸上**
