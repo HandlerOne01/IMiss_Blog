@@ -36,7 +36,15 @@ const hours = Math.round(roadmap.totalMinutes / 60);
 				{roadmap.unique} 篇 · {roadmap.lines.length} 条主线 · {roadmap.stops} 个停靠点（{roadmap.crossCount} 处跨线复用）· 约 {hours} 小时
 			</p>
 			<nav class="roadmap-index" id="roadmap-index" aria-label="主线索引">
-				{roadmap.lines.map((line) => <a href={`#line-${line.id}`}>{line.name}</a>)}
+				{/*
+					⚠️ `data-no-swup`：页内锚点必须由**浏览器原生**处理（R-PATH-01 实测踩到）。
+					Swup 4.9.2 会把这类 `#hash` 链接也拦下来自己处理：URL 确实会带上 hash、也会滚到位，
+					但**不写历史记录**（`history.length` 不变）→ 用户按一次后退会直接离开路线页而不是回到页顶；
+					而且换页动画没落定的那 ~600ms 里点它会**被整个吞掉**（既不进 URL 也不滚）。
+					交给浏览器后：进 URL、进历史、smooth 滚动一起回来，转场期间点也不会丢。
+					同类意图见 `astro.config.mjs` 里 swup 的 `skipPopStateHandling` 注释「让浏览器原生处理」。
+				*/}
+				{roadmap.lines.map((line) => <a href={`#line-${line.id}`} data-no-swup>{line.name}</a>)}
 			</nav>
 		</header>
 		{roadmap.lines.map((line) => <PathLine line={line} />)}
