@@ -73,7 +73,7 @@ pnpm preview      # 另开一个终端窗口跑这个并保持运行
 pnpm verify:ui    # 再另开一个终端窗口跑这个
 ```
 
-期望输出：`功能断言 231 项：✅ 通过 230，❌ 失败 0，⏭️ 跳过 1`。
+期望输出：`功能断言 232 项：✅ 通过 231，❌ 失败 0，⏭️ 跳过 1`。
 若输出 `检测到 astro dev 服务器` 的提示，说明你对 `pnpm dev` 跑了它——
 那会把"关闭页面"等断言误判，请改成对 `pnpm preview` 跑。
 
@@ -109,7 +109,7 @@ pnpm verify:docs    # 期望输出：`文档检查 … ：通过 N，失败 0`�
 | `pnpm type-check` | `tsc --noEmit`，覆盖 `src/` 与 `scripts/` |
 | `pnpm build` | 生产构建：LQIP → VNDB 封面（未配置则跳过）→ Astro → 清理未用看板娘资源 → 字体子集 → 内联脚本压缩 → Pagefind 索引 |
 | `pnpm preview` | 预览 `dist/` |
-| `pnpm verify:ui` | 界面验收：231 项断言 + 泄漏扫描 + 对比度 A/B + 48 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
+| `pnpm verify:ui` | 界面验收：232 项断言 + 泄漏扫描 + 对比度 A/B + 48 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
 | `pnpm verify:posts` | 内容校验：frontmatter / slug / 图片存在性 / 站内链接 / 残留 Obsidian 语法（**改完文章或跑完迁移后跑一次**；有错退出码 1） |
 | `pnpm verify:docs` | 文档自检：核对三份文档与仓库事实是否一致（版本号、断言/截图数、模块路由清单、导航子项、需求编号、阻塞项、阶段状态）。**改完东西收工前跑一次** |
 | `node scripts/import-posts.mjs --batch 1` | 迁移旧博客笔记（**默认 dry-run 只出报告**；加 `--write` 才落盘。详见下面「迁移旧笔记」一节） |
