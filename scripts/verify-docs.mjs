@@ -24,7 +24,7 @@
  *  11. 文件编码：受版本控制的文本文件不带 UTF-8 BOM（PowerShell 会偷偷加）
  *
  * 用法：`pnpm verify:docs`（先跑过 `pnpm verify:ui` 才有最新的 reports 日志做基准；
- * 没有日志时只跳过第 2/3 项的"与实测比对"，仍会检查文档之间是否自相矛盾）。
+ * 没有基准日志时**第 2 项判 FAIL**（v1.41 起：那条"跳过比对"的 INFO 让闸门静默失效过，见 T77），其余检查照做）。
  * 退出码：有任一 FAIL 即 1。
  */
 import fs from "node:fs/promises";
@@ -82,7 +82,11 @@ const allDocs = { "prd.md": prd, "ARCH.md": arch, "PROJECT_STATUS.md": status, [
 	let baselineFile = "";
 	try {
 		const dir = path.resolve(root, "reports");
-		const files = (await fs.readdir(dir)).filter((f) => /^verify.*\.log$/.test(f));
+		// ⚠️ v1.41（Task 6 / 陷阱 T77）：候选过滤**同时接受 `_verify*.log`**。某一轮把实测落成了
+		//    `reports/_verify-task2-green.log`（下划线开头，旧过滤 `^verify.*\.log$` 不匹配）→
+		//    闸门回退去读**停更的旧日志** → "257 == 257" 报 ✅，而真实值已经是 263。
+		//    **文件名不匹配 = 读旧日志 = 计数闸门静默失效**；另一半防御见下面的 else 分支。
+		const files = (await fs.readdir(dir)).filter((f) => /^_?verify.*\.log$/.test(f));
 		const withTime = await Promise.all(
 			files.map(async (f) => ({ f, t: (await fs.stat(path.join(dir, f))).mtimeMs })),
 		);
@@ -130,7 +134,16 @@ const allDocs = { "prd.md": prd, "ARCH.md": arch, "PROJECT_STATUS.md": status, [
 			`实测 ${baseline} 项 vs 文档 ${uniq.join("/")} 项`,
 		);
 	} else {
-		record("INFO", "没有 reports/verify-*.log，跳过与实测比对", true, "先跑 `pnpm verify:ui` 再跑本脚本更严格");
+		// ⚠️ v1.41（Task 6 / 陷阱 T77 的防御）：**找不到基准日志必须响亮报错**。
+		//    旧写法是一条 `record("INFO", …, true, …)` —— "闸门没读到基准"与"一切正常"长得
+		//    一模一样（T77 那轮就是这么静默失效的）。现在按 FAIL 记（名册与区域名不变，
+		//    所以检查项数仍是 15 项），并在 detail 里给出补救命令。
+		record(
+			"断言条数",
+			"与最近一次实测一致（reports/ 下没有可用的基准日志）",
+			false,
+			"reports/ 里找不到任何含「功能断言 N 项」的日志（找过 `verify*.log` 与 `_verify*.log`）→ **计数闸门无从判定，按失败处理**。先跑 `pnpm verify:ui:log --base http://localhost:4323`（它写 UTF-8 的 reports/verify-ui.log），再跑本脚本",
+		);
 	}
 
 	// 截图张数

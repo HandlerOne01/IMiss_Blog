@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.40 |
+| 文档版本 | v1.41 |
 | 最后更新 | 2026-09-27 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -16,7 +16,7 @@
 | 层 | 选型 | 约束与理由 |
 | --- | --- | --- |
 | 站点框架 | Astro 7（静态输出） | `astro.config.mjs` 只在 `CF_WORKERS` 环境变量存在时才挂 Cloudflare adapter；本项目走静态 |
-| 交互岛 | Svelte 5 | 复杂交互（榜单切换、搜索、文件树等）用 Svelte，其余用 Astro + 内联脚本 |
+| 交互岛 | Svelte 5 | 复杂交互（搜索、文件树、分享海报、显示设置面板等）用 Svelte，其余用 Astro + 内联脚本。⚠️ **学习路线页 `/roadmap/` 刻意一个岛都不用**（纯静态 + 页内锚点，见 §5.4）：锚点跳转交回浏览器原生行为（`data-no-swup`，Swup 会吞掉点击且不写历史），页面在无 JS 时也必须完整可读 |
 | 页面切换 | Swup（`@swup/astro`） | 只替换固定的几个容器；**新增的常驻组件必须挂在这些容器之外**，否则每次切页都会被销毁重建 |
 | 样式 | Tailwind 4 + Stylus 变量 | 主题令牌在 `src/styles/variables.styl`，组件里用 `var(--primary)` 这类语义变量，不要写死颜色 |
 | 路由 | `trailingSlash: "always"` | 所有 URL 以 `/` 结尾，产物是 `<route>/index.html`；Nginx 不需要 SPA 回退 |
@@ -40,7 +40,7 @@
 ┌──────────────────────────── 构建期（本机 / CI） ────────────────────────────┐
 │  src/content/posts/**  ─┐                                                  │
 │  src/content/{dynamic,projects,spec}/** ─┤                                 │
-│  src/config/*.ts（站点/导航/壁纸/排行/桌宠）─┤→  astro build  →  dist/       │
+│  src/config/*.ts（站点/导航/壁纸/路线/桌宠）─┤→  astro build  →  dist/       │
 │  src/assets/images/**  ─┘   ↑                                             │
 │                             └─ scripts/：generate-lqips → subset-fonts      │
 │                                → pagefind →（本项目新增）verify-posts       │
@@ -58,6 +58,8 @@
 │          无后端时：桌宠走本地 mock，不报错（PRD R-AGT-03）                    │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
+
+> ⚠️ 上面构建期图里的 `scripts/export-agent-data.mjs` 与 `agent/data/{blog-index.json,rank.json}` 是 **P5 之前的设计稿、从未落地**：本仓库没有这个脚本、`agent/data/` 目录也不存在（package.json 里没有 `export:agent`）。`rank.json` 那半条还牵着后端侧仍保留的 `ask_rank` 意图 —— 属**另一个仓库**的事，本计划只登记不修（**R32**，见交付报告）。
 
 **运行时数据流（桌宠对话）**
 
@@ -79,7 +81,7 @@ imiss_-blog/                      ← 工作区根（= 站点仓库）
 ├─ PROJECT_STATUS.md
 ├─ README.md / README.en.md       ← 从模板继承，改写为本站说明
 ├─ astro.config.mjs               ← 基本不动（除 sitemap 过滤条件）
-├─ package.json                   ← 增加 verify:ui / make:logo / verify:posts / export:agent 脚本
+├─ package.json                   ← 增加 verify:ui / verify:ui:log / verify:docs / verify:posts / verify:agent(:robust) / make:logo 脚本
 ├─ src/                           ← 模板源码（见下）
 ├─ public/                        ← 原样拷贝的静态资源
 │  ├─ assets/videos/              ← 【新增】壁纸视频（原片 + 兜底）
@@ -91,11 +93,12 @@ imiss_-blog/                      ← 工作区根（= 站点仓库）
 │  ├─ make-logo.mjs               ← 【P1 已落地】把 imiss-logo.svg 栅格化成 Logo 与 favicon
 │  ├─ verify-ui.mjs               ← 【P1 已落地】界面验收（CDP 断言 + 截图，零依赖）
 │  ├─ verify-docs.mjs             ← 【v1.12 已落地】文档一致性自检（文档 ↔ 仓库事实）
-│  ├─ make-rank-cover-guide.mjs   ← 【v1.13 已落地】榜单配图比例对照图
+│  ├─ verify-agent.mjs / verify-agent-robust.mjs ← 【P5 已落地】Agent 契约自检 / 适配层健壮性回归
+│  ├─ verify-ui-log.mjs           ← 【P5 已落地】跑 verify-ui 并把 UTF-8 日志落成 reports/verify-ui.log
 │  ├─ convert-wallpaper.mjs       ← 【P3 已落地】壁纸图 → webp（dosc/photo → imiss-d*/m*）
 │  ├─ import-posts.mjs            ← 【P4 已落地】旧笔记迁移（dry-run 默认，见 §9.2）
 │  ├─ verify-posts.mjs            ← 【P4 已落地】内容校验（阻断式，见 §9.4）
-│  └─ export-agent-data.mjs       ← 【新增】给 Agent 导出索引
+│  └─ export-agent-data.mjs       ← 【设计未落地】给 Agent 导出索引（v1.41 核对：脚本不存在，见 §2 的说明）
 ├─ deploy/nginx.conf              ← 【新增】生产站点配置
 ├─ reports/                       ← 【新增，.gitignore 已忽略】脚本产出：reports/screenshots/*.png、reports/import-report.json、reports/image-mapping-*.json
 ├─ src/assets/fonts/*.woff2       ← 【P0 已落地】本地字体（11 个，约 205KB）
@@ -115,27 +118,24 @@ src/
 │  ├─ navBarConfig.ts             ✏️ 导航树与链接预设（改动最大的一处）
 │  ├─ backgroundWallpaper.ts      ✏️ 壁纸（图片期/视频期两套配置）
 │  ├─ sidebarConfig.ts            ✏️ 日历热力图关闭
-│  ├─ index.ts                    ✏️ 导出新的 rankConfig / petConfig
-│  ├─ rankConfig.ts               ➕ 排行数据（唯一需要手工维护的数据文件）
+│  ├─ index.ts                    ✏️ 导出新的 roadmapConfig / petConfig
+│  ├─ roadmapConfig.ts            ➕ 学习路线数据（8 条主线 × 阶段 × 篇目，**唯一需要手工维护的内容数据**；原 `rankConfig.ts` 已随 v1.41 删除）
 │  ├─ petConfig.ts                ➕ 桌宠开关、缩放、台词、Agent 地址
 │  ├─ pioConfig.ts                ⛔ 不改，但两个看板娘保持 enable: false
 │  └─ commentConfig.ts            ⛔ 不改（保持 type: "none"）
 ├─ types/
-│  ├─ rankConfig.ts               ➕
+│  ├─ roadmapConfig.ts            ➕ 路线类型（`RoadmapLine` / `RoadmapStage` / `RoadmapStop`；原 `rankConfig.ts` 已删）
 │  ├─ petConfig.ts                ➕
 │  └─ sidebarConfig.ts            ✏️ `SiteInfoConfig` 增加 `placeholder`（注意：类型真身在这里，`config.ts` 只是 barrel，见 §14.3 T1）
 ├─ components/
 │  ├─ widget/SiteStats.astro      ✏️ 删除「运行时长」「最后活动」及其客户端脚本
 │  ├─ widget/SiteInfo.astro       ✏️ 占位模式
 │  ├─ features/AemeathPet.astro   ➕ 桌宠（DOM + 样式 + 脚本）
-│  ├─ pages/rank/RankBoard.astro  ➕ 榜单板（切换与入场动效也在它的内联脚本里）
+│  ├─ pages/roadmap/PathLine.astro / PathStop.astro  ➕ 路线页的「线」与「轻量行」（原 `pages/rank/RankBoard.astro` 已随 v1.41 删除）
 │  └─ comment/index.astro         ⛔ 不改（留言页复用其"未配置"分支）
 ├─ layouts/Layout.astro           ✏️ 仅插入一行 <AemeathPet />（§7.2 给出位置）
 ├─ pages/
-│  ├─ rank/index.astro            ➕ 重定向到 /rank/jp/
-│  ├─ rank/jp.astro               ➕ 日漫排行
-│  ├─ rank/cn.astro               ➕ 国漫排行
-│  ├─ rank/game.astro             ➕ 二游排行（单一榜：data 是数组，页面没有维度切换）
+│  ├─ roadmap.astro               ➕ 学习路线（**单页**：页顶数字 + 8 条主线 × 阶段 × 篇目；原 `pages/rank/{index,jp,cn,game}.astro` 已随 v1.41 删除）
 │  ├─ friends.astro / bilibili.astro / bangumi.astro / sponsor.astro
 │  │                              ⛔ 不改代码，靠 pages 开关关掉（返回 404）
 │  └─ about.astro                 ⛔ 不改（导航移入「我的」）
@@ -148,11 +148,11 @@ src/
 │  │  ├─ logo/imiss-logo.svg      ✅ 站点标识**设计源**（手写矢量，P1 修订；改它 + `pnpm make:logo` 重新出图）
 │  │  ├─ logo/imiss-{light,dark}.webp  ✅ 栅格化产物（导航栏用，256×256）
 │  │  ├─ DesktopWallpaper/imiss-*.webp  ➕ 壁纸图（临时）
-│  │  ├─ rank/<slug>.webp         ➕ 排行榜条配图
 │  │  └─ pet/pet-aemeath.webp     ✅ 桌宠图集（P1 提前入库，P3 使用；Logo 已不再从它裁）
 ├─ config/fontConfig.ts           ✅ 已改：三个字体改 `local` provider（P0，见 §14.3 T16）
 └─ utils/
-   └─ pet-agent-client.ts         ➕ 桌宠 ↔ Agent 适配层（唯一与后端耦合的文件）
+   ├─ pet-agent-client.ts         ➕ 桌宠 ↔ Agent 适配层（唯一与后端耦合的文件）
+   └─ roadmap-utils.ts            ➕ 路线页数据解析与页顶数字实算（原 `utils/` 无排行专属文件）
    ⛔ utils/feed-utils.ts         ❌ 已删（R-ID-06 订阅功能移除；恢复清单见 §14.4）
 ```
 
@@ -182,7 +182,8 @@ src/
 | R-BG-02 | `backgroundWallpaper.ts`（`src.playerUrl`）+ `public/assets/videos/*` | 改值 + 新增资源 | 见 §6.2 |
 | R-BG-03 | `backgroundWallpaper.ts` 的 `common.homeText` | 改值 | ⚠️ **P1 已提前处理一部分**（因为它是"站点身份 + 打赏移除"的盲区，见 §14.3 T18）：横幅 `links` 里上游作者的 GitHub / 邮箱 / **Sponsor 打赏入口**已全部删除，换成 RSS + Atom；主标题从 `Lovely firefly!` 换成本站名占位。**正式横幅文案仍等发起人定稿（B-10）** |
 | R-BG-04 | `backgroundWallpaper.ts` 的 `banner.position` + `common.dimOpacity` | 改值 | `position` 控制 cover 取景锚点（默认 `"0% 20%"` 保头脸），`dimOpacity` 控制暗罩（默认 0.2）；换素材后按 §6.4 复量 |
-| R-RANK-01 ~ R-RANK-07 | 见 §5.2 文件清单 | 新增为主 | 复用 `ImageWrapper.astro` 解析配图（组件里另做一次存在性判定，见 §5.6），不新造图片机制 |
+| ~~R-RANK-01 ~ R-RANK-07~~ | ~~见 §5.2 文件清单~~ | **v1.41 已随排行模块删除**（R-RANK 在 `prd.md` 里标「已废弃」保号；那一格改由 R-PATH 学习路线承担 —— 落点见本表下方的 R-PATH 行） | —— |
+| **R-PATH-01 ~ R-PATH-06** | `src/config/roadmapConfig.ts` + `src/types/roadmapConfig.ts` + `src/utils/roadmap-utils.ts`（新增）+ `src/pages/roadmap.astro` + `src/components/pages/roadmap/*` + `src/styles/pages/roadmap.css` | 新增 | 见 **§5**；纯静态零 JS，页顶数字构建期实算，篇目用 `slug` + `category` 成对定位（解析不到**构建期直接失败**） |
 | R-PET-01 ~ R-PET-05 | `src/components/features/AemeathPet.astro`（新增）+ `petConfig.ts`（新增）+ `Layout.astro` 插一行 | 新增 + 插一行 | 见 §7；`Layout.astro` 只在 `<WavesEffect />` 之后插 `<AemeathPet />` |
 | R-AGT-01 ~ R-AGT-06 | `agent/**`（新增）+ `src/utils/pet-agent-client.ts`（新增） | 新增 | 见 §8 |
 | **R-AGT-07**（P5-0） | `src/config/agentConfig.ts`（新增）+ `src/types/agentConfig.ts`（新增）+ `scripts/verify-agent.mjs`（新增）+ `src/config/index.ts`（挂 barrel） | **新增配置与契约测试，不写业务逻辑** | 见 **§8.9**。`enable` 保持 `false`（P5-0 阶段桌宠仍走 `petConfig.mockReplies`，一个请求都不发）；`baseUrl`/`graphId`/`timeoutMs`/`resumeWords`/`fallbackToMock`/`debug` 六个字段只放"能被改的值"。契约测试零依赖、服务没起时 SKIP 且**退出码 0**、契约不符**退出码 1** |
@@ -223,7 +224,7 @@ src/
    `verify-ui.mjs` 的 `COLLECT` 正是靠这一点把 `navTops[2].href` 读成 `/roadmap/`。
    > 原「排行」下拉与 `LinkPresets.RankJP/RankCN/RankGame` 三个预设随 P2R **一并删除**（全仓只被那一组引用，已 grep 核实）；
    > 完整的原样代码留在本文件 §14.4「恢复路径表」与 v1.40 之前的最后一个提交里。
-   > ⚠️ 这条规则对**任何**导航项都成立：加子项时**必须同时建好路由**（如 `src/pages/rank/<id>.astro`），否则导航里就是一个死链；
+   > ⚠️ 这条规则对**任何**导航项都成立：加子项时**必须同时建好路由**（如 `src/pages/<子目录>/<id>.astro`），否则导航里就是一个死链；
    > `pnpm verify:docs` 的「导航子项」检查会核对"导航项 ↔ 实际路由"两边一致（v1.41 起该检查是两态的：`navBarConfig.ts` 里
    > 「排行」组在不在，决定它查 `/rank/…` 子项还是查「学习路线」→ `/roadmap/`）。
 5. 未使用的预设（`Friends`/`Bilibili`/`Bangumi`/`Sponsor`）从 `LinkPresets` 中删除，避免以后被误引用；对应页面文件保留（靠开关关掉）。
@@ -253,7 +254,7 @@ src/
 | 轻小说 `/vndb/` | VNDB API（`mode: "dynamic"`） | ❌ 不联网 | 客户端实时拉取；封面下载脚本有**四重短路**：`pages.vndb` 关闭 / `userId` 为空或是 `you-user-id` / `downloadCovers: false` / `mode !== "static"`（实测 `generate-vndb-covers.ts:101-119`） |
 | 番剧 `/myanimelist/` | MAL API（构建期） | ⚠️ 配置了凭据才联网 | `myanimelist.astro:48-49` 里 `isConfigured = username && clientId` 为假时**整段跳过**（`:101` 包住全部请求），页面显示未配置状态 |
 | GitHub 卡片 | `api.github.com`（构建期，按正文里的 `::github{repo=...}` 指令） | ⚠️ 会尝试联网，但**失败不阻断** | `generate-github-card-data.ts:54` 会请求，`:95` 失败时打印 `[GITHUB-CARD] Failed to refresh …; keeping cached data.` 并保留已提交的 `src/constants/github-card-data.json`。**本站迁移后正文不含该指令，这一步即空转** |
-| 排行 `/rank/*` | `src/config/rankConfig.ts` | ❌ | 纯本地数据 |
+| 学习路线 `/roadmap/` | `src/config/roadmapConfig.ts` | ❌ 不联网 | 纯本地数据：8 条主线 × 阶段 × 篇目，篇目引用站内已有的 133 篇；页顶数字（篇数 / 汉字数 / 总时长）构建期由 `getCollection("posts")` 实算。<br>~~排行 `/rank/*` → `rankConfig.ts`~~（v1.41 随排行模块删除，见 §5.2 删除清单） |
 | 动态 `/dynamic/` | `src/content/dynamic/*.md` → `/api/dynamic.json` | ❌ | 也可切到 Memos（本项目不用） |
 
 ---
@@ -273,11 +274,9 @@ src/
 | `src/types/sidebarConfig.ts` + `src/components/widget/SiteInfo.astro` | R-WDG-03 | §4 |
 | `scripts/convert-wallpaper.mjs` + `src/assets/images/DesktopWallpaper/*` + `backgroundWallpaper.ts` | R-BG-01 / R-BG-03 / R-BG-04 | §6.1 |
 | `public/assets/videos/*` + `backgroundWallpaper.src.playerUrl` | R-BG-02 | §6.2 |
-| `src/pages/rank/index.astro` / `jp.astro` / `cn.astro` | R-RANK-01 | §5.2 |
-| `src/pages/rank/game.astro` + `rankConfig.boards.game`（单一榜） | R-RANK-07 | §5.2、§5.3 |
-| `RankBoard.astro` 的内联脚本 + URL 契约（`?kind=`） | R-RANK-02 | §5.4 |
-| `src/components/pages/rank/RankBoard.astro` + `src/styles/pages/rank.css` | R-RANK-03 / R-RANK-05 / R-RANK-06 | §5.5、§5.6 |
-| `src/config/rankConfig.ts` + `src/types/rankConfig.ts` | R-RANK-04 | §5.3 |
+| `src/config/roadmapConfig.ts` + `src/types/roadmapConfig.ts` + `src/utils/roadmap-utils.ts` | R-PATH-01 / R-PATH-02 / R-PATH-03 / R-PATH-04 | §5.2、§5.3 |
+| `src/pages/roadmap.astro` + `src/components/pages/roadmap/{PathLine,PathStop}.astro` + `src/styles/pages/roadmap.css` | R-PATH-01 / R-PATH-05 | §5.4、§5.5 |
+| ~~`src/pages/rank/*` + `rankConfig.ts` + `RankBoard.astro` + `rank.css`~~ | ~~R-RANK-01~07~~ | **v1.41 已随排行模块删除**（R-RANK-01~07 在 `prd.md` 里标「已废弃」保号；恢复路径 §14.4） |
 | `src/components/features/AemeathPet.astro` + `petConfig.ts` + `pet-utils.ts`（`PET_MOOD_STATES` 等帧率口径）+ `src/utils/pet-chat-text.ts`（`cleanMarkdown()`）+ `Layout.astro` 一行 | R-PET-01 / R-PET-02 / R-PET-03 / R-PET-05 / R-PET-06 / R-PET-07 / R-PET-10 / R-PET-11 | §7.1~§7.6 |
 | `pioConfig.ts` 保持关闭 + 互斥注释 | R-PET-04 | §7.5 |
 | `agent/src/agent/**`（含 `persona.txt`） | R-AGT-01 / R-AGT-06 | §8.3 |
@@ -320,7 +319,7 @@ src/
 | `src/components/pages/roadmap/PathStop.astro` | 单篇**轻量行**：标题 + 分类 + 约 N 分钟（**不拉封面、不显 note**） |
 | `src/utils/reading-time.ts`（**仅当需要退路时才建**，见 §5.5） | 与 remark 插件同一套时长口径的共用入口 |
 
-**删除清单（排行）**：`src/pages/rank/*`（4 个）、`src/config/rankConfig.ts`、`src/types/rankConfig.ts`、`src/components/pages/rank/RankBoard.astro`、`src/styles/pages/rank.css`、`src/assets/images/rank/_demo-*.webp`（2 张演示图）、`navBarConfig.ts` 的 `LinkPresets.RankJP/RankCN/RankGame` 与「排行」子树。全仓 `src/` 下约 **440 处**、文档约 **142 处** 引用需要一并清理。
+**删除清单（排行）**：`src/pages/rank/*`（4 个）、`src/config/rankConfig.ts`、`src/types/rankConfig.ts`、`src/components/pages/rank/RankBoard.astro`、`src/styles/pages/rank.css`、`src/assets/images/rank/_demo-*.webp`（2 张演示图）、`navBarConfig.ts` 的 `LinkPresets.RankJP/RankCN/RankGame` 与「排行」子树。全仓 `src/` 下约 **440 处**、文档约 **142 处** 引用 —— **v1.41 已按本清单全部清理完毕**（现在 `src/` 下再 grep「排行 / rankConfig / /rank/」只剩三类**不影响运行**的命中：① 注释里"这一格原来是排行、已删除"的历史说明；② 文章正文里"按 %CPU 排行"这类无关用词；③ 首页模板自带的「Top 10 标签排行」组件）。
 
 ### 5.3 数据模型
 
@@ -416,11 +415,16 @@ export interface RoadmapLine {
 | 16 | `/rank/`、`/rank/jp/`、`/rank/cn/`、`/rank/game/` 不在 sitemap 且请求返回 404 | 新增（替换原「`/rank/` 存根跳转」那条） |
 
 **那 44 条 R-RANK 的处置**：约 **10 条**属通用能力（上表 #10~#14）→ **重新指向 `/roadmap/`**；约 **34 条**是排行专属（名次两档配色与对比度、全剧/单集切换与 URL、短评胶囊不压标题、缺图占位、二游单一榜、占位提示、榜单 10 条、`/rank/` 存根跳转）→ **删除**，并在 `PROJECT_STATUS.md` §8 变更日志里逐类写明"删了什么、为什么"。
-**断言总数**：257 − 44 + 16 = **约 229**（`verify-docs` 的「4 组/5 份数据」与「`rankConfig.dataStatus`」两条检查随排行一起删）。
+**断言总数**：257 − 44 + 16 = **约 229**（这是 v1.40 设计轮的估算；`verify-docs` 的「4 组/5 份数据」与「`rankConfig.dataStatus`」两条检查随排行一起删）。
+
+> **落地实测（v1.41，Task 2~5 逐轮按 `reports/verify-ui.log` 落盘）**：断言总数**不是**估算的 229，而是
+> **232** —— **257 → 274**（Task 2/3/5 新增路线页断言）**→ 231**（Task 4 删掉 43 条排行相关、保留 2 条改名）
+> **→ 232**（Task 4 修复轮补 1 条「llms.txt 无排行残渣」）。演进与拆分的完整口径见 **§11**（**数字只认
+> `reports/verify-ui.log` 的汇总行**）；`verify-docs` 的检查项由 **17 → 15**（删掉两条排行专属检查）。
 
 ### 5.8 文档落点
 
-`prd.md` 新增 **R-PATH-01…R-PATH-06**（§3.5R），原 **R-RANK-01~07 标记为「已废弃（v1.40 移除）」但不删行**（保住编号历史）；`prd.md` §2 导航树去掉「排行」；`ARCH.md` 本表 §5 换章、§4.1 导航树同步、§11 断言数 257 → 229、§13 体积口径复核；`PROJECT_STATUS.md` §2/§3 的 P2 由「已完成」改「已移除」、新增 P2R 任务块、**B-08 关闭**、§8 变更日志 + 版本 v1.40；`README.md` 同步命令与目录说明。三份文档共用 **v1.40**。
+`prd.md` 新增 **R-PATH-01…R-PATH-06**（§3.5R，**v1.41 已全部标「已实现」**），原 **R-RANK-01~07 标记为「已废弃（v1.40 移除）」但不删行**（保住编号历史）；`prd.md` §2 导航树去掉「排行」；`ARCH.md` 本表 §5 换章、§4.1 导航树同步、§11 断言数 **257 → 232（实测，详见 §5.7 的落地实测段）**、§13 体积口径复核；`PROJECT_STATUS.md` §2/§3 的 P2 由「已完成」改「已移除」、新增 P2R 任务块、**B-08 关闭**、§8 变更日志、版本 → **v1.41**；`README.md` 同步命令与目录说明（含新增「怎么维护学习路线」一节）。三份文档共用 **v1.41**。
 
 ## 6. 背景与动态壁纸子系统（R-BG）
 
@@ -759,7 +763,7 @@ agent/
 ├─ README.md                      # 起服务的两条命令
 ├─ data/
 │  ├─ blog-index.json             # 构建期导出：文章索引（标题/标签/摘要/URL）
-│  └─ rank.json                   # 构建期导出：排行数据
+│  └─ rank.json                   # 构建期导出：排行数据（⚠️ 设计稿，从未落地；rankConfig 已随 v1.41 删除，见 §10 与报告 R32）
 ├─ src/agent/
 │  ├─ graph.py                    # 主图：路由 + 子节点
 │  ├─ node/{main,search,rank,chat}.py
@@ -931,7 +935,7 @@ uvicorn src.gateway.main:app --host 127.0.0.1 --port 8000
 | 输入 | 输出 | 字段 |
 | --- | --- | --- |
 | `src/content/posts/**/*.md` | `agent/data/blog-index.json` | `slug`/`title`/`description`/`tags`/`category`/`published`/`url`/`excerpt`（正文前 600 字纯文本） |
-| `src/config/rankConfig.ts` | `agent/data/rank.json` | 5 份榜单（日漫/国漫各 2 组维度 + 二游单一榜；标题、原名、短评、名次） |
+| `src/config/rankConfig.ts` | `agent/data/rank.json` | 5 份榜单（日漫/国漫各 2 组维度 + 二游单一榜；标题、原名、短评、名次）。⚠️ **这一行是 P5 之前的设计稿、从未落地**：`rankConfig` 已随排行模块在 v1.41 删除、`agent/data/` 目录也不存在；后端侧仍留 `ask_rank` 意图 —— 属另一个仓库，见 §10 与报告 **R32** |
 
 **单向依赖**：Agent 只读导出产物，不读前端源码；前端不 import Agent 的任何东西。这样两边可以独立演进。
 
@@ -1470,7 +1474,7 @@ dosc/blog/**/*.md（只读）
 | 学习路线 | `src/types/roadmapConfig.ts` | 见 §5.3（`lines[].stages[].stops[]`：`slug` + `category` 成对定位，`name?` 只覆盖显示名） |
 | 桌宠 | `src/types/petConfig.ts` | 见 §7.3 |
 | Agent 文章索引 | `agent/data/blog-index.json` | `slug` `title` `description` `tags` `category` `published` `url` `excerpt` |
-| Agent 榜单 | `agent/data/rank.json` | 与 `rankConfig` 同构 |
+| ~~Agent 榜单~~ | ~~`agent/data/rank.json`~~ | **已随 P2R 废止（v1.41）**：`rankConfig` 已删、这份文件磁盘上从来不存在（`agent/data/` 目录都没有）。⚠️ 后端侧（**另一个仓库**）仍留着 `ask_rank` 意图与 `rank.json` 设计 —— 见交付报告的 **R32**，本仓库不动 |
 
 **约定**：文章内图片一律用 `public` 路径（`/images/posts/<slug>/01.jpg`）；封面/壁纸/桌宠图集用 `src/assets` 相对路径（自动优化 + LQIP）。
 
@@ -1488,18 +1492,23 @@ dosc/blog/**/*.md（只读）
 | `pnpm preview` | 预览构建产物 | — |
 | `pnpm format` / `pnpm lint` | Biome 格式化与检查 | — |
 | `pnpm verify:posts` | **内容校验**（`scripts/verify-posts.mjs`，阻断式）：frontmatter 完整性 / slug 唯一且 ASCII / 正文非空 / **本地图片存在且非 0 字节** / `frontmatter.image` 存在性 / 站内链接目标存在 / 残留 Obsidian 语法 / 标题重复。`--quarantine` 可把出错文章移进 `src/content/_quarantine/` | ✅（P4 新增） |
-| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **232 项功能断言**（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**P2R 学习路线全项**：8 条主线与页内锚点 / 停靠点与跨线 / 篇目并集 = 133 / 无 JS 与打印兜底 / Swup 切页与后退 / canonical / 导航第 3 格 / `/rank/*` 四个旧地址 404、不在 sitemap、llms.txt 里也没有残渣（排行整块已删，Task 4）、**P4 内容迁移全项**：配图真实加载 / 编号顺序 / 移动端 / 不生成 figure 图注 / URL 形态 / 双链改写 / 无 Obsidian 残留 / 表格与代码块 / 无标题短笔记 / 归档与分类收录），并输出 **48 张**截图到 `reports/screenshots/`。P3 起含桌宠与壁纸全项（九状态触发 / 键盘 / 拖拽 / 菜单 / 联动 / reduced-motion / 与浮动按钮不重叠 / 移动端隐藏 / 取景与暗罩），**P3-R-PET-06 起含三档运动模式全项**：默认档为 `float` 且悬空（底部距视口底 > 120px）/ 强制起飞后坐标真的变化且飞行中带 `data-pet-flying` / 飞行全程不出视口 / 固定档 1.6s 两次采样坐标完全相同且拖放不落地 / 贴地档松手回地面高度 / 三档都不与右下角浮动按钮重叠 / reduced-motion 下 `float` 两帧 `transform` 相同（静态悬浮）/ 位置记忆仍生效且模式以配置为准；**R-PET-07 起含飞行手感与菜单摆位**（位移 60~180px / 时长 4~6s / row4 姿态 / 菜单四边在视口内）；**R-PET-08 起菜单判据全部换成左右摆位**（并排在宠物左/右、纵向顶部对齐、哪边够放哪边、5 点 `elementFromPoint` 命中、被遮挡换边、两侧都被挡的两级兜底、`data-pet-menu-side` 取值与层级不变），并新增**菜单项与下落/上升行为**断言（档位二选一显示「落下去」/「飘起来」、点「落下去」后 y 在 3 秒内落到地面线且 `data-pet-mode=ground`、点「飘起来」后反向回到悬浮档）。⚠️ **数字基准是"对 `pnpm preview` 的静态产物跑"**：对 `pnpm dev` 跑会少 7 条（4 条 noindex 存根 + 3 条产物/sitemap 检查；Task 4 删排行的同时摘掉了 llms.txt 2 条与 noscript/class 等排行专属的产物级判据，本轮之前那个"少 12 条"的分解已随之缩小），那时的旧口径 145 就是这么来的，别拿它当基准 | ✅（P1 新增，P2/P3/P4/R-PET-06/R-PET-07/R-PET-08 六次扩容） |
+| `pnpm verify:ui` | **界面验收**：开真实 Chrome 跑 **232 项功能断言**（**计数演进：257 → 274（P2R 新增路线页断言）→ 232（Task 4 删掉 43 条排行相关、保留 2 条改名）→ 232（Task 4 修复轮补 1 条「llms.txt 无排行残渣」）。⚠️ 括号里的分解只是"这一轮怎么变的"，**数字一律以 `reports/verify-ui.log` 的汇总行为准**，见本节末尾的记账约定**）（导航顺序、站点名、色相、**上游信息/打赏入口泄漏扫描**、统计行数、热力图、占位模式、页面可达性、sitemap/**llms.txt**、配色对比度、**P2R 学习路线全项**：8 条主线与页内锚点 / 停靠点与跨线 / 篇目并集 = 133 / 无 JS 与打印兜底 / Swup 切页与后退 / canonical / 导航第 3 格 / `/rank/*` 四个旧地址 404、不在 sitemap、llms.txt 里也没有残渣（排行整块已删，Task 4）、**P4 内容迁移全项**：配图真实加载 / 编号顺序 / 移动端 / 不生成 figure 图注 / URL 形态 / 双链改写 / 无 Obsidian 残留 / 表格与代码块 / 无标题短笔记 / 归档与分类收录），并输出 **48 张**截图到 `reports/screenshots/`。P3 起含桌宠与壁纸全项（九状态触发 / 键盘 / 拖拽 / 菜单 / 联动 / reduced-motion / 与浮动按钮不重叠 / 移动端隐藏 / 取景与暗罩），**P3-R-PET-06 起含三档运动模式全项**：默认档为 `float` 且悬空（底部距视口底 > 120px）/ 强制起飞后坐标真的变化且飞行中带 `data-pet-flying` / 飞行全程不出视口 / 固定档 1.6s 两次采样坐标完全相同且拖放不落地 / 贴地档松手回地面高度 / 三档都不与右下角浮动按钮重叠 / reduced-motion 下 `float` 两帧 `transform` 相同（静态悬浮）/ 位置记忆仍生效且模式以配置为准；**R-PET-07 起含飞行手感与菜单摆位**（位移 60~180px / 时长 4~6s / row4 姿态 / 菜单四边在视口内）；**R-PET-08 起菜单判据全部换成左右摆位**（并排在宠物左/右、纵向顶部对齐、哪边够放哪边、5 点 `elementFromPoint` 命中、被遮挡换边、两侧都被挡的两级兜底、`data-pet-menu-side` 取值与层级不变），并新增**菜单项与下落/上升行为**断言（档位二选一显示「落下去」/「飘起来」、点「落下去」后 y 在 3 秒内落到地面线且 `data-pet-mode=ground`、点「飘起来」后反向回到悬浮档）。⚠️ **数字基准是"对 `pnpm preview` 的静态产物跑"**：对 `pnpm dev` 跑会少若干条（**产物级检查不适用** —— 例如 noindex 存根与 sitemap/llms.txt 这类要读 `dist/` 的判据；**具体少几条会随轮次变，别背这个数字**，以脚本输出的汇总行为准）。历史上那个"少 12 条"的分解早就过期了，别再拿它当基准 | ✅（P1 新增，P2/P3/P4/R-PET-06/R-PET-07/R-PET-08 六次扩容；v1.41 随排行删除 −43/+1，另修 `dist/llms.txt` 的诊断误标） |
 | `node scripts/import-posts.mjs` | **旧博客迁移**（默认 dry-run）：`--write` 落盘、`--batch 1..5`、`--cat`、`--only`、`--limit`、`--src`；报告写 `reports/import-report.json` | ✅（P4 新增） |
-| `pnpm verify:docs` | **文档一致性自检**（`scripts/verify-docs.mjs`）：核对三份文档互相之间、以及文档与仓库事实是否一致——版本号与"最后更新"日期、断言/截图数与最近一次实测、**模块路由清单**（`src/pages/rank/` 在不在决定判据走哪一支：还在就要求每个路由文件都在 ARCH 登记，已删就要求 prd §2 不再列 `/rank/` 且 ARCH 登记 `src/pages/roadmap.astro`）与路由文件、导航子项与 `navBarConfig.ts`、需求编号引用闭环、阻塞项条数与编号连续、§2 与 §3 阶段状态，以及**配置事实**（`displaySettingsConfig.enable`）。**每次收工前跑一次**（P2 加二游排行时文档漂移了 12 处，就是没有这道关卡） | ✅（v1.12 新增；v1.41 随排行删除摘掉 `rankConfig.dataStatus` 与"4 组数据是否漏了第 5 份"两条检查） |
+| `pnpm verify:docs` | **文档一致性自检**（`scripts/verify-docs.mjs`，**共 15 项（原 17 项）**）：核对三份文档互相之间、以及文档与仓库事实是否一致——版本号与"最后更新"日期、断言/截图数与最近一次实测、**模块路由清单**（`src/pages/rank/` 在不在决定判据走哪一支：还在就要求每个路由文件都在 ARCH 登记，已删就要求 prd §2 不再列 `/rank/` 且 ARCH 登记 `src/pages/roadmap.astro`）与路由文件、导航子项与 `navBarConfig.ts`、需求编号引用闭环、阻塞项条数与编号连续、§2 与 §3 阶段状态，以及**配置事实**（`displaySettingsConfig.enable`）。**每次收工前跑一次**（P2 加二游排行时文档漂移了 12 处，就是没有这道关卡） | ✅（v1.12 新增；v1.41 随排行删除摘掉 `rankConfig.dataStatus` 与"4 组数据是否漏了第 5 份"两条检查 → 17 → 15；同轮补两处**闸门自身的防御**：基准日志候选过滤接受 `_verify*.log`、找不到基准日志**判 FAIL** 而不是记 `pass=true` 的 INFO，见 §14.3 **T77**） |
 | `pnpm verify:agent` | **Agent 接口契约自检**（`scripts/verify-agent.mjs`，零依赖）：把 `ARCH.md` §8.9 的契约变成 **14 项断言**——配置对齐（读 `agentConfig.ts` 原文核对，**baseUrl/graphId 同时认字面量、常量、函数回落三种形态**，见 T59）/ `GET /ok` / `GET /assistants/search` 去重后 4 张图 / 闲聊轮事件白名单+`values` 或 `updates` 收尾+与 `GET state` 一致+最终答复 / 检索轮「工具输出进了流但没进答复」/ 推荐轮 `interrupt`→`resume:「不提供」`（**原始汇总行会打出两轮的末事件名**）/ `configurable`+`context` 400 坑 / 降级探测（死端口不可用 + 活服务可用对照项）。**退出码规矩与其它 `verify:*` 不同**：Agent 没在跑 = **SKIP + 退出码 0**（打印 `langgraph dev` 启动命令），**契约不符 = 退出码 1**。⚠️ **SKIP 与 ✅ 必须长得不一样**（v1.35 起）：`⏭️ [SKIP]` 单列一行 + 单独打"跳过原因"，汇总行 `✅ 通过 N，❌ 失败 N，⏭️ 跳过 N` **三项分开计数**，并额外打一行"本轮 N 项**没有执行**（不计入通过）"；JSON 里带 `skippedIds`。产物 `reports/verify-agent.log` + `reports/verify-agent.json` | ✅（v1.33 / P5-0 新增；v1.35 修 D-1、SKIP 语义收紧） |
 | `pnpm verify:agent:robust` | **适配层健壮性回归**（`scripts/verify-agent-robust.mjs`，**26 条**）：P5 独立复核那批"只有畸形输入才暴露"的缺陷的**可执行反例**。做法：用 esbuild（Astro 自带依赖）把 `src/utils/agent-client.ts` 打成临时 ESM（`reports/_agent-client.bundle.mjs`，gitignore 内）再 `import()` —— 测的是**真源码**，改一处代码这里立刻跟着变；再用 `globalThis.fetch` 的**内存假后端**喂畸形 SSE（跨 chunk 的 `\r`、EOF 未闭合、70KB 单事件、schema 行当答复、挂住的 `/state`、404 失效、5 万字答复、宽松问句）。覆盖 D-2/D-3/D-4/D-5/D-6/D-8/D-9/D-15/D-16/D-17/D-18。**不依赖真后端、不起浏览器、不起服务**（几秒跑完，CI 可跑）；退出码：有失败 = 1。产物 `reports/verify-agent-robust.log` + `.json` | ✅（v1.35 / P5 复核修复新增） |
-| `pnpm verify:ui` 的 **R-AGT 段** | **端到端联动断言（21 条，见 §8.10）**：产物里 `enable` 是真的（不写死 chunk 文件名）/ `enable:false` **零请求** / `enable:true` 真往返 + 人设口径（无「您」无加粗无表格无完整域名 + 不是出厂 mock）/ `interrupt` 反问进气泡 + 续跑拿到真答复 / 死端口降级仍可用 / 状态联动与复位（关框、Swup 切页、连续提问）/ 气泡与整页 DOM 无禁词表 / 注入已还原；**v1.35 起另加 6 条用"页面内假后端"跑的反例**：500 字长答复可读可滚（带截图）/ 禁词闸门 / thread 404 自愈 / `/state` 永挂仍 1~3 秒上屏 / 协议不符立刻降级 / 在飞时再发送有可见反馈。⚠️ Agent 没在跑时**真往返那两条记 SKIP 不计失败**（与 `verify:agent` 的退出码规矩一致：环境未就绪不算回归）。**R-PET-11 起这段里还挂着聊天框的 19 条**（同一个"页面内假后端"手法，见 §7.6 第 27 条）。**v1.37 加 3 条**：① **身份类禁自称**（发起人 2026-09-27 决定）：同一会话里连问 5 条身份问题，只扫**她说的那部分**（不扫整页——站内本来就有讲 AI 的文章正文；也不扫用户那句话——`AI` 是他打的），**6 个自称词 0 命中、且每条都明确「我是爱弥斯」**，另加"不许越过底线（自称真人 / 冒充官方）"的反向判据与"起手历史必须为 0"的前置自检；② **"同一句答复被重复上屏"的回归**：假后端**仿真实 langgraph**（首快照 = 整份 state，含上一轮答复）返回 R1 长 / R2 短，断言**第二问的气泡是第二问的答复且不残留 R1**（旧实现在这里会停在第一句，见 T69）；③ **降级必须一眼可分辨**：面板带 `data-pet-chat-source`、台词走"接不上话"起头池、**连着两次不重样**、且不与真答复同形 | ✅（v1.34 / P5-1~P5-3 新增；v1.35 加 6 条 + 修 2 条假红口径；v1.36 挂上 R-PET-11 的 19 条；v1.37 加身份类禁自称 + 重复上屏回归 + 降级可分辨 3 条） |
+| `pnpm verify:ui` 的 **R-AGT 段** | **端到端联动断言（21 条，见 §8.10）**：产物里 `enable` 是真的（不写死 chunk 文件名）/ `enable:false` **零请求** / `enable:true` 真往返 + 人设口径（无「您」无加粗无表格无完整域名 + 不是出厂 mock）/ `interrupt` 反问进气泡 + 续跑拿到真答复 / 死端口降级仍可用 / 状态联动与复位（关框、Swup 切页、连续提问）/ 气泡与整页 DOM 无禁词表 / 注入已还原；**v1.35 起另加 6 条用"页面内假后端"跑的反例**：500 字长答复可读可滚（带截图）/ 禁词闸门 / thread 404 自愈 / `/state` 永挂仍 1~3 秒上屏 / 协议不符立刻降级 / 在飞时再发送有可见反馈。⚠️ Agent 没在跑时**真往返那两条记 SKIP 不计失败**（与 `verify:agent` 的退出码规矩一致：环境未就绪不算回归）。**R-PET-11 起这段里还挂着聊天框的 19 条**（同一个"页面内假后端"手法，见 §7.6 第 27 条）。**v1.37 加 3 条**：① **身份类禁自称**（发起人 2026-09-27 决定）：同一会话里连问 5 条身份问题，只扫**她说的那部分**（不扫整页——站内本来就有讲 AI 的文章正文；也不扫用户那句话——`AI` 是他打的），**6 个自称词 0 命中、且每条都明确「我是爱弥斯」**，另加"不许越过底线（自称真人 / 冒充官方）"的反向判据与"起手历史必须为 0"的前置自检；② **"同一句答复被重复上屏"的回归**：假后端**仿真实 langgraph**（首快照 = 整份 state，含上一轮答复）返回 R1 长 / R2 短，断言**第二问的气泡是第二问的答复且不残留 R1**（旧实现在这里会停在第一句，见 T69）；③ **降级必须一眼可分辨**：面板带 `data-pet-chat-source`、台词走"接不上话"起头池、**连着两次不重样**、且不与真答复同形 | ✅（v1.34 / P5-1~P5-3 新增；v1.35 加 6 条 + 修 2 条假红口径；v1.36 挂上 R-PET-11 的 19 条；v1.37 加身份类禁自称 + 重复上屏回归 + 降级可分辨 3 条；**v1.41 给「身份类禁自称」与「降级可分辨」这两条加"降级感知路径"**（它们在脚本里的断言编号没有进 `prd.md` 的需求表，口径正文在 R-AGT-03 / R-PET-11）：探测到这一轮答的是降级台词（`data-pet-chat-source ≠ live` 或命中 `FALLBACK_LEADS` 起头池）就记**带原因的 SKIP**、不按人设回归判红 —— 历轮这两条的假红（身份类 20 轮里红 4、降级可分辨红 1）都是"后端不可用时她答的是降级台词"这个耦合，见 §14.3 T70 的同类教训） |
 | `pnpm make:logo` | 把 `src/assets/images/logo/imiss-logo.svg`（手写矢量设计源）栅格化成导航栏 Logo（webp）与 favicon 四档 PNG | ✅（P1 新增） |
 
 > **关于 `verify:ui` 的对比度检查**：主体走"token 级"校验（`--deep-text`/`--content-meta`/`--btn-content`/`--primary` 对卡片底/页面底），不是"扫全站文字元素"。
 > 原因：这个主题里大量文字压在封面图、壁纸、半透明面板上，逐元素自动判定无法可靠取得背景色（试了三版：canvas 转色 → 逐层合成 → Node 侧解析，期间还产出过"66/71 元素低于 3:1"的假警报）。
 > P2 曾补过两处**具体**的对比度断言（不依赖背景取色）：① 名次数字对名次底色（白字压粉底 ≥ 3:1、深字压橙底 ≥ 4.5:1）；② 缺图占位把渐变各档合成到不透明底色上取最亮值，与白字算对比度（暗/亮主题各一条）。**这两处都是排行专属判据，已随排行模块在 v1.41（Task 4）一并删除** —— 现在这一节只剩上面的 token 级校验。
 > 观感部分仍然是"**可复现的数字交给脚本，观感交给截图**"：脚本每轮输出 48 张截图并人工核对；另外把 `--hue` 在 345 与 165 之间切换做 A/B，证明"换色没让对比度变差"。
+
+> **记账约定（v1.41 / R19 收口）：三份文档里的"当前口径"数字，一律只认 `reports/verify-ui.log` 的汇总行。**
+> ① 这份日志由 `pnpm verify:ui:log --base <url>` 以 **UTF-8** 写出（`scripts/verify-ui-log.mjs`；用 PowerShell 的 `*>` 重定向会写成 UTF-16LE，读出来是乱码，见 **T58**）；
+> ② `reports/sync-doc-counts.mjs` 是**辅助脚本，不在版本控制里**（整个 `reports/` 被 `.gitignore` 忽略），而且它**只覆盖"总数"**，够不到文档里那些括号内的分解 —— 所以**别再写"需要脚本同步才不漂移"的括号分解**，要写就写成"不随轮次漂移"的说法（v1.41 把两处"对 `pnpm dev` 跑会少 7 条（4 条… + 3 条…）"改成"少若干条（产物级检查不适用）"，就是这个原因）；
+> ③ `verify-docs` 的计数闸门读的也是这份日志：候选文件名 **`verify*.log` 与 `_verify*.log`** 都认（按 mtime 取最新且含汇总行的那个）；**找不到基准日志时判 FAIL**，不再记一条 `pass=true` 的 INFO（见 **T77**）。
 
 ---
 
@@ -1645,7 +1654,7 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | # | 决策 | 备选 | 理由 |
 | --- | --- | --- | --- |
 | D1 | 在 Firefly 上二次开发，不另起栈 | 继续用 `blog_test` 纯静态原型 | 模板已有内容集合、搜索、i18n、图片管线、壁纸与视频播放器；原型的价值是"已验证的做法"，不是运行时 |
-| D2 | 排行数据放 TS 配置文件，只有一期 | CMS / 外部 API / 数据库 | 手工维护、主观排名、零后端；TS 有类型校验，改错立刻暴露 |
+| D2 | 排行数据放 TS 配置文件，只有一期 | CMS / 外部 API / 数据库 | 手工维护、主观排名、零后端；TS 有类型校验，改错立刻暴露。⚠️ **v1.41：这一条随排行模块废止**，但同一条思路被「学习路线」原样继承（数据同样放 TS 配置文件 `roadmapConfig.ts`、同样零后端，见 §5.3） |
 | D3 | 文章内图片放 `public`，封面放 `src/assets` | 全部进 `src` | 142 篇的图片进优化管线会把构建时间拖长；封面/壁纸/榜单/桌宠量小，值得优化 |
 | D4 | 桌宠挂在 Swup 容器之外常驻 | 每页各挂一次 | 避免切页重建带来的闪烁与位置丢失 |
 | D5 | Agent 独立进程 + 网关，前端只用同源 `/api` | 直接在浏览器调 LLM | 密钥安全 + 可限流 + 可换模型；浏览器无法运行 Python 是硬约束 |
@@ -1656,7 +1665,7 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | D10 | 留言/评论与 Agent 解耦 | 用 Agent 当留言后端 | 两者目标不同（留言是异步公开记录，Agent 是实时对话）；耦合会让简单需求变复杂 |
 | D11 | **人设「不许自称 AI，必须明确自己是爱弥斯」**（人设 v7，2026-09-27 发起人决定） | 保留 v6 的「被问是不是 AI 就诚实承认」 | **这是产品决定，由发起人拍板，不是技术偏好**：气泡里出现"我是 AI / 我是程序"会直接毁掉角色。**唯一保留、优先级更高的底线是不许越界到另一个方向**：不得宣称自己是真人、不得宣称自己是官方爱弥斯本人——否则就从"演得像"变成"给访客一个能截图打脸的硬伤"。落地只在后端人设文件（`agent/persona-aemeath-v7.txt` → `src/agent/common/persona.txt`），**契约与前端都不动**；验证是"真机问出来的字"（R-AGT 段身份类禁自称），不是"人设文件里写了什么" |
 
-### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 74 条，编号连续 T1~T74：T1~T19 来自 P0/P1，T20~T26 来自 P2，T27~T29 来自 P3，T30~T33 来自 P3-9/P3-11，T34~T38 来自 P4，T39~T40 来自 R-PET-06，T41~T42 来自 R-PET-07，T43 来自 R-PET-08，T44 来自 R-PET-09，T45~T46 来自 R-PET-10，T47~T48 来自 P5-0 契约冻结，T49~T58 来自 P5-1~P5-3 接线，**T53/T54 于 v1.35 补登记**（这两条在 P5-1 就被引用过、但一直没进表），**T59~T63 来自 P5 独立复核修复**，**T64~T67 来自 R-PET-11 聊天框重做**，**T68~T70 来自 v1.37 人设 v7 与"重复上屏"修复**，**T71~T73 来自 v1.38 父级独立复跑**，**T74 来自 v1.39 文档纠偏**）
+### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 79 条，编号连续 T1~T79：T1~T19 来自 P0/P1，T20~T26 来自 P2，T27~T29 来自 P3，T30~T33 来自 P3-9/P3-11，T34~T38 来自 P4，T39~T40 来自 R-PET-06，T41~T42 来自 R-PET-07，T43 来自 R-PET-08，T44 来自 R-PET-09，T45~T46 来自 R-PET-10，T47~T48 来自 P5-0 契约冻结，T49~T58 来自 P5-1~P5-3 接线，**T53/T54 于 v1.35 补登记**（这两条在 P5-1 就被引用过、但一直没进表），**T59~T63 来自 P5 独立复核修复**，**T64~T67 来自 R-PET-11 聊天框重做**，**T68~T70 来自 v1.37 人设 v7 与"重复上屏"修复**，**T71~T73 来自 v1.38 父级独立复跑**，**T74 来自 v1.39 文档纠偏**，**T75~T79 来自 v1.41（P2R 学习路线落地 / 排行移除）的实施与收尾**）
 
 实现时按这张表走，不要凭"应该没问题"假设。每条都给了文件与行号，可当场复核。
 
@@ -1667,7 +1676,7 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | T3 | `src/config/siteConfig.ts:317` 的 `mal.clientId` **带一个前导制表符**，且是形如真实凭据的 32 位十六进制串（上游示例值）；`mal-utils.ts:67-68` 会把它**原样**塞进请求头（不 trim） | 安全｜疑似真实凭据随仓库分发 | P1 清空为 `""`（新增需求 R-ID-05）；同理清掉 VNDB / Bangumi / Bilibili 的示例 ID |
 | T4 | `siteConfig.pages` 是单点开关，联动 5 处：导航过滤（`nav-menu-utils.ts:7`）、页面 404 重定向（如 `myanimelist.astro:20`）、sitemap（`astro.config.mjs:242-280`）、`llms.txt`（`llms.txt.ts:97`）、VNDB 封面脚本（`generate-vndb-covers.ts:101`） | 关一个页面会连带 5 处 | R-NAV-07 逐页核对 |
 | T5 | `navbar-i18n.ts:11-34` 用**字面量中文名**当 key 做翻译映射（"文章"/"社交"/"我的"/"链接"…），未命中即原样输出；`VNDB`/`AnimeList` 被有意排除在映射外 | 改名后该菜单项失去多语言翻译 | 本站只用 `zh_CN`，可接受；将来加语言时要同步 `NAVBAR_DEFAULT_NAMES` |
-| T6 | `nav-menu-utils.ts:19-23` 会让"只剩 1 个可用子项"的下拉组塌缩成单项 | 关页面后导航形态会变 | 我们的组都有 ≥2 个子项（文章 4 / 排行 2 / 我的 7 / 链接 3），不受影响 |
+| T6 | `nav-menu-utils.ts:19-23` 会让"只剩 1 个可用子项"的下拉组塌缩成单项 | 关页面后导航形态会变 | 我们的组都有 ≥2 个子项（文章 4 / 我的 7 / 链接 3），不受影响。⚠️ **v1.41 起第 3 格「学习路线」是单链接、根本不是"组"**（原「排行」组随 P2R 删除） |
 | T7 | `ImageWrapper.astro:85-92` 找不到图时 `console.error` 且**不渲染任何 `<img>`**（只剩空壳 div + LQIP 渐变） | 配图路径写错不会出现裂图，而是"一片渐变"，肉眼很难发现 | 校验脚本必须逐个比对 `cover` 路径（R-CNT-06）；`src` 不能带 `./`、`../`，大小写必须与磁盘一致 |
 | T8 | 新增 `src/assets` 图片后必须跑 `pnpm lqips`（或 `pnpm build`）才有正确占位色；缺失时静默用默认渐变 | 占位色不对但不报错 | `pnpm build` 链里已含 `generate-lqips`；只跑 `dev` 时改完图要手动补一次 |
 | T9 | `minify-inline-scripts.ts:13` 用正则 `<script([^>]*)>` 扫 dist —— **属性值里含 `>` 就匹配不上**；且刻意设 `minifyIdentifiers: false`（内联脚本共享全局作用域，改名会炸） | 新写的内联脚本可能不被压缩，或被后置步骤改坏 | 桌宠内联脚本：属性值里不要出现 `>`；顶层变量挂 `window.__imissPet` 之类的唯一名 |
@@ -1741,6 +1750,12 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | T73 | **`verify:ui` 默认打 4321 —— 那是别人的 dev server** —— `scripts/verify-ui.mjs` 的 `--base` 默认值是 `http://localhost:4321`；本机 4321 长期被**另一个 `astro dev`**（用户自己的，IPv6-only）占着。不传 `--base` 复跑时，脚本会静默地去打那个站：本轮实测直接 `验收脚本出错：TypeError: fetch failed … UND_ERR_HEADERS_TIMEOUT`（若那个站恰好能应答，则会跑出一份**看着像交付产物、实际是 dev 服务器**的日志） | 两类坏结果：① 报一个与本次改动无关的超时；② 更坏 —— **对着错误的站点跑完全绿**，日志数字被当成交付证据（`verify-ui-log.mjs` 的 `--base` 透传 bug 就是这一类的先例，见 T58 段注释） | **复跑一律显式给 `--base`**：验证交付产物用 `pnpm verify:ui:log --base http://localhost:4323`（顺带拿到 UTF-8 的 `reports/verify-ui.log` 供 `reports/sync-doc-counts.mjs` 读）；跑完看日志头第一行的"目标站点"是不是你要打的那个端口。**永远不要用默认值跑验收**（`pnpm verify:ui:log` 在不给 `--base` 时会补一个 4322 并打进日志头，就是为这件事） |
 
 | T74 | **"跳过名单"被人当成待办清单 → 清掉它就会用旧内容覆盖新内容** —— `scripts/import-posts.mjs` 的 `SKIP_SOURCES` 里那两条（`AI应用/LangChain 能力详解.md`、`AI应用/LangGraph 能力详解 · 学习笔记.md`）从 2026-09-24 起被写成"暂不导入（缺图），**之后主动提醒**"，所以它读起来像一张**待办**。但真相是反的：那两篇后来**被重写成原创笔记并直接落在站点里**（提交 `7219018` → `8264d0d`），而**源目录那两份仍是缺图原版**（359KB / 398KB，引用 125 / 80 张不存在的 `page-*.png`）—— 也就是说**跳过名单在这一刻已经变成"保护措施"**：谁"顺手把待办清掉"再跑 `--write`，谁就会用缺图原版**覆盖掉站内的重写版**（而且 `verify:posts` 不会报错——缺图会被导入器转成 `> [!WARNING]` 占位，看起来"只是少了图"） | **静默地毁掉已经验收过的内容**：覆盖后文章还在、构建也绿、`verify:posts` 0 错误，只有正文和图一起变回原样（125 处缺图占位）。比"导入漏了"难查得多——因为它不留报错，只留下"怎么变回去了"的困惑 | ① 跳过名单的**每一条都要写清"为什么现在还必须跳过"**，而不是"以后要做什么"：这两条的理由已改成 `【已由重写版替代 · 勿导入】…导入会覆盖它`；② 源码注释里写明**"不许删"**并指向本条陷阱；③ 更一般的规矩：**任何"白名单/黑名单"都要区分"临时待办"与"长期护栏"** —— 待办会被人清理，护栏必须自己说明身份。回归方式：`node scripts/import-posts.mjs`（dry-run）后看 `reports/import-report.json` 的 `ignored[]` 里那两条是否仍在、理由是否正确 |
+
+| T75 | **`pnpm lint` / `pnpm format` 会改写验收脚本自己的源码** —— 这两条不是"只针对 `src/`"（旧说法与 `package.json` 不符），实际是 `biome check --write ./src ./scripts` / `biome format --write ./src ./scripts`。它把 `scripts/verify-ui.mjs` 里 **CDP 模板字符串中的正则**"顺手美化"了：`/rgba?\(([^)]+)\)/` → `/rgba?(([^)]+))/` —— **语义已经变了**（捕获组从"括号里的内容"变成"整个匹配"），还顺带重排了 ~19 个无关文件、1761 行 | **静默改坏验收脚本本身**（断言可能从此量错东西，而报告照旧全绿），同时制造一个 1700+ 行的无关 diff，把真实改动淹掉。Task 2 实测踩到，已完整回滚 | ① **本项目不要跑这两个脚本**（`README.md` 的命令表、`CLAUDE.md` / `AGENTS.md` 都已写明）；② 要保格式只对**动过的文件**跑 `npx biome check <files>`；③ 任何"格式化/自动修复"跑完，必须 `git diff` 看一遍 `scripts/` —— 它改的可能是判据本身 |
+| T76 | **`COLLECT` 是模板字符串：连注释里的反引号都会提前闭合它** —— `scripts/verify-ui.mjs` 里浏览器侧代码（`COLLECT`）整体是一个反引号模板字符串，所以在**注释里**写一个反引号（例如想引用某个类名/变量名）就会把模板提前结束 → 当场 `SyntaxError` | 脚本直接跑不起来（这一点还算响亮）；**更坏的是反引号成对出现时**：模板被切成两半、中间的代码变成字符串/语法错位，症状会出现在离改动很远的地方 | 在 `COLLECT` 内部（**包括注释**）**不许出现反引号** —— 要引用标识符就写纯文本。**同一坑两次独立踩到**（Task 2 的注释、Task 5 的注释）；改完先 `node --check scripts/verify-ui.mjs` |
+| T77 | **文件名不匹配 → 读旧日志 → 计数闸门静默失效** —— `verify-docs` 的"断言数与最近实测一致"从 `reports/` 里挑候选日志，过滤是 `^verify.*\.log$`；某一轮把实测落成了 `reports/_verify-task2-green.log`（**下划线开头，不匹配**）→ 闸门回退去读**停更的旧日志** → 输出 `257 == 257 ✅`，而真实值已经是 **263** | 文档计数闸门**看起来在查、其实查的是过期数字**：新加的断言（或删掉的断言）永远不会让文档红，漂移一路带到收工 | ① 候选过滤**同时接受 `_verify*.log`**；② **找不到基准日志必须响亮报错**（原来是一条 `pass=true` 的 INFO —— "闸门没读到基准"与"一切正常"长得一模一样）；③ 通则：**任何"按文件名挑输入"的闸门都要问一句"挑不到会怎样"**。v1.41 已在 `scripts/verify-docs.mjs` 里实施 ①② |
+| T78 | **验证用的"注入器"自己必须先被验证** —— 某轮为了证明"某条判据真的会红"，写了个把标记注入文件的脚本；它把**多行 LF 标记**写进一个 **CRLF** 的 `.cjs`，于是注入后的 `includes()` 判定**恒为 false** → **注入根本没生效**，而校验脚本照旧报 `✅`（**假绿**），差点被当成"注入证明"写进报告 | 一个"证明判据有效"的实验，自己先把判据架空了 —— 于是"已用注入验证过"这句话变成**没有证据的断言**。这类假绿比不加验证更坏 | ① 注入后**先断言注入成功**（用 `[\s\S]` 这类跨行正则匹配，别用受行尾影响的 `includes`）；② 注入器要有硬闸门：**`next === src` 就 `exit 2`**（没变就是没注入）；③ 判据的注入实验必须"先红后绿"两次都记录原始输出 |
+| T79 | **mobile 模拟下 `documentElement.scrollWidth − window.innerWidth` 的差值恒为 0** —— CDP 的设备模拟里 `window.innerWidth` **会随内容一起涨**（视口 390 → 实测涨到 1200），于是"有没有横向溢出"的判据**永远算不出红** | 一条看似标准的移动端溢出断言**永远不会失败**：页面真的溢出时它也报 ✅（假绿），而这种错只有"手工注入一个溢出元素"才会暴露 | 正确口径是 **`documentElement.scrollWidth − documentElement.clientWidth`**（`clientWidth` 不随内容涨）。实测同一注入态：**旧差法 0 / 新差法 810**。回归断言：`verify:ui` 的 R-PATH「390px 无横向溢出」（v1.41 已按新口径改） |
 
 ### 14.4 被移除的上游功能怎么找回来
 

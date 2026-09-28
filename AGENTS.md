@@ -11,8 +11,7 @@ Use `pnpm`; the `preinstall` script enforces it.
 - `pnpm dev` or `pnpm start`: run the local Astro dev server.
 - `pnpm check`: run Astro diagnostics.
 - `pnpm type-check`: run TypeScript with `--noEmit`.
-- `pnpm format`: format `src` with Biome.
-- `pnpm lint`: run Biome checks and safe fixes on `src`.
+- `pnpm format` / `pnpm lint`: `biome … --write ./src ./scripts` — **do not run in this project**: it rewrites regexes inside the CDP template literals in `scripts/verify-ui.mjs` and reformats unrelated files (trap T75). Format only the files you touched: `npx biome check <files>`.
 - `pnpm build`: generate icons, LQIPs, the Astro build, font subsets, and Pagefind search output in `dist`.
 - `pnpm preview`: preview the production build locally.
 - `pnpm new-post`: scaffold a new content post.

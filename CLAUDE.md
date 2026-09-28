@@ -15,8 +15,8 @@ Firefly is a feature-rich static blog theme built on **Astro 7** with **Svelte 5
 | `pnpm preview` | Preview production build |
 | `pnpm check` | `astro check` for type/error checking |
 | `pnpm type-check` | `tsc --noEmit --isolatedDeclarations` (covers `src/` and `scripts/`) |
-| `pnpm lint` | Biome lint + auto-fix |
-| `pnpm format` | Biome format |
+| `pnpm lint` | Biome lint + auto-fix（⛔ 本项目不要跑 —— 见 Code Style 的 T75） |
+| `pnpm format` | Biome format（⛔ 本项目不要跑 —— 见 Code Style 的 T75） |
 | `pnpm new-post <filename>` | Scaffold a new blog post |
 | `pnpm new-dynamic` (`new-d`) | Scaffold a new dynamic (microblog) entry |
 | `pnpm lqips` | Regenerate LQIP data into `src/constants/lqips.json` |
@@ -76,7 +76,7 @@ Defined in `src/content.config.ts`:
 
 - **Biome** enforces: tab indentation, double quotes, recommended lint rules
 - Relaxed rules for `.svelte`/`.astro`/`.vue` files (`useConst`, `useImportType`, `noUnusedVariables`, `noUnusedImports` off)
-- `pnpm lint`/`pnpm format` only target `./src` — `scripts/` is type-checked (tsconfig `include`) but not linted, and currently has pre-existing Biome findings
+- ⛔ **本项目不要跑 `pnpm lint` / `pnpm format`**：它们是 `biome check|format --write ./src ./scripts`（**不是只针对 `./src`** —— 这句旧话与 `package.json` 不符，已按陷阱 T75 更正），会改写 `scripts/verify-ui.mjs` 里 CDP 模板字符串中的正则（`/rgba?\(([^)]+)\)/` → `/rgba?(([^)]+))/`，语义已变）并顺带重排十几个无关文件。要保格式只对**动过的文件**跑 `npx biome check <files>`；`scripts/` 里仍有历史 Biome 报告，没人打算清
 - `scripts/subset-font.d.ts` is a hand-written ambient declaration for the untyped `subset-font` package
 - Commit convention: **Conventional Commits** (`feat:`, `fix:`, `chore:`, etc.)
 

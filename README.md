@@ -74,6 +74,9 @@ pnpm verify:ui    # 再另开一个终端窗口跑这个
 ```
 
 期望输出：`功能断言 232 项：✅ 通过 231，❌ 失败 0，⏭️ 跳过 1`。
+> ⚠️ **只有"232"是稳定的**：那个「跳过 N」会随环境摆动（历轮实测 0~4 条）。要真后端往返的
+> `R-AGT-08`（`interrupt` 续跑）在后端自己的文章库不可用时会**合规跳过**，并在下面单独打一行
+> "本轮 N 项没有执行"——**跳过不等于通过**。**数字一律以 `reports/verify-ui.log` 的汇总行为准**。
 若输出 `检测到 astro dev 服务器` 的提示，说明你对 `pnpm dev` 跑了它——
 那会把"关闭页面"等断言误判，请改成对 `pnpm preview` 跑。
 
@@ -86,10 +89,11 @@ pnpm verify:posts   # 期望输出：`✅ verify:posts 通过：133 篇 0 错误
 跑完界面验收后，再跑一次**文档自检**（它拿上面这次实测的数字当基准，核对三份文档有没有跟着更新）：
 
 ```powershell
-pnpm verify:docs    # 期望输出：`文档检查 … ：通过 N，失败 0`（有 FAIL 就是文档与仓库对不上了）
+pnpm verify:docs    # 期望输出：`文档检查 15 项：通过 15，失败 0`（有 FAIL 就是文档与仓库对不上了）
 ```
 
 > 它会拦下这类问题：改了导航/路由/数据，但 `prd.md`、`ARCH.md`、`PROJECT_STATUS.md` 里还写着旧数字或旧清单。
+> 共 15 项检查（**原 17 项** —— v1.41 删掉排行模块时摘掉了两条排行专属检查）。
 
 ### 常见问题
 
@@ -98,7 +102,7 @@ pnpm verify:docs    # 期望输出：`文档检查 … ：通过 N，失败 0`�
 | `pnpm: 无法将"pnpm"项识别为…` | 没装 pnpm：`npm i -g pnpm` |
 | 安装依赖卡住/报 `ETIMEDOUT` | 忘了加 `--registry=https://registry.npmmirror.com` |
 | 启动报端口被占用 | 上一台的窗口还开着；关掉它，或 `pnpm dev --port 4322` |
-| 现在**还没有**桌宠、聊天 | 正常：桌宠在 P3、Agent 后端在 P5（见 `PROJECT_STATUS.md`） |
+| 现在**还没有**真实内容 | 正常：项目/动态/相册/书签导航/关于页还是上游示例，`/projects/`、`/dynamic/`、`/gallery/`、`/booknav/`、`/about/` 等内容等你给（见 `PROJECT_STATUS.md` §1）。桌宠与 Agent 都已经做完（P3 / P5），连不上后端时桌宠走本地台词 |
 
 ## 常用命令
 
@@ -111,11 +115,11 @@ pnpm verify:docs    # 期望输出：`文档检查 … ：通过 N，失败 0`�
 | `pnpm preview` | 预览 `dist/` |
 | `pnpm verify:ui` | 界面验收：232 项断言 + 泄漏扫描 + 对比度 A/B + 48 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
 | `pnpm verify:posts` | 内容校验：frontmatter / slug / 图片存在性 / 站内链接 / 残留 Obsidian 语法（**改完文章或跑完迁移后跑一次**；有错退出码 1） |
-| `pnpm verify:docs` | 文档自检：核对三份文档与仓库事实是否一致（版本号、断言/截图数、模块路由清单、导航子项、需求编号、阻塞项、阶段状态）。**改完东西收工前跑一次** |
+| `pnpm verify:docs` | 文档自检：核对三份文档与仓库事实是否一致（版本号、断言/截图数、模块路由清单、导航子项、需求编号、阻塞项、阶段状态），**共 15 项（原 17 项）**。**改完东西收工前跑一次** |
 | `node scripts/import-posts.mjs --batch 1` | 迁移旧博客笔记（**默认 dry-run 只出报告**；加 `--write` 才落盘。详见下面「迁移旧笔记」一节） |
 | `node scripts/convert-wallpaper.mjs` | 把 `dosc/photo` 的 4 张壁纸转成 webp（桌面 + 移动两套），改壁纸素材时用 |
 | `pnpm make:logo` | 从 `imiss-logo.svg` 重新栅格化 Logo 与 favicon |
-| `pnpm format` / `pnpm lint` | Biome 格式化 / 检查并安全修复（只针对 `src/`） |
+| `pnpm format` / `pnpm lint` | Biome 格式化 / 检查并安全修复（`biome … --write ./src ./scripts`）。⛔ **本项目不要跑这两条**：它会改写 `scripts/verify-ui.mjs` 里 CDP 模板字符串中的正则并顺带重排十几个无关文件（陷阱 T75，见 `ARCH.md` §14.3）。要保格式只对动过的文件跑 `npx biome check <files>` |
 | `pnpm new-post` | 新建文章脚手架 |
 | `pnpm lqips` | 重新生成 `src/constants/lqips.json`（图片占位色） |
 
@@ -126,7 +130,8 @@ pnpm verify:docs    # 期望输出：`文档检查 … ：通过 N，失败 0`�
 ```
 src/config/          所有可配置项（改站点基本只动这里）
   siteConfig.ts        站点名、描述、主题色、页面开关
-  navBarConfig.ts      导航结构（本站已按需求重构）
+  navBarConfig.ts      导航结构（本站已按需求重构；第 3 格是「学习路线」→ `/roadmap/`）
+  roadmapConfig.ts     学习路线数据（8 条主线 × 阶段 × 篇目 —— 唯一需要手工维护的内容数据）
   backgroundWallpaper.ts  壁纸（图片期 / 视频期两套配置）
   sidebarConfig.ts     侧边栏组件与顺序
   pioConfig.ts         模板自带看板娘（本站保持关闭，改用桌宠）
@@ -232,6 +237,26 @@ pnpm verify:posts                                # 落盘后校验
 
 > 素材是 Codex 自定义宠物图集（8 列 × 9 行、单格 144×156，MIT）。第 2 行与第 1 行逐像素相同，
 > 所以左走用第 1 行 + `scaleX(-1)`。**不要同时开模板自带的 Live2D / Spine 看板娘**（R-PET-04）。
+
+## 怎么维护学习路线（`/roadmap/`）
+
+导航第 3 格「学习路线」→ `/roadmap/` 是**一个纯静态单页**：8 条主线 → 阶段 → 篇目；页顶一行站点数字（篇数 / 汉字数 / 主线数 / 总时长）**构建期实算、不许硬编码**；页内 **0 张图**、0 个 Svelte 岛、关掉 JS 也全可读。内容**只在一个文件里**：`src/config/roadmapConfig.ts`。
+
+| 想做什么 | 怎么做 |
+| --- | --- |
+| 加 / 删 / 挪一篇 | 改对应主线里的 `stops` 数组 —— **数组顺序就是页面顺序**（不写"第 N 步"数字，挪位置不用改编号） |
+| 改一条主线的名字 / 一句话说明 / 难度档 | 同一文件里那条线的 `name` / `summary` / `level`（`"入门" \| "进阶" \| "实战"`） |
+| 改某一篇在路线页上的显示名 | 那个停靠点加 `name`（**只覆盖本页显示名，不改文章标题、不影响 URL**） |
+| 加一个阶段 | 往 `stages` 里加一项 `{ title, stops: [...] }` |
+| 让同一篇同时出现在两条线上 | 在第二条线里再写一个停靠点并标 `crossLine: true`（全站限定 2~3 处） |
+
+**三条硬规矩**（写错时**构建期直接失败**，`pnpm verify:ui` 也会当场抓到）：
+
+1. **`slug` + `category` 必须成对、且都真实存在**：站内 `cpp/` 与 `stl/` 下都有 `vector` / `list` / `string`，只写 `slug` 会指到错的那一篇。改文章路径或分类之前先来这里同步。
+2. **不许漏篇、不许凭空多篇**：8 条线的篇目**并集必须等于站内全部 133 篇**（`verify:ui` 的 R-PATH 段有两条命根子断言：每个停靠点都解析到真实文章 + 并集 == 133）。停靠点数 **136** 大于篇数 **133**，差的正是那几处跨线引用。
+3. **页顶数字不做假**：篇数 / 汉字数 / 总时长都是构建期从文章实算的 —— 页面数字对不上，一定是数据文件写错了，别去改模板。
+
+改完跑收工三连：`pnpm verify:posts`（文章没问题）→ `pnpm build`（解析不到会直接抛错）→ `pnpm verify:ui`（路线页全项断言）。**不需要碰任何组件或样式**；真要改版式才动 `src/pages/roadmap.astro` 与 `src/styles/pages/roadmap.css`。
 
 ## 桌宠与 Agent
 
