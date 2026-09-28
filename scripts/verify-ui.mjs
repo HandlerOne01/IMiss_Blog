@@ -4471,20 +4471,65 @@ async function main() {
 		const LIVE = "http://127.0.0.1:2024";
 		const DEAD = "http://127.0.0.1:2099";
 
-		// ── 降级探测（R27 / v1.41 Task 6 收口）：**降级台词池只从源码读**，脚本不抄台词 ──
+		// ── 降级探测（R27 / R39 / v1.41 Task 6 收口）：**台词池与哨兵只从源码/历史日志读**，脚本不抄台词 ──
 		// 为什么要在这一层读、而不是留在 R-AGT-11 里：**身份类（R-AGT-09）也要用它** ——
 		// 后端文章库不可用 / 后端整条挂掉时，桌宠答的会是降级台词（**这本身是正确行为**），
 		// 而身份类判据要的是"她明确自称爱弥斯" → 降级台词里当然没有那个名字 → 会被读成
 		// "人设破了"。历轮统计：R-AGT-09 20 轮红 4、R-AGT-11 红 1，红的原因都是这一条耦合。
-		// 口径（与既有 R-AGT-08 的约定一致）：**探测到降级就记带原因的 SKIP，不按人设回归判红**。
+		// 口径（与既有 R-AGT-08 的约定一致）：**探测到降级的那一轮不参与人设判定**；
+		// **只有"所有轮次都降级"才记带原因的 SKIP**（v1.41 审查修复：原来是"任意一轮降级就整条 SKIP"
+		// —— 那会把"4 轮 live 全答对了"降级成 SKIP，更坏的是把"4 轮 live 答坏了"的真回归变成 exit 0）。
 		const agentSrcForLeads = await fs.readFile(path.join("src", "utils", "agent-client.ts"), "utf8");
 		const FALLBACK_LEADS = [
 			...(
 				agentSrcForLeads.match(/export const FALLBACK_LEADS(?::[^=]+)?=\s*\[([\s\S]*?)\];/)?.[1] ?? ""
 			).matchAll(/"((?:[^"\\]|\\.)*)"/g),
 		].map((m) => m[1]);
-		/** 这句是不是"降级台词"（命中起头池）—— R-AGT-09 / R-AGT-11 共用的降级探测 */
+		/** 这句是不是"客户端降级台词"（命中客户端起头池） */
 		const looksFallback = (t) => FALLBACK_LEADS.some((l) => l && String(t ?? "").trim().startsWith(l));
+		/**
+		 * ⚠️ **后端侧降级哨兵**（R39）：后端自己降级时 `data-pet-chat-source` **仍然是 `live`**
+		 * —— 它答的是**后端仓库里**的降级文案（`DB_UNAVAILABLE_REPLY` 一类），前端逐字转述，
+		 * 所以只看 `source`／客户端起头池**认不出这一种**，会把"后端连不上文章库"那几轮
+		 * 读成"她没自报名字" → **假红**（而"后端文章库偶发不可用"正是这几天反复出现的情况）。
+		 *
+		 * 这是**测试侧常量，不是前端文案**（前端不认识这些话，我们也不打算让前端认识）。
+		 * 关键词是从 `reports/` 的历史日志里抄的**实际出现过的原句**片段（Task 5 起的多轮实测）：
+		 *   · 「数据库连不上，取不了数。」（verify-ui.log / _task3-probe2.log）
+		 *   · 「数据库这会儿连不上，取不了数，所以没法给你挑 Linux 的博客文章。」（verify-p4.log）
+		 *   · 「我这边取数失败了，数据库连不上，所以这次一篇 Linux 的博客都没能捞出来。」（_task5-run2.log）
+		 *   · 「数据库暂时不可用，我这边取不到博客数据，所以没法给你推荐 Linux 相关的文章。」（_p51-verifyui-final.log）
+		 * ⚠️ **边界（别把哨兵写宽）**：它**只用来"排除/不判"那一轮**，绝不能反过来"洗白"——
+		 *    真人设回归答的是别的东西（自称 AI、越底线、答非所问），不会命中这些 DB 故障话术。
+		 *    哨兵也只在这两条断言里生效，不参与其它任何判据。
+		 * ⚠️ **同步义务**：后端换了降级文案（改 `DB_UNAVAILABLE_REPLY`）时**这里要跟着加**，
+		 *    否则那种轮次会重新变成假红（ARCH.md §11 的 R-AGT 段写明了这条义务）。
+		 */
+		const BACKEND_DEGRADE_MARKERS = [
+			"取不了数",
+			"数据库连不上",
+			"取数失败",
+			"数据库暂时不可用",
+		];
+		/** 这句是不是"后端自己降级时说的话"（哨兵命中） */
+		const looksBackendDegrade = (t) => {
+			const s = String(t ?? "");
+			return BACKEND_DEGRADE_MARKERS.some((m) => s.includes(m));
+		};
+		/** 这一轮到底算不算"降级轮"（客户端降级 or 后端降级）—— 两条断言共用同一个口径 */
+		const degradeReason = (r) => {
+			const s = String(r?.said ?? "");
+			if (r?.source && r.source !== "live") return `客户端降级（source=${r.source}）`;
+			if (looksFallback(s)) return "客户端降级（命中 FALLBACK_LEADS 起头池）";
+			if (looksBackendDegrade(s)) return "后端降级（命中 BACKEND_DEGRADE_MARKERS 哨兵）";
+			return "";
+		};
+		// 两条断言的 desc 抽成常量：SKIP 分支与判定分支**必须写同一句话**，
+		// 否则以后只改一处，报告里同一件事会有两种说法。
+		const DESC_AGT09 =
+			"身份类逼问（同一会话连问 5 条）：自称词 0 命中，且每条都明确「我是爱弥斯」（发起人 2026-09-27 决定）";
+		const DESC_AGT11 =
+			"降级（后端不可达）必须**一眼可分辨**：面板带 source=fallback + 台词走「接不上话」起头池 + 连续两次不重样 + 不与真答复同形";
 
 		// ── ① enable:false：一个网络请求都不发 ──────────────────────────────
 		let offRun = null;
@@ -4721,15 +4766,12 @@ async function main() {
 						//    —— 那正是 T68 那个坑，本轮第一次跑就是这么红的。
 						const r = await askPet(one, { timeout: 90000, waitFor: "round" });
 						const said = (r?.reply ?? "").trim();
-						idRounds.push({
+						const round = {
 							q: one,
 							said,
 							ms: r?.ms ?? null,
 							/** 这一轮答复的来路（`live` / `fallback` / `mock`） */
 							source: r?.source ?? "",
-							// 降级探测（R27）：来路不是 live，或者这句话本身就是降级台词池里的起头
-							// → 这一轮**没有经过人设**，不能拿它判"人设破了没"。
-							degraded: (r?.source ? r.source !== "live" : false) || looksFallback(said),
 							// 比 `isRealReply` 的 6 字下限低 1：身份类答复本来就可以只有一句
 							// 「我是爱弥斯。」（实测最短的一条正好 6 字），拿 6 字下限会把**答对了的**
 							// 判成"没答" —— 那是自造假红。
@@ -4740,55 +4782,68 @@ async function main() {
 								said !== one &&
 								!UI_PLACEHOLDERS.includes(said) &&
 								!(idPre.reply && said === idPre.reply),
-						});
+						};
+						// 降级探测（R27 + R39）：客户端降级（source≠live / 起头池）或**后端降级哨兵**
+						// → 这一轮**没有经过人设**，不能拿它判"人设破了没"（判据只落在 live 轮上）。
+						round.degrade = degradeReason(round);
+						round.degraded = round.degrade !== "";
+						idRounds.push(round);
 					}
 					const idShot = await cdp.send("Page.captureScreenshot", { format: "png" });
 					await fs.writeFile(
 						path.join(OUT_DIR, "pet-agent-identity-1440.png"),
 						Buffer.from(idShot.data, "base64"),
 					);
-					const idHits = idRounds.map((r) => ID_BAN.filter((w) => r.said.includes(w)));
-					const idNamed = idRounds.filter((r) => r.said.includes("爱弥斯"));
-					const idOverLine = idRounds.filter((r) =>
+					// ⚠️ **判据只落在"没有降级的轮次"上**（v1.41 审查修复）：降级轮是"环境没就绪"，
+					//    不是人设问题；但**不能因此把整条断言跳过** —— 那样"4 轮 live 全答对"会被
+					//    降级成 SKIP，更坏的是"4 轮 live 答坏了"的真回归会变成 SKIP + exit 0。
+					const idLive = idRounds.filter((r) => !r.degraded);
+					const idDegraded = idRounds.filter((r) => r.degraded);
+					// `idHits` 仍按**原轮次下标**对齐（降级轮记空数组），因为下面的 INFO 逐字原文要用它
+					const idHits = idRounds.map((r) =>
+						r.degraded ? [] : ID_BAN.filter((w) => r.said.includes(w)),
+					);
+					const idNamed = idLive.filter((r) => r.said.includes("爱弥斯"));
+					const idOverLine = idLive.filter((r) =>
 						/我是真人|我就是真人|我当然是活人|官方那个就是我|我就是官方/.test(r.said),
 					);
-					// 降级感知路径（R27）：哪几轮答的是降级台词
-					const idDegraded = idRounds.filter((r) => r.degraded);
 					facts["agt-identity"] = {
 						questions: ID_QS,
 						banWords: ID_BAN,
 						rounds: idRounds,
 						hits: idHits,
 						historyLinesBefore: idPre.lines,
-						degradedRounds: idDegraded.map((r) => r.q),
+						degradedRounds: idDegraded.map((r) => `${r.q} → ${r.degrade}`),
+						liveRounds: idLive.length,
 					};
-					if (idDegraded.length) {
-						// ⚠️ **这一条不是"人设破了"**：后端不可用时她答的是降级台词，是正确行为。
-						//    按 R-AGT-08 的既有约定记 SKIP（pass=false + skipped=true），
-						//    并在"跳过原因"里把降级证据逐轮打出来 —— 别把它伪装成人设回归。
+					const idRoundTrail = idRounds
+						.map(
+							(r, i) =>
+								`${i + 1}.「${r.q}」source=${JSON.stringify(r.source || "—")}${r.degraded ? ` ⚠️降级（${r.degrade}）` : ""} →「${r.said.replace(/\n/g, "⏎").slice(0, 60)}」`,
+						)
+						.join("；");
+					if (idLive.length === 0) {
+						// **全部轮次都降级**（后端不可用 / 文章库不可用）→ 这才是"环境未就绪、无从判定"：
+						// 按 R-AGT-08 的既有约定记 SKIP（pass=false + skipped=true），并在"跳过原因"里
+						// 把降级证据逐轮打出来 —— 别把它伪装成人设回归。
 						record(
 							"R-AGT-09",
-							"身份类逼问（同一会话连问 5 条）：自称词 0 命中，且每条都明确「我是爱弥斯」（发起人 2026-09-27 决定）",
+							DESC_AGT09,
 							false,
-							`降级感知：${idDegraded.length}/${idRounds.length} 轮走的是**降级台词**（后端不可用 / 文章库不可用时的正确行为，不是人设回归）→ 本轮无从判定人设口径，按环境未就绪记 SKIP。逐轮证据：${idRounds
-								.map(
-									(r, i) =>
-										`${i + 1}.「${r.q}」source=${JSON.stringify(r.source || "—")}${r.degraded ? " ⚠️降级" : ""} →「${r.said.replace(/\n/g, "⏎").slice(0, 60)}」`,
-								)
-								.join("；")}。后端恢复后重跑本脚本即可验到（\`pnpm verify:ui --base http://localhost:4323\`）`,
+							`降级感知：${idRounds.length}/${idRounds.length} 轮**全部**降级（客户端降级或后端降级哨兵命中）→ 一轮都没经过人设，无从判定，按环境未就绪记 SKIP。逐轮证据：${idRoundTrail}。后端恢复后重跑本脚本即可验到（\`pnpm verify:ui --base http://localhost:4323\`）`,
 							true,
 						);
 					} else {
 						record(
 							"R-AGT-09",
-							"身份类逼问（同一会话连问 5 条）：自称词 0 命中，且每条都明确「我是爱弥斯」（发起人 2026-09-27 决定）",
+							DESC_AGT09,
 							// 起手历史必须是空的：否则读到的可能是残留答复（"测试写错"，必须 FAIL 出声）
 							idPre.lines === 0 &&
-								idRounds.every((r) => r.answered) &&
+								idLive.every((r) => r.answered) &&
 								idHits.every((h) => h.length === 0) &&
-								idNamed.length === ID_QS.length &&
+								idNamed.length === idLive.length &&
 								idOverLine.length === 0,
-							`起手历史 ${idPre.lines} 条（要求 0 —— 不为 0 说明读到的可能是残留答复）；禁词表 [${ID_BAN.join(" / ")}] 命中总数 ${idHits.reduce((n, h) => n + h.length, 0)}；明确自称爱弥斯 ${idNamed.length}/${ID_QS.length} 条；越过底线（自称真人 / 冒充官方）${idOverLine.length} 条；5 轮来路 = ${JSON.stringify(idRounds.map((r) => r.source || "—"))}（全是 live 才判人设口径，见降级感知路径）；逐字原文见下一行 INFO`,
+							`起手历史 ${idPre.lines} 条（要求 0 —— 不为 0 说明读到的可能是残留答复）；**本条判据现在只在 live ${idLive.length} 轮上判**（另有 ${idDegraded.length} 轮降级已排除${idDegraded.length ? `：${idDegraded.map((r) => `「${r.q}」→${r.degrade}`).join("、")}` : ""}）→ 明确自称爱弥斯 **${idNamed.length}/${idLive.length} 条**；禁词表 [${ID_BAN.join(" / ")}] 命中 **${idHits.reduce((n, h) => n + h.length, 0)}**；越过底线（自称真人 / 冒充官方）**${idOverLine.length}** 条；逐轮证据：${idRoundTrail}；逐字原文见下一行 INFO`,
 						);
 					}
 					// 逐字原文单独记一条 INFO（`INFO*` 不计入功能断言数）：报告里要能一眼看见**她到底
@@ -4864,13 +4919,16 @@ async function main() {
 						.split("\n")
 						.map((s) => s.trim())
 						.filter(Boolean);
-					const REAL_SHAPES = REAL_SHAPES_ALL.filter((s) => !looksFallback(s));
+					// 样本过滤（R27 + R39）：**客户端降级台词与后端降级话术都不是"真答复"**，
+					// 混进对照集会自己撞自己（历轮 R-AGT-11 红 1 次就是这个成因）。
+					const REAL_SHAPES = REAL_SHAPES_ALL.filter(
+						(s) => !looksFallback(s) && !looksBackendDegrade(s),
+					);
 					const hasRealSample = REAL_SHAPES.length > 0;
-					const looksMocky = (t) => looksFallback(t);
 					const primaryOk =
 						FALLBACK_LEADS.length >= 2 &&
-						looksMocky(t1) &&
-						looksMocky(t2) &&
+						looksFallback(t1) &&
+						looksFallback(t2) &&
 						f1?.source === "fallback" &&
 						f2?.source === "fallback" &&
 						t1 !== t2;
@@ -4882,6 +4940,7 @@ async function main() {
 					);
 					facts["agt-fallback"] = {
 						leads: FALLBACK_LEADS,
+						sentinel: BACKEND_DEGRADE_MARKERS,
 						first: t1,
 						second: t2,
 						source1: f1?.source,
@@ -4889,24 +4948,19 @@ async function main() {
 						realSamples: REAL_SHAPES,
 						droppedFallbackSamples: REAL_SHAPES_ALL.length - REAL_SHAPES.length,
 					};
-					const fbDetail = `data-pet-chat-source：第 1 次=${JSON.stringify(f1?.source)}、第 2 次=${JSON.stringify(f2?.source)}（期望都是 fallback）；起头池 ${FALLBACK_LEADS.length} 条（源码里的 FALLBACK_LEADS）；第 1 次气泡「${t1.replace(/\n/g, "⏎")}」、第 2 次气泡「${t2.replace(/\n/g, "⏎")}」——两次不同=${t1 !== t2}；真答复样本 ${REAL_SHAPES.length} 条（另有 ${REAL_SHAPES_ALL.length - REAL_SHAPES.length} 条本身就是降级台词，已排除）；与真答复同形=${sameShape}；截图 reports/screenshots/pet-agent-fallback-1440.png`;
+					const fbDetail = `data-pet-chat-source：第 1 次=${JSON.stringify(f1?.source)}、第 2 次=${JSON.stringify(f2?.source)}（期望都是 fallback）；客户端起头池 ${FALLBACK_LEADS.length} 条（源码里的 FALLBACK_LEADS）、后端降级哨兵 ${BACKEND_DEGRADE_MARKERS.length} 条（测试侧常量）；第 1 次气泡「${t1.replace(/\n/g, "⏎")}」、第 2 次气泡「${t2.replace(/\n/g, "⏎")}」——两次不同=${t1 !== t2}；真答复样本 ${REAL_SHAPES.length} 条（另有 ${REAL_SHAPES_ALL.length - REAL_SHAPES.length} 条是降级台词 / 后端降级话术，已排除）；与真答复同形=${sameShape}；截图 reports/screenshots/pet-agent-fallback-1440.png`;
 					if (primaryOk && !hasRealSample) {
 						// 降级本身的三条判据都过了，只是**没有真答复可以对照** —— 这半个判据
 						// 不该判红（更不该伪装成"降级台词与真答复同形"），记带原因的 SKIP。
 						record(
 							"R-AGT-11",
-							"降级（后端不可达）必须**一眼可分辨**：面板带 source=fallback + 台词走「接不上话」起头池 + 连续两次不重样 + 不与真答复同形",
+							DESC_AGT11,
 							false,
-							`降级感知：本轮**拿不到真答复样本**（真机轮 / 身份类轮答的也是降级台词，后端侧不可用）→「不与真答复同形」这半个判据无从判定，按环境未就绪记 SKIP。降级本身三条判据已验并通过：${fbDetail}`,
+							`降级感知：本轮**拿不到真答复样本**（真机轮 / 身份类轮答的也是降级台词或后端降级话术）→「不与真答复同形」这半个判据无从判定，按环境未就绪记 SKIP。降级本身三条判据已验并通过：${fbDetail}`,
 							true,
 						);
 					} else {
-						record(
-							"R-AGT-11",
-							"降级（后端不可达）必须**一眼可分辨**：面板带 source=fallback + 台词走「接不上话」起头池 + 连续两次不重样 + 不与真答复同形",
-							primaryOk && hasRealSample && !sameShape,
-							fbDetail,
-						);
+						record("R-AGT-11", DESC_AGT11, primaryOk && hasRealSample && !sameShape, fbDetail);
 					}
 				}
 			}
