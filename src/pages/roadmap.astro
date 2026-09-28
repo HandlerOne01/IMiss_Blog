@@ -7,7 +7,7 @@
 import { getCollection, render } from "astro:content";
 import PathLine from "@components/pages/roadmap/PathLine.astro";
 import MainGridLayout from "@layouts/MainGridLayout.astro";
-import { type PostLite, resolveRoadmap } from "@utils/roadmap-utils";
+import { type PostLite, resolveRoadmap, roadmapHours } from "@utils/roadmap-utils";
 import { roadmapConfig } from "@/config";
 import "@/styles/pages/roadmap.css";
 
@@ -19,13 +19,18 @@ for (const entry of entries) {
 	const { remarkPluginFrontmatter } = await render(entry);
 	posts.push({
 		category,
+		// I3：上屏的是**分类显示名**（面包屑 / `/categories/` 用的就是它），
+		// 目录名 `category` 只用来定位文章。
+		categoryLabel: entry.data.category || category,
 		slug: rest.join("/"),
 		title: entry.data.title,
 		minutes: Math.max(1, Number(remarkPluginFrontmatter.minutes ?? 1)),
 	});
 }
 const roadmap = resolveRoadmap(roadmapConfig, posts);
-const hours = Math.round(roadmap.totalMinutes / 60);
+// M4 / M7：页顶总时长 = **各线表头小时数之和**（同一个 `lineHours` 口径），不是另算一遍
+// `round(totalMinutes / 60)` —— 那样 8 条线加起来 69 而页顶写 68，页面自己跟自己打架。
+const hours = roadmapHours(roadmap.lines);
 ---
 
 <MainGridLayout title="学习路线">

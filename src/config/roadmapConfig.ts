@@ -65,7 +65,7 @@ export const roadmapConfig: RoadmapConfig = {
 						s("cpp", "list", "list · 模拟实现"),
 						s("cpp", "stack-queue-priority-queue"),
 						s("stl", "vector", "vector · 用法"),
-						s("stl", "string", "String · 用法"),
+						s("stl", "string", "string · 用法"),
 						s("stl", "list", "list · 用法"),
 						s("stl", "stack"),
 						s("stl", "queue"),

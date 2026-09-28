@@ -12,6 +12,11 @@ const { stop } = Astro.props;
 	<a class="roadmap-stop-link" href={stop.href}>
 		<span class="roadmap-stop-title">{stop.display}</span>
 		{stop.crossLine && <span class="roadmap-stop-cross">跨线</span>}
-		<span class="roadmap-stop-meta">{stop.category} · 约 {stop.minutes} 分钟</span>
+		{/*
+			⚠️ 这里显示的是分类**显示名**（`entry.data.category`，如 `Linux 网络`），不是目录名
+			（`linux-net`）—— 目录名是内部实现，访客在面包屑 / `/categories/` / 归档里看到的是前者（终审 I3）。
+			`category`（目录名）仍是定位键，只是不上屏。
+		*/}
+		<span class="roadmap-stop-meta">{stop.categoryLabel} · 约 {stop.minutes} 分钟</span>
 	</a>
 </li>

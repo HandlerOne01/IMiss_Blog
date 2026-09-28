@@ -158,7 +158,16 @@ const COLLECT = `(() => {
   const mobileTops = panel ? [...panel.querySelectorAll(".mobile-menu-list .mobile-menu-item-root")].map((r) => {
     const label = r.querySelector(".mobile-menu-item-label");
     const children = [...r.querySelectorAll(".mobile-submenu .mobile-menu-item-label")].map((s) => txt(s));
-    return { name: txt(label), children };
+    // M5（终审）：光有 name / children 分不出"单链接"和"手风琴"——顶层单链接是 <a data-nav-href>，
+    // 带子项的顶层项是 <button data-mobile-dropdown-trigger>（没有 href）。收藏这两点，
+    // R-NAV-02 才能验"移动抽屉第 3 格是可点的单链接、不展开"这个**与桌面面不同的面**。
+    const link = r.querySelector("a[data-nav-href]");
+    return {
+      name: txt(label),
+      children,
+      href: link ? link.getAttribute("data-nav-href") : null,
+      expandable: !!r.querySelector("[data-mobile-dropdown-trigger]"),
+    };
   }) : [];
   const allLabels = [...tops.map((t) => t.name), ...tops.flatMap((t) => t.children.map((c) => c.name)),
                       ...mobileTops.map((t) => t.name), ...mobileTops.flatMap((t) => t.children)];
@@ -418,6 +427,9 @@ const COLLECT_ROADMAP = `(() => {
 		indexHrefs: [...root.querySelectorAll("#roadmap-index a")].map((a) => a.getAttribute("href")),
 		stopCount: stops.length,
 		stopHrefs: stops.map((a) => a.getAttribute("href")),
+		// M11（终审）：同名篇目"可见可区分"要靠**渲染出来的标题文本**判，光有 href 证不了 ——
+		// 把 name 覆盖撤掉、两行都显示文章标题时 href 一模一样地正确。
+		stopTitles: stops.map((a) => (a.querySelector(".roadmap-stop-title") || {}).textContent?.trim() ?? ""),
 		uniqueHrefs: new Set(stops.map((a) => a.getAttribute("href"))).size,
 		imgCount: root.querySelectorAll("img").length,
 		statsText: document.querySelector("#roadmap-stats")?.textContent?.replace(/\\s+/g, " ").trim() ?? "",
@@ -2243,13 +2255,37 @@ async function main() {
 	// R-NAV-02 的判据随导航第 3 格一起换（v1.41 / P2R）：原来是「排行 + 三个 /rank/ 子项」，
 	// 现在是「学习路线」单链接 —— 同一条需求、同一条断言位，只是被测对象换了
 	// （「排行」子项 ↔ 路由 的死链核对在 `pnpm verify:docs` 的「导航子项」里）
-	const top3 = home.navTops[2];
-	record("R-NAV-02", "第 3 格「学习路线」是单链接、指向 /roadmap/", top3?.name === "学习路线" && top3?.href === "/roadmap/" && (top3?.children?.length ?? -1) === 0, JSON.stringify(top3));
+	// ⚠️ M5（终审）：这条原来跟下面 R-PATH-01 的第 3 格断言**读同一份事实、同一个判据**
+	//    （`facts["home-1440"].navTops[2]` 的 name + href + 无子项），232 项里有一条是重复的。
+	//    现在两条**分守不同的面**：桌面面（下拉容器结构）归 R-PATH-01，
+	//    这里守**移动抽屉**——第 3 格必须是"点一下直接进页面"的单链接（`<a data-nav-href>`），
+	//    不是会展开的手风琴，也不能挂子项（手机抽屉里挂 8 条主线会爆）。
+	const mThird = mobileHome.mobileTops?.[2];
+	record("R-NAV-02", "移动抽屉第 3 格「学习路线」是单链接（可点、不展开、无子项）",
+		mThird?.name === "学习路线" &&
+			mThird?.href === "/roadmap/" &&
+			mThird?.expandable === false &&
+			(mThird?.children?.length ?? -1) === 0,
+		`抽屉第 3 格 = ${JSON.stringify(mThird)} ｜ 抽屉顶层 ${JSON.stringify(mobileHome.mobileTops?.map((t) => t.name))}`);
 	const my = home.navTops.find((t) => t.name === "我的");
 	record("R-NAV-03", "我的子项顺序与链接", !!my && same(my.children, EXPECT_MY_CHILDREN), JSON.stringify(my?.children));
 	record("R-NAV-01~04", "已删除的导航项不再出现", EXPECT_ABSENT_LABELS.every((l) => !home.allLabels.includes(l)), home.allLabels.filter((l) => EXPECT_ABSENT_LABELS.includes(l)).join(",") || "无残留");
 	// 移动抽屉与桌面共用同一份 navBarConfig，所以顺序断言对两边都成立（「排行」不再出现在任何一层）
 	record("R-NAV-01", "移动端菜单最后一项是「留言」且第 3 格是「学习路线」", mobileHome.mobileTops.at(-1)?.name === "留言" && mobileHome.mobileTops.some((t) => t.name === "学习路线"), JSON.stringify(mobileHome.mobileTops.map((t) => t.name)));
+	// M6（终审）：`mobileNavActive` 与 `mobileNavExpanded` 两个采集项原来的唯一消费者是
+	// 「进排行页 → 抽屉自动展开『排行』分组并把它标成当前页」，那条随排行模块删掉了（Task 4），
+	// 于是两个采集项成了**零消费者的死代码**（另一个 agent 交接时点名的 Minor）。
+	// 按终审裁定**改锚到一个仍然存在的分组**上：「我的」→ `/about/`（「关于我」是它的最后一项）。
+	// 覆盖回来的正是丢掉的那半条通用能力：**进子页 → 抽屉标当前页 + 自动展开含它的父级分组**。
+	// 数据取 `facts["about-1440"]`（主 COLLECT，抽屉在每一页都在 DOM 里，与视口宽无关）。
+	const aboutNav = facts["about-1440"];
+	record(
+		"R-NAV-01",
+		"进 /about/ 时抽屉把「关于我」标成当前页，并自动展开父级「我的」分组",
+		(aboutNav?.mobileNavActive ?? []).includes("关于我") &&
+			(aboutNav?.mobileNavExpanded ?? []).some((t) => t.startsWith("我的")),
+		`当前页项文字 ${JSON.stringify(aboutNav?.mobileNavActive)} ｜ 自动展开的分组 ${JSON.stringify(aboutNav?.mobileNavExpanded)}`,
+	);
 	record("R-ID-01", "站点名 IMiss Blog（标题 + 导航栏品牌）", home.title.includes("IMiss Blog") && (home.brand ?? "").includes("IMiss Blog"), `title=${home.title} brand=${home.brand}`);
 	record("R-ID-02", "主题色相 = 345", home.hueComputed === EXPECT_HUE || home.hueInline === EXPECT_HUE, `inline=${home.hueInline} computed=${home.hueComputed}`);
 	record("R-ID-04", "favicon 已换成 imiss", home.favicons.some((h) => (h ?? "").includes("imiss-32.png")), JSON.stringify(home.favicons));
@@ -2445,9 +2481,50 @@ async function main() {
 				rm.stopHrefs?.includes("/posts/stl/list/") &&
 				rm.stopHrefs?.includes("/posts/cpp/list/"),
 			`含 stl/vector=${rm?.stopHrefs?.includes("/posts/stl/vector/")} cpp/vector=${rm?.stopHrefs?.includes("/posts/cpp/vector/")} stl/list=${rm?.stopHrefs?.includes("/posts/stl/list/")} cpp/list=${rm?.stopHrefs?.includes("/posts/cpp/list/")}`);
-		record("R-PATH-04", "篇目并集 == 站内全部 133 篇（命根子）",
-			rm?.uniqueHrefs === 133,
-			`去重后 ${rm?.uniqueHrefs} 篇（停靠点 ${rm?.stopCount} 个，差值是跨线复用）`);
+		// R-PATH-03（M11，终审补的"另一半"）：上面那条只证了**两条链接都在**，证不了
+		// "两行**看得出来**不是同一篇" —— 把 `roadmapConfig` 里的 `name` 覆盖撤掉、两行都显示
+		// 文章标题（都是「vector」/「list」）时，上面那条照样全绿。
+		// 所以这里按 href 配对，直接读**渲染出来的标题文本**（`.roadmap-stop-title`）。
+		// 期望值就是 `prd.md` §3.5R / R-PATH-03 写的显示名；`string` 一并钉住大小写（M10）。
+		const stopRows = (rm?.stopHrefs ?? []).map((h, i) => ({ href: h, title: (rm?.stopTitles ?? [])[i] ?? null }));
+		const titleAt = (href) => stopRows.filter((r) => r.href === href).map((r) => r.title);
+		const WANT_TITLES = [
+			["/posts/cpp/vector/", "vector · 模拟实现"],
+			["/posts/stl/vector/", "vector · 用法"],
+			["/posts/cpp/list/", "list · 模拟实现"],
+			["/posts/stl/list/", "list · 用法"],
+			["/posts/cpp/string/", "string · 模拟实现"],
+			["/posts/stl/string/", "string · 用法"],
+		];
+		record("R-PATH-03", "同名两行的**显示名**确实可区分（读渲染出来的标题文本，按 href 配对）",
+			!!rm && WANT_TITLES.every(([href, want]) => titleAt(href).length === 1 && titleAt(href)[0] === want),
+			WANT_TITLES.map(([href, want]) => {
+				const got = titleAt(href);
+				const ok = got.length === 1 && got[0] === want;
+				return `${href} → ${ok ? `「${got[0]}」` : `实际 ${JSON.stringify(got)}（期望「${want}」）`}`;
+			}).join(" ｜ "));
+		/**
+		 * R-PATH-04（**终审 I1：对账站点，不对账字面量**）。
+		 * 旧写法是 `rm.uniqueHrefs === 133` —— 左边是 DOM 里数出来的去重链接数、右边是一个写死的
+		 * 字面量，**两侧都不碰站点**：作者写下第 134 篇、忘了加进 `roadmapConfig.ts` 时，
+		 * 路线页静默漏掉那一篇、页顶还印着「133 篇」，而这一条照样绿。
+		 * 现在拿**构建产物** `dist/api/allPostMeta.json`（由 `src/pages/api/allPostMeta.json.ts` 生成，
+		 * 与路线页同一份 `getCollection("posts", ({data}) => !data.draft)` 口径）当"站内总篇数"的真值。
+		 * ⚠️ 读不到**判红**（不是跳过）：对 `pnpm dev` 跑时产物级判据不适用，那是"没验到"，
+		 * 不许伪装成"验过了"（`--base` 应指向 `pnpm preview` 的 4323）。
+		 */
+		let siteCount = null;
+		let siteErr = "";
+		try {
+			const parsed = JSON.parse(await fs.readFile(path.resolve("dist/api/allPostMeta.json"), "utf8"));
+			if (Array.isArray(parsed)) siteCount = parsed.length;
+			else siteErr = "内容不是数组";
+		} catch (err) {
+			siteErr = err.code ?? err.message;
+		}
+		record("R-PATH-04", "篇目并集 == 站内总篇数（命根子；对账 dist/api/allPostMeta.json）",
+			siteCount !== null && rm?.uniqueHrefs === siteCount,
+			`路线页去重后 ${rm?.uniqueHrefs} 篇 ｜ 站内 ${siteCount ?? `读不到：${siteErr}`} 篇（dist/api/allPostMeta.json）｜ 停靠点 ${rm?.stopCount} 个，差值是跨线复用`);
 		record("R-PATH-05", "轻量行不含 <img>，且页顶数字与实算一致",
 			rm?.imgCount === 0 && /133 篇/.test(rm?.statsText ?? "") && /8 条主线/.test(rm?.statsText ?? ""),
 			`img=${rm?.imgCount} ｜ 页顶「${rm?.statsText}」｜390px 溢出 ${rm390?.overflowX}px`);
@@ -2583,7 +2660,8 @@ async function main() {
 		//    「约 2 小时」照样满足 N ≥ 1 —— 空判据。实测为证：把 136 处「约 N 分钟」全改成「约 1 分钟」+
 		//    页顶改「约 2 小时」的那一轮，旧写法 **0 失败**（`reports/_task5-inj9-fallback-oldN1.log`）。
 		// 现在的口径：**平均每站至少 2 分钟**（`N * 60 >= 停靠点 × 2`，不写死任何绝对数字，内容增减时两边一起动）。
-		//    真实数据 `68 × 60 = 4080 >= 136 × 2 = 272` 余量充足；兜底值 `2 × 60 = 120 < 272` 立刻红。
+		//    真实数据 `69 × 60 = 4140 >= 136 × 2 = 272` 余量充足；兜底值 `2 × 60 = 120 < 272` 立刻红。
+		//    （页顶的小时数自 M4 起 = 各线表头小时数之和 = **69**，不再是 `round(总分钟/60)` 的 68。）
 		// 两层都要：① 必须能解析出「约 N 小时」（解析失败/文本缺失 → 红）；
 		//            ② 总时长与停靠点数自洽（`stopCount` 取不到时也判红 —— `?? 0` 会让右边变 0 而**空过**）。
 		const hoursHit = /约\s*(\d+)\s*小时/.exec(rm?.statsText ?? "");
@@ -4824,12 +4902,13 @@ async function main() {
 						.join("；");
 					if (idLive.length === 0) {
 						// **全部轮次都降级**（后端不可用 / 文章库不可用）→ 这才是"环境未就绪、无从判定"：
-						// 按 R-AGT-08 的既有约定记 SKIP（pass=false + skipped=true），并在"跳过原因"里
+						// 按既有的 SKIP 约定记账（`pass=true` + `skipped=true`；M12 起全脚本统一成这一种，
+						// 见文件末尾汇总处的说明），并在"跳过原因"里
 						// 把降级证据逐轮打出来 —— 别把它伪装成人设回归。
 						record(
 							"R-AGT-09",
 							DESC_AGT09,
-							false,
+							true,
 							`降级感知：${idRounds.length}/${idRounds.length} 轮**全部**降级（客户端降级或后端降级哨兵命中）→ 一轮都没经过人设，无从判定，按环境未就绪记 SKIP。逐轮证据：${idRoundTrail}。后端恢复后重跑本脚本即可验到（\`pnpm verify:ui --base http://localhost:4323\`）`,
 							true,
 						);
@@ -4955,7 +5034,7 @@ async function main() {
 						record(
 							"R-AGT-11",
 							DESC_AGT11,
-							false,
+							true,
 							`降级感知：本轮**拿不到真答复样本**（真机轮 / 身份类轮答的也是降级台词或后端降级话术）→「不与真答复同形」这半个判据无从判定，按环境未就绪记 SKIP。降级本身三条判据已验并通过：${fbDetail}`,
 							true,
 						);
@@ -6041,10 +6120,14 @@ async function main() {
 	// 不参与通过/失败计数，免得"功能没做"被算成 ✅、也免得报告看起来比实际更绿。
 	const functional = results.filter((r) => !r.id.startsWith("INFO"));
 	const informational = results.filter((r) => r.id.startsWith("INFO"));
-	// ⚠️ `skipped` 的项**不算失败**（Task 3 修正）：SKIP 的记账约定是"传 pass=false + skipped=true"，
-	//    旧实现只滤 `!r.pass`，于是每一条 SKIP 都同时被算进"失败"——汇总行会出现
-	//    "跳过 4、失败 3"自相矛盾、退出码也跟著变 1（实测踩到）。`probeResults` 的同类统计
-	//    早就写了 `!r.skipped && !r.pass`，这里补齐成一致。原本没有 SKIP 的轮次结果不变。
+	// ⚠️ `skipped` 的项**不算失败**（Task 3 修正）：SKIP 的记账约定是"只看 `skipped`，
+	//    `pass` 不参与判定"。旧实现只滤 `!r.pass`，于是每一条 SKIP 都同时被算进"失败"——
+	//    汇总行会出现"跳过 4、失败 3"自相矛盾、退出码也跟著变 1（实测踩到）。`probeResults`
+	//    的同类统计早就写了 `!r.skipped && !r.pass`，这里补齐成一致。原本没有 SKIP 的轮次结果不变。
+	// ⚠️ M12（终审）：注释原先写"约定是传 pass=false + skipped=true"，但**现有 6 处 SKIP 调用
+	//    （5 处 `record` + 下面 `probeRecord` 的自检样例）全都传 `pass=true`** —— 注释与代码相反，会误导下一个改的人。
+	//    现在统一成 **`pass=true` + `skipped=true`**（语义：`pass` 只表示"这条判据本身没红"，
+	//    "跑没跑"由 `skipped` 单独表达），并把上面那句假约定删掉。
 	const failed = functional.filter((r) => !r.skipped && !r.pass);
 	console.log("");
 	for (const r of results) {
