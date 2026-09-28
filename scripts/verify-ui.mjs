@@ -40,7 +40,7 @@ const CHROME_CANDIDATES = [
 const EXPECT_BANNER_POSITION = "50% 35%";
 // 顶层导航顺序与子项顺序（prd.md R-NAV-01~04 / 第 2 章）
 // ⚠️ v1.41（P2R）：第 3 格由「排行」下拉换成「学习路线」单链接（R-PATH-01）——
-//    它没有 children，所以 EXPECT_RANK_CHILDREN 这条常量随之退休（不再有人用）。
+//    原来的 EXPECT_RANK_CHILDREN 常量与它的用法已随排行模块整体删除（Task 4 / R-PATH-06）。
 const EXPECT_TOP_NAV = ["主页", "文章", "学习路线", "我的", "链接", "留言"];
 const EXPECT_MY_CHILDREN = [
 	{ name: "动态", href: "/dynamic/" },
@@ -62,11 +62,11 @@ const FORBIDDEN_ROUTES = ["/friends/", "/bilibili/", "/bangumi/", "/sponsor/"];
 // R-ID-06：订阅功能整体移除后，这 4 条路由**连存根都没有**（文件已删），应该是真 404
 const REMOVED_FEED_ROUTES = ["/rss/", "/atom/", "/rss.xml", "/atom.xml"];
 // R-PATH-01：v1.41 起 /roadmap/ 顶上导航第 3 格，必须进 ALLOWED_ROUTES 才能被"路由 200"那一趟扫到
-// （/rank/* 三条**先留着** —— 排行页到 P2R-6 才删，删的那一轮再一起摘掉）
-const ALLOWED_ROUTES = ["/", "/about/", "/guestbook/", "/vndb/", "/myanimelist/", "/booknav/", "/dynamic/", "/projects/", "/gallery/", "/archive/", "/roadmap/", "/rank/jp/", "/rank/cn/", "/rank/game/"];
-// P2 之前：/rank/jp/、/rank/cn/ 还不存在，这里是"待建路由"的登记处。
-// P2 建好后两条路由已进 ALLOWED_ROUTES（断言 200），登记处随之清空——
-// 留着这个常量是为了下个阶段再出现"说好要建但还没建"的路由时有地方记，别再退回"catch 住就算过"的假绿写法。
+// ⚠️ Task 4（P2R-6）已把三条 `/rank/*` 摘掉 —— 排行整条删除（R-PATH-06），它们不再是"保留页面"，
+//    改由新断言钉住相反的事实："四个旧地址都返回 404、且都不在 sitemap 里"。
+const ALLOWED_ROUTES = ["/", "/about/", "/guestbook/", "/vndb/", "/myanimelist/", "/booknav/", "/dynamic/", "/projects/", "/gallery/", "/archive/", "/roadmap/"];
+// 这里是"待建路由"的登记处：说好要建但还没建的路由写在这里，只记录状态、不参与"通过/失败"计数
+//（否则"功能没做"会被算成 ✅）—— 别再退回"catch 住就算过"的假绿写法。
 const KNOWN_PENDING_ROUTES = [];
 
 // ─── 小工具 ──────────────────────────────────────────────
@@ -189,79 +189,15 @@ const COLLECT = `(() => {
     statRows: statsRoot ? statsRoot.querySelectorAll("div.justify-between").length : null,
     statText: txt(statsRoot),
     heatmapExists: !!document.getElementById("heatmap-container"),
-    // R-RANK-01~06：排行榜的事实采集（几何 / 两档配色 / 面板显隐 / 缺图降级）
-    rank: (() => {
-      const board = document.querySelector("[data-rank-board]");
-      if (!board) return null;
-      const rows = [...board.querySelectorAll("[data-rank-panel]:not(.rank-panel--off) .rank-row")];
-      return {
-        kind: board.dataset.rankKind,
-        // R-RANK-07：单一榜（二游排行）标记 —— 没有全剧/单集维度
-        single: board.dataset.rankSingle === "true",
-        // R-RANK-02：切换维度后 URL 要同步（读 location.search 判断 pushState 是否执行）
-        search: window.location.search,
-        title: (board.querySelector("h2") || {}).textContent || null,
-        hint: !!board.querySelector(".rank-hint"),
-        // 面板显隐用 rank-panel--off 这个 class（不是 hidden 属性，原因见 rank.css 与组件注释）
-        panels: [...board.querySelectorAll("[data-rank-panel]")].map((p) => ({
-          kind: p.dataset.rankPanel,
-          off: p.classList.contains("rank-panel--off"),
-          display: getComputedStyle(p).display,
-          ariaHidden: p.getAttribute("aria-hidden"),
-          inert: p.inert === true,
-        })),
-        tabs: [...board.querySelectorAll("[data-rank-tab]")].map((t) => ({
-          kind: t.dataset.rankTab,
-          selected: t.getAttribute("aria-selected"),
-          tabIndex: t.tabIndex,
-        })),
-        rows: rows.map((r) => {
-          const badge = r.querySelector(".rank-badge");
-          const rr = r.getBoundingClientRect();
-          const bb = badge.getBoundingClientRect();
-          const cs = getComputedStyle(badge);
-          return {
-            rank: Number(r.dataset.rank),
-            top: r.dataset.top === "true",
-            h: Math.round(rr.height),
-            w: Math.round(rr.width),
-            badgeW: Math.round(bb.width),
-            badgeBg: cs.backgroundColor,
-            badgeFg: cs.color,
-            hasImg: !!r.querySelector(".rank-cover img"),
-            placeholder: !!r.querySelector(".rank-cover--placeholder"),
-            // R-RANK-03：短评胶囊与标题框不能重叠（绝对定位时代实测压了 60px）
-            overlap: (() => {
-              const note = r.querySelector(".rank-note");
-              const textEl = r.querySelector(".rank-text");
-              if (!note || !textEl) return null;
-              return Math.round(textEl.getBoundingClientRect().right - note.getBoundingClientRect().left);
-            })(),
-            // 胶囊自己不能被压扁/截断（百分比 max-width 曾把它压成一个小圆点）
-            noteWidth: (() => {
-              const note = r.querySelector(".rank-note");
-              if (!note) return null;
-              return { w: Math.round(note.getBoundingClientRect().width), clipped: note.scrollWidth > note.clientWidth + 2 };
-            })(),
-          };
-        }),
-        // R-RANK-05：缺图占位的实际配色（底 + 渐变），回 Node 算"白字压在最亮处"的对比度。
-        // 取最亮的一档、且不叠加 scrim（scrim 只会更暗）——保守估计。
-        placeholderPaint: (() => {
-          const visible = board.querySelector("[data-rank-panel]:not([hidden])");
-          const ph = visible && visible.querySelector(".rank-cover--placeholder");
-          if (!ph) return null;
-          const cs = getComputedStyle(ph);
-          return { base: cs.backgroundColor, image: cs.backgroundImage };
-        })(),
-      };
-    })(),
+    // ⚠️ R-RANK 的整块事实采集（榜单板几何 / 两档配色 / 面板显隐 / 缺图降级）已随排行模块删除
+    //    （Task 4 / P2R-6）：rank 子对象连同那 41 条排行专属断言一起没了，页面也不再有 [data-rank-board]。
+    //    （⚠️ 这一段的注释里不许出现反引号 —— 它在下面那个模板字符串里，T75 的同类。）
     // ⚠️ **横向溢出必须量 scrollWidth − clientWidth，不能用 scrollWidth − innerWidth**
     //    （v1.41 修复轮 2 从采集器根上改的）：在 mobile:true 的模拟下，内容一横向溢出，
     //    **window.innerWidth 会跟着内容一起涨**（真机实测 390 → 900 / 1200），两个数同向变大
     //    → 旧差法**恒为 0、结构上不可能红**（reports/_task5-overflow-consumers-probe.json、
     //    reports/_task5-overflow-probe2.json）。clientWidth 恒等于布局视口宽（390），不会膨胀。
-    //    消费者：R-WDG-04（home-390）、R-RANK-06（rank-jp-390）、R-RANK-07（rank-game-390）。
+    //    消费者：R-WDG-04（home-390）—— 排行那两条（rank-jp-390 / rank-game-390）随模块删除。
     // ⚠️ 这一段在 COLLECT 的模板字符串里：注释里不许出现反引号（T75，写这行时踩过一次）。
     overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     // ── P3 桌宠（R-PET-01 ~ R-PET-05）──────────────────────
@@ -395,14 +331,13 @@ const COLLECT = `(() => {
         }),
       };
     })(),
-    // R-RANK-01 / SEO：静态产物下 canonical 不该带查询串（两个维度共用一张榜单页）
+    // SEO：canonical 由页面自己渲染 —— R-PATH-01 的"canonical 指向 /roadmap/ 且不带查询串"当场读它
     canonical: (document.querySelector('link[rel="canonical"]') || {}).href || null,
-    rowsText: (document.querySelector(".rank-rows") || {}).innerText || "",
     // 导航"当前页高亮"：桌面导航栏上游本来就没有当前页态，有高亮的是移动端抽屉 ——
     // NavMenuPanel 的 markActiveNav() 按 pathname 标 data-active（**单链接项**落在这里，
     // 带子项的父级分组只在子项命中时自动展开）。收藏这几项就能验"抽屉把当前页标对"。
-    // ⚠️ v1.41 起判据**不再锚在排行子项**上（导航第 3 格已换成「学习路线」单链接），
-    //    见断言侧 R-RANK-01 的两条（P2R-6 会改名迁进 R-PATH）。
+    // ⚠️ v1.41 起判据**不再锚在排行子项**上（导航第 3 格已换成「学习路线」单链接）：
+    //    Task 4 已把它们改名成 R-PATH-01（原 R-RANK-01 的两条通用判据）。
     mobileNavActive: [...document.querySelectorAll(".mobile-menu-item[data-active='true']")].map((i) =>
       (i.textContent || "").trim(),
     ),
@@ -719,15 +654,20 @@ async function main() {
 		const res = await fetch(`${BASE}${route}`);
 		record("R-NAV-07", `保留页面应 200：${route}`, res.status === 200, `HTTP ${res.status}`);
 	}
-	// R-RANK-01：/rank/ 只是一个存根，静态产物下同样表现为 200 + meta refresh（见 T17）。
-	// 真实跳转由 host 的 301 规则接管（ARCH.md §12.2），所以这里断言"存根指向 /rank/jp/"。
-	// dev 下 Astro.redirect 是真 302，跳过以免误报。
-	if (!isDevServer) {
-		const res = await fetch(`${BASE}/rank/`, { redirect: "manual" });
-		const body = await res.text();
-		const stubToJp = res.status === 200 && /http-equiv="refresh"/.test(body) && /url=\/rank\/jp\//.test(body);
-		record("R-RANK-01", "/rank/ 存根跳转到 /rank/jp/", stubToJp, `HTTP ${res.status}`);
+	// ── R-PATH-06：排行整条删除，四个旧地址**都不做 301**（站点未上线、无外链）──
+	// 断言"请求返回 404"这一半（"不在 sitemap"那一半在本文件后面的产物检查里，那儿才读得到 dist）。
+	// ⚠️ `redirect: "manual"`：不跟随后端/托管层可能残留的 301/302 —— 否则"跟着跳到一个 200 页面"
+	//    与"这里本来就 404"会得到同一个终态，判据分不出"删干净了"和"还留着跳转"。
+	const rankStatus = [];
+	for (const u of ["/rank/", "/rank/jp/", "/rank/cn/", "/rank/game/"]) {
+		rankStatus.push(`${u}=${(await fetch(`${BASE}${u}`, { redirect: "manual" })).status}`);
 	}
+	record(
+		"R-PATH-06",
+		"/rank/* 四个地址请求都返回 404",
+		rankStatus.every((s) => s.endsWith("=404")),
+		rankStatus.join(" "),
+	);
 	// R-ID-06：订阅相关的 4 条路由文件已删除，应当是**真 404**（不是 noindex 存根）
 	for (const route of REMOVED_FEED_ROUTES) {
 		const res = await fetch(`${BASE}${route}`, { redirect: "manual" });
@@ -744,7 +684,8 @@ async function main() {
 			hasBannerLinks ? "仍能找到 .banner-link 元素" : "无 .banner-link 元素",
 		);
 	}
-	// 排行页在 P2 才建：只记录状态，不参与"通过/失败"计数（否则"功能没做"会被算成 ✅）
+	// 排行榜页在 P2 才建时留下的登记处：只记录状态，不参与"通过/失败"计数（否则"功能没做"会被算成 ✅）
+	// （Task 4 起 `KNOWN_PENDING_ROUTES` 为空 —— 排行删了、也没有新的"说好要建但还没建"的路由。）
 	for (const route of KNOWN_PENDING_ROUTES) {
 		const res = await fetch(`${BASE}${route}`);
 		record("INFO(待建)", `本阶段尚未实现的路由：${route}`, true, `HTTP ${res.status}（建好后挪进 ALLOWED_ROUTES 断言 200）`);
@@ -824,24 +765,12 @@ async function main() {
 		{ name: "myanimelist-1440", path: "/myanimelist/", width: 1440, height: 900, mobile: false },
 		{ name: "vndb-1440", path: "/vndb/", width: 1440, height: 900, mobile: false },
 		{ name: "about-1440", path: "/about/", width: 1440, height: 900, mobile: false },
-		// P2 排行榜
-		{ name: "rank-jp-1440", path: "/rank/jp/", width: 1440, height: 1000, mobile: false },
-		{ name: "rank-cn-1440", path: "/rank/cn/", width: 1440, height: 1000, mobile: false },
-		{ name: "rank-jp-390", path: "/rank/jp/", width: 390, height: 844, mobile: true },
-		{ name: "rank-jp-ep-1440", path: "/rank/jp/?kind=ep", width: 1440, height: 1000, mobile: false },
-		// 宽屏再量一次比例（"行高 = 内容宽 17.4%"用 cqw 实现，越宽的屏越能暴露用 vw 的写法）
-		{ name: "rank-jp-1920", path: "/rank/jp/", width: 1920, height: 1080, mobile: false },
-		// R-RANK-07 二游排行：单一榜（没有全剧/单集）
-		{ name: "rank-game-1440", path: "/rank/game/", width: 1440, height: 1000, mobile: false },
-		{ name: "rank-game-390", path: "/rank/game/", width: 390, height: 844, mobile: true },
-		// P2R 学习路线
+		// P2R 学习路线（排行那 8 张随模块删除，Task 4 / P2R-6）
 		{ name: "roadmap-1440", path: "/roadmap/", width: 1440, height: 1000, mobile: false, roadmap: true },
 		{ name: "roadmap-390", path: "/roadmap/", width: 390, height: 844, mobile: true, roadmap: true },
 		// P3 桌宠：必须用"只有视口、不整页"的截图，否则 position:fixed 的宠物会按初始位置被画到长图里
 		{ name: "pet-1440", path: "/", width: 1440, height: 900, mobile: false, fullPage: false },
 		{ name: "pet-390", path: "/", width: 390, height: 844, mobile: true, fullPage: false },
-		// 亮色主题下的榜单（缺图占位是半透明色罩在卡片底上，亮色下白字最容易糊 → 单独留一张图）
-		{ name: "rank-jp-light-1440", path: "/rank/jp/", width: 1440, height: 1000, mobile: false, light: true },
 		// P4 内容迁移：导入的文章页（post: true → 额外采集正文事实）
 		{ name: "post-http-1440", path: "/posts/linux-net/http-xieyi/", width: 1440, height: 900, mobile: false, post: true },
 		{ name: "post-http-390", path: "/posts/linux-net/http-xieyi/", width: 390, height: 844, mobile: true, post: true },
@@ -874,7 +803,7 @@ async function main() {
 		});
 		facts[page.name] = result.value;
 
-		// 截图前先模拟"用户滚一遍"：排行榜有 IntersectionObserver 的逐行入场动效，
+		// 截图前先模拟"用户滚一遍"：页面上的入场动效靠 IntersectionObserver（原排行榜的逐行入场就是这套），
 		// 不滚一遍的话整页截图会把还没露出的行拍成空白（P2 审查时踩到过这个坑）。
 		// 注意 html 上有 `scroll-behavior: smooth`（src/styles/main.css），
 		// 必须显式 behavior:"instant"——否则 scrollTo 是动画，每步 90ms 根本到不了目标位置。
@@ -923,76 +852,18 @@ async function main() {
 		console.log(`截图 ${path.join(OUT_DIR, `${page.name}.png`)}  (${page.width}×${page.height})`);
 	}
 
-	// ── R-RANK-02：真实点一次「单集」，再按浏览器后退（验证 pushState + popstate）──
-	{
-		const loaded = cdp.once("Page.loadEventFired");
-		await cdp.send("Page.navigate", { url: `${BASE}/rank/jp/` });
-		await loaded;
-		await sleep(700);
-		await cdp.send("Runtime.evaluate", {
-			expression: `document.querySelector('[data-rank-tab="ep"]').click(); "clicked"`,
-			returnByValue: true,
-		});
-		await sleep(350);
-		const { result: afterClick } = await cdp.send("Runtime.evaluate", {
-			expression: COLLECT,
-			returnByValue: true,
-		});
-		facts["rank-jp-after-click"] = afterClick.value;
-
-		await cdp.send("Runtime.evaluate", { expression: `history.back(); "back"`, returnByValue: true });
-		await sleep(600);
-		const { result: afterBack } = await cdp.send("Runtime.evaluate", {
-			expression: COLLECT,
-			returnByValue: true,
-		});
-		facts["rank-jp-after-back"] = afterBack.value;
-	}
-
-	// ── R-RANK-02：键盘路径（WAI-ARIA tabs 的 ←/→ 切换）──
-	// 上面只验了"点一下"和"后退"，键盘可达是 prd.md §6.2 的硬要求，所以真发一次方向键。
-	// 注意必须走 Input.dispatchKeyEvent：Runtime.evaluate 里 dispatchEvent 造的合成事件
-	// 与真实按键的差别（isTrusted、默认行为）会让这条断言变得没意义。
-	{
-		await cdp.send("Runtime.evaluate", {
-			expression: `document.querySelector('[data-rank-tab="all"]').focus(); "focused"`,
-			returnByValue: true,
-		});
-		for (const type of ["rawKeyDown", "keyUp"]) {
-			await cdp.send("Input.dispatchKeyEvent", {
-				type,
-				key: "ArrowRight",
-				code: "ArrowRight",
-				windowsVirtualKeyCode: 39,
-				nativeVirtualKeyCode: 39,
-			});
-		}
-		await sleep(300);
-		const { result: afterKey } = await cdp.send("Runtime.evaluate", {
-			expression: `(() => {
-				const r = ${COLLECT};
-				r.focusedTab = (document.activeElement && document.activeElement.dataset && document.activeElement.dataset.rankTab) || null;
-				return r;
-			})()`,
-			returnByValue: true,
-		});
-		facts["rank-jp-after-key"] = afterKey.value;
-	}
-
-	// ── R-RANK-02 回归：**经 Swup 切页进入排行页**后再切换维度 ──
-	// 为什么单列一段：上面那几段都是 Page.navigate 直开，而 D1 缺陷只在 Swup 路径上出现
-	// ——@swup/scripts-plugin 会重跑容器内联脚本，initAll() 被调用两次（脚本一次 + astro:page-load 一次），
-	// 同一个按钮被绑两个 click → 点一下 pushState 两次 → 按一次后退回不到上一个榜单。
-	// 直开路径永远是绿的，所以必须专门造一次"点导航链接进来"的场景。
+	// ── R-PATH-01 通用判据：**经 Swup 点导航第 3 格切页**落到路线页，落地页与抽屉态都要对 ──
+	// 这一段的前身是 P2 的「R-RANK-02 回归：经 Swup 切页进入排行页后再切换维度」（D1 缺陷：
+	// @swup/scripts-plugin 会重跑容器内联脚本 → initAll() 被调用两次 → 同一个按钮绑两个 click
+	// → 点一下 pushState 两次 → 按一次后退回不到上一个榜单；直开路径永远是绿的，所以必须真点导航）。
+	// v1.41 起导航里再没有通往 `/rank/jp/` 的入口（那一格换成「学习路线」单链接），
+	// Task 4 删排行时按 ARCH §5.7 把**可复用的那一半**留在这里：点导航 → Swup 接管 → 落地页正确。
+	// 采集下来的 key 叫 `roadmap-via-swup`（原 `rank-via-swup`），判定在下面 R-PATH 块里。
 	{
 		const loaded = cdp.once("Page.loadEventFired");
 		await cdp.send("Page.navigate", { url: `${BASE}/` });
 		await loaded;
 		await sleep(700);
-		// 点桌面导航里的「学习路线」链接，让 Swup 接管这次跳转
-		// ⚠️ v1.41（P2R）：原来点的是导航里的「日漫排行」，但那一格已换成「学习路线」单链接，
-		//    再没有指向 /rank/jp/ 的导航入口 —— 点不到就回一个哨兵值（而不是让 undefined.click() 抛错），
-		//    下面三条断言按 SKIP 如实记账（理由见那段开头的长注释），等 P2R-6 随排行页一起退休。
 		const { result: clickedNav } = await cdp.send("Runtime.evaluate", {
 			expression: `(() => {
 				const a = document.querySelector('#navbar a[href="/roadmap/"]') || document.querySelector('a[href="/roadmap/"]');
@@ -1007,63 +878,7 @@ async function main() {
 			expression: COLLECT,
 			returnByValue: true,
 		});
-		facts["rank-via-swup"] = { nav: clickedNav.value, ...afterSwup.value };
-
-		// 进入后只点一次「单集」
-		await cdp.send("Runtime.evaluate", {
-			expression: `document.querySelector('[data-rank-tab="ep"]').click(); "clicked"`,
-			returnByValue: true,
-		});
-		await sleep(350);
-		const { result: swupClick } = await cdp.send("Runtime.evaluate", {
-			expression: COLLECT,
-			returnByValue: true,
-		});
-		facts["rank-via-swup-click"] = swupClick.value;
-
-		// 一次后退就应该回到「全剧」——若监听被绑了两遍，这里会仍停在 ep
-		await cdp.send("Runtime.evaluate", { expression: `history.back(); "back"`, returnByValue: true });
-		await sleep(700);
-		const { result: swupBack } = await cdp.send("Runtime.evaluate", {
-			expression: COLLECT,
-			returnByValue: true,
-		});
-		facts["rank-via-swup-back"] = swupBack.value;
-	}
-
-	// ⚠️ **隔离**：上面那段以「点导航进 /roadmap/」起步，而 /roadmap/ 上不存在榜单，
-	// 于是它后面所有依赖"当前页 = 排行页"的采集（打印兜底、键盘、缺图等）都会采到空值。
-	// 原来这里是隐式的（点 /rank/jp/ 的导航链接自然落在排行页），导航第 3 格换掉后必须显式回来。
-	{
-		const loaded = cdp.once("Page.loadEventFired");
-		await cdp.send("Page.navigate", { url: `${BASE}/rank/jp/` });
-		await loaded;
-		await sleep(700);
-	}
-
-	// ── R-RANK-02 兜底：打印时两块榜单都要在纸上 ──
-	{
-		await cdp.send("Emulation.setEmulatedMedia", {
-			media: "print",
-			features: [{ name: "prefers-color-scheme", value: "dark" }],
-		});
-		await sleep(150);
-		const { result: inPrint } = await cdp.send("Runtime.evaluate", {
-			expression: `(() => {
-				const panels = [...document.querySelectorAll("[data-rank-panel]")];
-				return {
-					displays: panels.map((p) => ({ kind: p.dataset.rankPanel, off: p.classList.contains("rank-panel--off"), display: getComputedStyle(p).display })),
-					tabsDisplay: getComputedStyle(document.querySelector(".rank-tabs")).display,
-					rowOpacity: getComputedStyle(document.querySelector(".rank-row")).opacity,
-				};
-			})()`,
-			returnByValue: true,
-		});
-		facts["rank-print"] = inPrint.value;
-		await cdp.send("Emulation.setEmulatedMedia", {
-			media: "",
-			features: [{ name: "prefers-color-scheme", value: "dark" }],
-		});
+		facts["roadmap-via-swup"] = { nav: clickedNav.value, ...afterSwup.value };
 	}
 
 	// ── P3 桌宠：九状态与交互（R-PET-01 ~ R-PET-05）──
@@ -2537,323 +2352,58 @@ async function main() {
 		console.log(`\n[${themeName}主题] 配色对比度（token 级）\n  ${detail.join("\n  ")}`);
 	}
 
-	// ── P2 排行榜（R-RANK-01 ~ R-RANK-06）──
+	// ── 排行模块已整体删除（Task 4 / R-PATH-06）──────────────────────────────
+	// 这里原来是从 P2 继承下来的整块 R-RANK 断言（44 条：名次两档配色与对比度、全剧/单集切换与 URL、
+	// 短评胶囊不压标题、缺图占位、二游单一榜、占位提示、榜单 10 条、`/rank/` 存根跳转……）。
+	// 44 条里 **42 条删除**（41 条在本块、1 条 `/rank/` 存根跳转在 Step 1 换成了 R-PATH-06 的 404 判据）、
+	// **2 条改名保留**成 R-PATH-01（就在本块末尾）。此外还删了 3 条 `R-NAV-07 保留页面应 200：/rank/*`
+	// （三条旧路由不再是"保留页面"）——净变化 274 → 231，逐条对照见 reports/_task4-assert-diff.txt。
+	// 留下的 3 条**测的不是排行**：
+	//   · R-PATH-01（Swup 点导航第 3 格 → 落地路线页）—— 就在下面；
+	//   · R-PATH-01（抽屉当前页高亮 / 无残留 `/rank/jp/` 项）—— 本块末尾那两条；
+	//   · R-WDG-04（首页 390px 无横向溢出）—— 与排行无关，只是当年顺手写在这块末尾。
+	// 前 5 类通用能力（390px 无溢出 / Swup 切页 / 后退 / 打印 / canonical）已由 Task 5
+	// 在 /roadmap/ 上重建（见下面 R-PATH 两块），覆盖没有丢。
 	{
-		const jp = facts["rank-jp-1440"].rank;
-		const cn = facts["rank-cn-1440"].rank;
-		const ep = facts["rank-jp-ep-1440"].rank;
-		const clicked = facts["rank-jp-after-click"].rank;
-		const back = facts["rank-jp-after-back"].rank;
-
-		record("R-RANK-01", "两个榜单页都渲染出榜单板", !!jp && !!cn, `日漫=${jp?.title} 国漫=${cn?.title}`);
-		record("R-RANK-01", "榜单标题正确", jp?.title === "日漫排行" && cn?.title === "国漫排行", `${jp?.title} / ${cn?.title}`);
-		record("R-RANK-04", "每组榜单都是 10 条", jp?.rows.length === 10 && cn?.rows.length === 10, `日漫 ${jp?.rows.length} 条 / 国漫 ${cn?.rows.length} 条`);
-		record("R-RANK-04", "占位数据提示可见（dataStatus=placeholder）", jp?.hint === true, jp?.hint ? "有提示" : "无提示");
-
-		record(
-			"R-RANK-02",
-			"默认显示「全剧」",
-			jp?.kind === "all" &&
-				jp?.panels.find((p) => p.kind === "all")?.off === false &&
-				jp?.panels.find((p) => p.kind === "ep")?.off === true,
-			JSON.stringify(jp?.panels),
-		);
-		record(
-			"R-RANK-02",
-			"点「单集」后面板切换且 URL 同步",
-			clicked?.kind === "ep" &&
-				clicked?.panels.find((p) => p.kind === "ep")?.off === false &&
-				clicked?.panels.find((p) => p.kind === "all")?.off === true &&
-				(clicked?.search ?? "").includes("kind=ep"),
-			`kind=${clicked?.kind} search=${clicked?.search}`,
-		);
-		record("R-RANK-02", "浏览器后退能回到上一个维度", back?.kind === "all", `后退后 kind=${back?.kind}`);
-
-		// D1 回归：经 Swup 切页进来时，按钮监听不能被绑两遍（否则一次点击 = 两次 pushState）
-		const swupPage = facts["rank-via-swup"];
-		// 下面这两份采集本轮已经没有断言用（原三条 Swup 判据改成 SKIP，见上），
-		// 保留是因为它们是"这一段确实跑过"的现场记录，P2R-6 删排行时会连同采集一起删
-		void facts["rank-via-swup-click"]?.rank;
-		void facts["rank-via-swup-back"]?.rank;
-		// ── D1 回归（R-RANK-02）在 v1.41 的处境 ──────────────────────────────
-		// 原来这三条钉的是"经 Swup 点导航进 /rank/jp/ 后，点一次「单集」只 pushState 一次"。
-		// 导航第 3 格换成「学习路线」单链接后，**导航里再也没有通往 /rank/jp/ 的入口**，
-		// 这条路径在 UI 上已经不可达 —— 但它钉的 D1 缺陷（@swup/scripts-plugin 重跑内联脚本 →
-		// 监听绑两遍 → 一次点击 pushState 两次）**依然存在**，只是没法再从导航触发。
-		// 所以：三条按 SKIP 记账（**不许长得像 ✅**，见文件末尾的记账规矩），
-		// 并由下面那一条把"导航点击 → Swup 接管 → 落地页正确"搬到新的可达路径（/roadmap/）上；
-		// 等 P2R-6 删掉排行页时，这三条随 R-RANK 一起退休，那条通用判据迁进 R-PATH。
-		const SWUP_SKIP_REASON = "导航已无 /rank/jp/ 入口（第 3 格换成「学习路线」），这条 Swup 路径不可达；P2R-6 随排行页删断言时一并退休";
-		record("R-RANK-02", "经 Swup 点导航进排行页能正常渲染", false, SWUP_SKIP_REASON, true);
-		record("R-RANK-02", "Swup 路径：点一次「单集」URL 只前进一档", false, SWUP_SKIP_REASON, true);
-		record("R-RANK-02", "Swup 路径：按一次后退就回到「全剧」", false, SWUP_SKIP_REASON, true);
-		// 取代它们的通用判据（R-PATH-01）：点导航第 3 格 → Swup 接管 → 落在 /roadmap/ 上且菜单态正确
-		// ⚠️ **必须带正向内容判据**（Task 3 审查修复）：只验"抽屉当前页项 == /roadmap/"与"没有榜单板"
-		//    的话，一个"URL 换对了、但页面报错/空白"的落地也会满足（抽屉态是按 pathname 算的，
-		//    `!rank` 在空页上更是必然为真）—— 那是典型的"判据空过"。这里改用正文特征：
-		//    Swup **换页后 title 仍是模板默认值**（实测不更新，所以不用它），改为断言路线页独有的
-		//    `#roadmap-stats` 文本含「133 篇 / 8 条主线」且 8 个主线区块都在（`roadmapLanding`）。
+		// R-PATH-01（Swup 路径）：点导航第 3 格 → Swup 接管 → 落在 /roadmap/ 上，且抽屉当前页态也对
+		// ⚠️ **必须带正向内容判据**（Task 3 审查修复）：只验"抽屉当前页项 == /roadmap/"的话，
+		//    一个"URL 换对了、但页面报错/空白"的落地也会满足（抽屉态是按 pathname 算的）——
+		//    那是典型的"判据空过"。这里改用正文特征：路线页独有的 `#roadmap-stats` 文本含
+		//    「133 篇 / 8 条主线」，且 8 个主线区块都在（采集项 `roadmapLanding`）。
+		// ⚠️ Task 4 顺手删掉了原来那个 `!swupPage.rank`（"落地页不该有榜单板"）：采集器里的 rank
+		//    子对象已随排行模块删除，这个条件**恒为真**，留着就是一条永远成立的空判据。
+		const swupPage = facts["roadmap-via-swup"];
 		const landing = swupPage?.roadmapLanding;
 		record(
 			"R-PATH-01",
 			"经 Swup 点导航第 3 格能进 /roadmap/（落地页有正文、抽屉当前页态也对）",
 			swupPage?.nav === "clicked" &&
-				!swupPage?.rank &&
 				(swupPage?.mobileNavActiveItems ?? []).some((i) => i.href === "/roadmap/") &&
 				/133 篇/.test(landing?.stats ?? "") &&
 				/8 条主线/.test(landing?.stats ?? "") &&
 				landing?.lineCount === 8,
-			`导航点击=${swupPage?.nav} ｜ 落地页有榜单板=${!!swupPage?.rank}（应为 false）｜ 抽屉当前页=${JSON.stringify(swupPage?.mobileNavActiveItems)} ｜ 落地正文「${landing?.stats}」主线区块 ${landing?.lineCount} 个`,
+			`导航点击=${swupPage?.nav} ｜ 抽屉当前页=${JSON.stringify(swupPage?.mobileNavActiveItems)} ｜ 落地正文「${landing?.stats}」主线区块 ${landing?.lineCount} 个`,
 		);
-		// D2：打印时两块榜单都要出现（没点过的「单集」榜不能因为没点过就印不出来）
-		const print = facts["rank-print"];
-		record(
-			"R-RANK-02",
-			"打印时两块榜单都摊开且维度按钮不印",
-			print?.displays?.length === 2 &&
-				print.displays.every((d) => d.display !== "none") &&
-				print.tabsDisplay === "none" &&
-				print.rowOpacity === "1",
-			`${JSON.stringify(print?.displays)} tabs=${print?.tabsDisplay} 行不透明度=${print?.rowOpacity}`,
-		);
-
-		const afterKey = facts["rank-jp-after-key"];
-		record(
-			"R-RANK-02",
-			"键盘 → 键能切到单集并把焦点带过去",
-			afterKey?.rank?.kind === "ep" && afterKey?.focusedTab === "ep",
-			`kind=${afterKey?.rank?.kind} 焦点在 ${afterKey?.focusedTab}`,
-		);
-		record("R-RANK-02", "带 ?kind=ep 的链接直接打开单集榜", ep?.kind === "ep" && ep?.panels.find((p) => p.kind === "ep")?.off === false, `kind=${ep?.kind}`);
-		// tab 语义 + roving tabindex：选中的那个 aria-selected=true 且 tabIndex=0，
-		// 其余 false 且 -1（只断言"是 true 或 false"几乎恒真，属于弱断言，这里连 tabindex 一起验）
-		{
-			const tabs = jp?.tabs ?? [];
-			const sel = tabs.find((t) => t.kind === "all");
-			const off = tabs.find((t) => t.kind === "ep");
-			record(
-				"R-RANK-02",
-				"维度按钮的 tab 语义与 roving tabindex 正确",
-				tabs.length === 2 && sel?.selected === "true" && sel?.tabIndex === 0 && off?.selected === "false" && off?.tabIndex === -1,
-				JSON.stringify(tabs),
-			);
-		}
-
-		// 视觉规格：行高 ≈ 内容宽 17.4%、名次列 ≈ 13.7%（ARCH §5.5 的实测值）
-		const r0 = jp?.rows[0];
-		const hRatio = r0 ? r0.h / r0.w : 0;
-		const bRatio = r0 ? r0.badgeW / r0.w : 0;
-		record(
-			"R-RANK-03",
-			"行高比例符合参考图（≈17.4%，容差 14%~21%）",
-			hRatio >= 0.14 && hRatio <= 0.21,
-			`实测 ${(hRatio * 100).toFixed(1)}%（行高 ${r0?.h}px / 行宽 ${r0?.w}px）`,
-		);
-		record(
-			"R-RANK-03",
-			"名次列比例符合参考图（≈13.7%，容差 11%~17%）",
-			bRatio >= 0.11 && bRatio <= 0.17,
-			`实测 ${(bRatio * 100).toFixed(1)}%（名次列 ${r0?.badgeW}px）`,
-		);
-
-		// 两档配色：1~3 名与 4 名以后必须不同；4+ 是橙 #EFA662 + 深色字
-		const top3 = jp?.rows.slice(0, 3) ?? [];
-		const rest = jp?.rows.slice(3) ?? [];
-		const restBg = (rest[0]?.badgeBg ?? "").replace(/\s/g, "");
-		record(
-			"R-RANK-03",
-			"名次色分两档（1~3 名与 4 名以后不同）",
-			top3.length === 3 && top3.every((r) => r.badgeBg === top3[0].badgeBg) && new Set(rest.map((r) => r.badgeBg)).size === 1 && top3[0]?.badgeBg !== rest[0]?.badgeBg,
-			`1~3 名 ${top3[0]?.badgeBg} / 4+ 名 ${restBg}`,
-		);
-		record("R-RANK-03", "4 名以后的底色是橙 #EFA662", restBg === "rgb(239,166,98)", restBg);
-		record("R-RANK-03", "4 名以后的数字是深色", (rest[0]?.badgeFg ?? "").replace(/\s/g, "") === "rgb(20,16,11)", rest[0]?.badgeFg);
-		record("R-RANK-03", "1~3 名的数字是白色", (top3[0]?.badgeFg ?? "").replace(/\s/g, "") === "rgb(255,255,255)", top3[0]?.badgeFg);
-
-		// D4：名次数字是 40px+ 粗体（算 large text，WCAG AA 阈值 3:1）。
-		// 参考图的粉 #EA7B7C 只有 2.76:1，已加深一档到 #E2696B（3.25:1）——这里用算出来的真值兜住。
-		{
-			const tBg = parseCssColor(top3[0]?.badgeBg ?? "");
-			const tFg = parseCssColor(top3[0]?.badgeFg ?? "");
-			const rBg = parseCssColor(rest[0]?.badgeBg ?? "");
-			const rFg = parseCssColor(rest[0]?.badgeFg ?? "");
-			const topRatio = tBg && tFg ? contrast(tFg, tBg) : 0;
-			const restRatio = rBg && rFg ? contrast(rFg, rBg) : 0;
-			record(
-				"R-RANK-03",
-				"1~3 名白字对粉底 ≥ 3:1（WCAG AA 大字）",
-				topRatio >= 3,
-				`实测 ${topRatio.toFixed(2)}:1（${top3[0]?.badgeFg} on ${top3[0]?.badgeBg}）`,
-			);
-			record(
-				"R-RANK-03",
-				"4 名以后深色字对橙底 ≥ 4.5:1",
-				restRatio >= 4.5,
-				`实测 ${restRatio.toFixed(2)}:1（${rest[0]?.badgeFg} on ${rest[0]?.badgeBg}）`,
-			);
-		}
-
-		// R-RANK-03：页面不出现任何百分比 / 升降箭头（参考图右侧那三列明确不做）
-		{
-			// 注意 rowsText 是**整页事实**（COLLECT 的顶层字段），不在 rank 子对象里
-			const rowsText = facts["rank-jp-1440"].rowsText ?? "";
-			const forbidden = ["%", "↑", "↓", "▲", "▼", "△", "▽", "得票", "涨幅", "升降"];
-			const hit = forbidden.filter((f) => rowsText.includes(f));
-			record(
-				"R-RANK-03",
-				"榜单里没有百分比/升降箭头/得票率",
-				hit.length === 0 && rowsText.length > 50,
-				hit.length ? `命中 ${hit.join(" ")}` : `干净（榜单文字 ${rowsText.length} 字）`,
-			);
-		}
-
-		// R-RANK-03：短评胶囊不得压住标题（绝对定位时代实测压了 60px），
-		// 也不得自己被压扁（百分比 max-width 曾把它压成一个小圆点——只测"不重叠"是假绿）
-		{
-			const withNote = (jp?.rows ?? []).filter((r) => r.overlap !== null && r.overlap !== undefined);
-			const notClipped = withNote.filter((r) => r.noteWidth && !r.noteWidth.clipped && r.noteWidth.w >= 60);
-			record(
-				"R-RANK-03",
-				"短评胶囊不覆盖标题、自身也不被压扁",
-				withNote.length >= 1 && withNote.every((r) => r.overlap <= 0) && notClipped.length === withNote.length,
-				withNote.length
-					? `有胶囊 ${withNote.length} 行，最大重叠 ${Math.max(...withNote.map((r) => r.overlap))}px，宽度 ${withNote.map((r) => `${r.noteWidth?.w}px${r.noteWidth?.clipped ? "(截断)" : ""}`).join("/")}`
-					: "没有行带胶囊，样本为 0",
-			);
-		}
-
-		// R-RANK-03：比例在更宽的屏上也要成立（cqw 的理由就是"按板宽取比例"）
-		{
-			const wide = facts["rank-jp-1920"]?.rank?.rows?.[0];
-			const wRatio = wide ? wide.h / wide.w : 0;
-			record(
-				"R-RANK-03",
-				"1920px 下比例仍成立（≈17.4%）",
-				wRatio >= 0.14 && wRatio <= 0.21,
-				`实测 ${(wRatio * 100).toFixed(1)}%（行高 ${wide?.h}px / 行宽 ${wide?.w}px）`,
-			);
-		}
-
-		// 缺图降级：有图用 img、没图用渐变占位，两者相加 = 总行数（不出现裂图）
-		const withImg = jp?.rows.filter((r) => r.hasImg).length ?? 0;
-		const withPh = jp?.rows.filter((r) => r.placeholder).length ?? 0;
-		record(
-			"R-RANK-05",
-			"配图与缺图占位互斥且覆盖全部条目",
-			withImg + withPh === (jp?.rows.length ?? -1) && withImg >= 1 && withPh >= 1,
-			`有图 ${withImg} 行 / 渐变占位 ${withPh} 行`,
-		);
-
-		record("R-RANK-06", "排行榜页在 390px 下无横向溢出", (facts["rank-jp-390"].overflowX ?? 99) <= 2, `溢出 ${facts["rank-jp-390"].overflowX}px`);
-
-		// ── R-RANK-07：二游排行（单一榜，没有「全剧 / 单集」）──
-		{
-			const game = facts["rank-game-1440"]?.rank;
-			const gameMobile = facts["rank-game-390"];
-			record(
-				"R-RANK-07",
-				"二游排行渲染出单一榜单板且带 single 标记",
-				game?.single === true && game?.title === "二游排行",
-				`single=${game?.single} title=${game?.title}`,
-			);
-			record(
-				"R-RANK-07",
-				"二游排行**没有**维度切换按钮、只有一块面板",
-				(game?.tabs?.length ?? -1) === 0 && (game?.panels?.length ?? -1) === 1 && game?.panels?.[0]?.off === false,
-				`按钮 ${game?.tabs?.length} 个 / 面板 ${JSON.stringify(game?.panels)}`,
-			);
-			record(
-				"R-RANK-07",
-				"二游排行 10 条且版式规格与另两榜一致",
-				game?.rows?.length === 10 &&
-					game.rows[0].h / game.rows[0].w >= 0.14 &&
-					game.rows[0].h / game.rows[0].w <= 0.21 &&
-					game.rows[0].badgeW / game.rows[0].w >= 0.11 &&
-					game.rows[0].badgeW / game.rows[0].w <= 0.17 &&
-					game.rows[0].badgeBg === jp?.rows?.[0]?.badgeBg &&
-					game.rows[3].badgeBg === rest[0]?.badgeBg,
-				`${game?.rows?.length} 条，行高比 ${((game?.rows?.[0]?.h / game?.rows?.[0]?.w) * 100).toFixed(1)}%，1 名底色 ${game?.rows?.[0]?.badgeBg}`,
-			);
-			record(
-				"R-RANK-07",
-				"二游排行 390px 下无横向溢出",
-				(gameMobile?.overflowX ?? 99) <= 2,
-				`溢出 ${gameMobile?.overflowX}px`,
-			);
-			// 单一榜不该被写进 ?kind=：它没有维度，URL 上出现 kind 参数说明渲染走错了分支
-			// 注意 search 在 rank 子对象里（不是整页事实）
-			record(
-				"R-RANK-07",
-				"二游排行的 URL 上没有 kind 参数",
-				game?.search === "",
-				`search="${game?.search}"`,
-			);
-		}
-
-		// R-RANK-01 / SEO：排行页自己的标题与 canonical（静态产物下 canonical 不带查询串，
-		// 两个维度共用同一张榜单页 → 不会产生 ?kind= 的重复内容）
-		record(
-			"R-RANK-01",
-			"排行页标题含榜单名",
-			(facts["rank-jp-1440"].title ?? "").includes("日漫排行") && (facts["rank-cn-1440"].title ?? "").includes("国漫排行"),
-			`${facts["rank-jp-1440"].title} / ${facts["rank-cn-1440"].title}`,
-		);
-		{
-			const canon = facts["rank-jp-ep-1440"].canonical ?? "";
-			record(
-				"R-RANK-01",
-				"canonical 指向无查询串的榜单页",
-				canon.includes("/rank/jp/") && !canon.includes("kind="),
-				canon || "（没取到 canonical）",
-			);
-		}
-
-		// R-RANK-01 的"导航子项高亮正确"（v1.41 / P2R 重指）：桌面导航栏上游没有当前页态，
-		// 真正带高亮的是移动端抽屉（按 pathname 标 data-active）。
+		// R-PATH-01（原名 R-RANK-01，Task 4 改名保留）：导航"当前页高亮"的通用判据 ——
+		// 桌面导航栏上游没有当前页态，真正带高亮的是移动端抽屉（按 pathname 标 data-active）。
 		// 原判据锚在「日漫排行」这个导航子项上，而那一格已换成「学习路线」单链接 —— 于是改锚到
 		// **当前导航里真实存在的项**上（同样验"进对应页 → 抽屉把该项标成当前页"这条通用能力）。
 		// 数据取 `facts["roadmap-390"]`（主 COLLECT 采的），**不是** `-roadmap` 后缀那一份
 		// （那份是 COLLECT_ROADMAP 的产物，只含路线页 DOM 契约，没有导航字段）。
-		// ⚠️ 这两条是 R-RANK 里的**通用判据**，P2R-6 删排行时会按 ARCH §5.7 在 R-PATH 名下重写。
 		const rmActive = facts["roadmap-390"]?.mobileNavActiveItems ?? [];
 		record(
-			"R-RANK-01",
+			"R-PATH-01",
 			"移动端导航把「学习路线」标成当前页",
 			rmActive.some((i) => i.href === "/roadmap/" && !i.inSubmenu),
 			`当前页项 ${JSON.stringify(rmActive)}`,
 		);
 		record(
-			"R-RANK-01",
+			"R-PATH-01",
 			"导航里已无「日漫排行」项，移动端自然不再把它标成当前页",
 			!(facts["home-390"]?.mobileNavActiveItems ?? []).some((i) => i.href === "/rank/jp/"),
 			`首页抽屉当前页项 ${JSON.stringify(facts["home-390"]?.mobileNavActiveItems)}`,
 		);
 
-		// R-RANK-05：缺图行要"够暗"，白字标题才立得住 —— 亮色主题最危险
-		// （占位底色若跟着卡片走，白字会糊在浅粉上；P2 亮色截图实测踩到过，已改成不透明深底）
-		for (const [themeLabel, pageName] of [
-			["暗色", "rank-jp-1440"],
-			["亮色", "rank-jp-light-1440"],
-		]) {
-			const paint = facts[pageName]?.rank?.placeholderPaint;
-			const base = parseCssColor(paint?.base ?? "");
-			const stops = [...(paint?.image ?? "").matchAll(/rgba?\([^)]*\)/g)]
-				.map((m) => parseCssColor(m[0]))
-				.filter(Boolean);
-			if (!base || !stops.length) {
-				record("R-RANK-05", `${themeLabel}：缺图占位配色可解析`, false, `base=${paint?.base} stops=${stops.length}`);
-				continue;
-			}
-			const flats = stops.map((s) => composite(s, base));
-			const lightest = flats.reduce((a, b) => (relLuminance(a) > relLuminance(b) ? a : b));
-			const ratio = contrast({ r: 255, g: 255, b: 255, a: 1 }, lightest);
-			record(
-				"R-RANK-05",
-				`${themeLabel}主题：缺图占位最亮处对白字仍 ≥ 4.5:1`,
-				ratio >= 4.5,
-				`最坏 ${ratio.toFixed(2)}:1（底色 ${paint.base}，渐变 ${stops.length} 档）`,
-			);
-		}
 		record("R-WDG-04", "首页在 390px 下无横向溢出", (facts["home-390"].overflowX ?? 99) <= 2, `溢出 ${facts["home-390"].overflowX}px`);
 	}
 
@@ -4101,52 +3651,29 @@ async function main() {
 			const sm = await fs.readFile(path.resolve("dist/sitemap-0.xml"), "utf8");
 			const gone = FORBIDDEN_ROUTES.filter((r) => sm.includes(r));
 			record("R-NAV-07", "sitemap 不含已关闭页面", gone.length === 0, gone.join(",") || "干净");
-			const kept = ["/vndb/", "/myanimelist/", "/guestbook/", "/booknav/", "/rank/jp/", "/rank/cn/", "/rank/game/"].filter(
+			// v1.41（Task 4）：三个 `/rank/*` 从"保留页面"里摘掉（排行整条删除），
+			// 换成顶上它那一格的替代页 `/roadmap/`。
+			const kept = ["/vndb/", "/myanimelist/", "/guestbook/", "/booknav/", "/roadmap/"].filter(
 				(r) => sm.includes(r),
 			);
-			record("R-NAV-07", "sitemap 含保留页面（含三个排行页）", kept.length === 7, kept.join(","));
-			// /rank/ 是 noindex 存根，不该出现在 sitemap 里。
-			// 注意不能直接 sm.includes("/rank/")——"/rank/jp/" 也含这个子串，必须按 <loc> 整条匹配。
-			const rankStubInSitemap = /<loc>[^<]*\/rank\/<\/loc>/.test(sm);
+			record("R-NAV-07", "sitemap 含保留页面（含学习路线）", kept.length === 5, kept.join(","));
+			// ── R-PATH-06：排行整条删除后，四个旧地址**一个都不许留在 sitemap 里** ──
+			// ⚠️ **必须带正向锚点**：`filter(...).length === 0` 在"读到空串 / 读到 404 页 / 路径写错"
+			//    时**恒为真** —— 那是典型的"判据空过"（本项目已两次踩到同类写法）。
+			//    所以同时要求这份 sitemap 真的是本站产物、且含本轮确定存在的页面（/roadmap/）。
+			const rankLeft = ["/rank/", "/rank/jp/", "/rank/cn/", "/rank/game/"].filter((u) => sm.includes(u));
+			const sitemapSane = sm.includes("<urlset") && sm.includes("/roadmap/");
 			record(
-				"R-RANK-01",
-				"sitemap 不含 /rank/ 跳转存根",
-				!rankStubInSitemap,
-				rankStubInSitemap ? "存根被写进 sitemap 了" : "干净",
+				"R-PATH-06",
+				"/rank/* 四个地址都不在 sitemap 里",
+				sitemapSane && rankLeft.length === 0,
+				`残留 ${rankLeft.join(",") || "无"}（这份 sitemap 可解析=${sm.includes("<urlset")}、含 /roadmap/=${sm.includes("/roadmap/")}）`,
 			);
-
-			// llms.txt（AI 抓取入口）：两个榜单页应当在 Key Pages 里，且不含 /rank/ 存根
-			const llms = await fs.readFile(path.resolve("dist/llms.txt"), "utf8");
-			const llmsHasBoth = llms.includes("/rank/jp/") && llms.includes("/rank/cn/");
-			record("R-RANK-01", "llms.txt 列出两个榜单页", llmsHasBoth, llmsHasBoth ? "两个都在" : "缺榜单页");
-			record(
-				"R-RANK-01",
-				"llms.txt 不含 /rank/ 存根",
-				!/\]\([^)]*\/rank\/\)/.test(llms),
-				"按整条 markdown 链接匹配",
-			);
-
-			// 无 JS 兜底：面板靠 `rank-panel--off` + html[data-rank-js="1"] 显隐，
-			// 所以没有 JS 时两块榜单都看得见（动态验证只能验 print，noscript 要在产物里查）。
-			const rankHtml = await fs.readFile(path.resolve("dist/rank/jp/index.html"), "utf8");
-			// 页面里不止一个 <noscript>（模板也有），必须挑出含 .rank-tabs 的那一个
-			const noscriptBlocks = [...rankHtml.matchAll(/<noscript>([\s\S]*?)<\/noscript>/g)].map((m) => m[1]);
-			const rankNoscript = noscriptBlocks.find((b) => b.includes(".rank-tabs")) ?? "";
-			record(
-				"R-RANK-01",
-				"无 JS 时 <noscript> 会藏掉维度按钮并给两块榜加小标题",
-				rankNoscript.includes(".rank-tabs") && rankNoscript.includes("data-rank-label"),
-				rankNoscript ? "noscript 样式在" : `找不到兜底样式（页面共 ${noscriptBlocks.length} 个 noscript）`,
-			);
-			// 面板上不该再出现 hidden 属性（Tailwind preflight 的 layered !important 盖不住，见 rank.css）
-			const panelsWithHiddenAttr = (rankHtml.match(/data-rank-panel="[^"]*"[^>]*\shidden[\s>]/g) ?? []).length;
-			const offClassCount = (rankHtml.match(/rank-panel--off/g) ?? []).length;
-			record(
-				"R-RANK-01",
-				"面板用 class 而非 hidden 属性做显隐",
-				panelsWithHiddenAttr === 0 && offClassCount >= 1,
-				`带 hidden 的面板 ${panelsWithHiddenAttr} 个 / rank-panel--off 出现 ${offClassCount} 次`,
-			);
+			// R-RANK-01 的「sitemap 不含 /rank/ 存根」已随排行删除（Task 4）：旧地址整条消失，
+			// 上面那条 R-PATH-06 已经把"四个地址都不在 sitemap"断言得更严（存根不是唯一要防的东西）。
+			// ⚠️ 原来那三条产物级排行断言（llms.txt 列出两个榜单页 / 无 JS 的 <noscript> 兜底 /
+			//    面板用 class 而非 hidden）也一并删除：被测页面 `dist/rank/jp/index.html` 与
+			//    `.rank-tabs` / `.rank-panel--off` 这些类名都不再存在，留着只会读文件失败把整块炸掉。
 		} catch (err) {
 			record(
 				"R-NAV-07",
@@ -6350,7 +5877,7 @@ async function main() {
 	await fs.rm(profile, { recursive: true, force: true }).catch(() => {});
 
 	// ── 报告 ──
-	// INFO 项只是记录（例如"排行页在 P2 才建"、上游主题色本身的对比度），
+	// INFO 项只是记录（例如"本阶段尚未实现的路由"、上游主题色本身的对比度），
 	// 不参与通过/失败计数，免得"功能没做"被算成 ✅、也免得报告看起来比实际更绿。
 	const functional = results.filter((r) => !r.id.startsWith("INFO"));
 	const informational = results.filter((r) => r.id.startsWith("INFO"));

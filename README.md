@@ -98,12 +98,7 @@ pnpm verify:docs    # 期望输出：`文档检查 … ：通过 N，失败 0`�
 | `pnpm: 无法将"pnpm"项识别为…` | 没装 pnpm：`npm i -g pnpm` |
 | 安装依赖卡住/报 `ETIMEDOUT` | 忘了加 `--registry=https://registry.npmmirror.com` |
 | 启动报端口被占用 | 上一台的窗口还开着；关掉它，或 `pnpm dev --port 4322` |
-| 页面标题还是 `Firefly`、导航没有"排行" | 你跑的不是这个仓库（`pwd` 确认目录），或工作区被切到了别的提交 |
 | 现在**还没有**桌宠、聊天 | 正常：桌宠在 P3、Agent 后端在 P5（见 `PROJECT_STATUS.md`） |
-| 排行榜里是"示例作品 01"这类内容 | 正常：真实榜单数据还没给（`PROJECT_STATUS.md` 的 `B-08`），页面底部也有同样的提示 |
-
-> 📌 当前阶段：**P0 / P1 / P2 已完成，等审查**。`/rank/jp/`（日漫排行）、`/rank/cn/`（国漫排行）、`/rank/game/`（二游排行，单一榜）都已经能访问，
-> 「全剧 / 单集」可切换（URL 带 `?kind=ep`）；`/rank/` 本地是跳转存根，线上由 Nginx 301 到 `/rank/jp/`。
 
 ## 常用命令
 
@@ -115,8 +110,8 @@ pnpm verify:docs    # 期望输出：`文档检查 … ：通过 N，失败 0`�
 | `pnpm build` | 生产构建：LQIP → VNDB 封面（未配置则跳过）→ Astro → 清理未用看板娘资源 → 字体子集 → 内联脚本压缩 → Pagefind 索引 |
 | `pnpm preview` | 预览 `dist/` |
 | `pnpm verify:ui` | 界面验收：274 项断言 + 泄漏扫描 + 对比度 A/B + 56 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
-| `pnpm verify:posts` | 内容校验：frontmatter / slug / 图片存在性 / 站内链接 / 残留 Obsidian 语法 / 榜单配图（**改完文章或跑完迁移后跑一次**；有错退出码 1） |
-| `pnpm verify:docs` | 文档自检：核对三份文档与仓库事实是否一致（版本号、断言/截图数、排行页清单、导航子项、需求编号、阻塞项、阶段状态）。**改完东西收工前跑一次** |
+| `pnpm verify:posts` | 内容校验：frontmatter / slug / 图片存在性 / 站内链接 / 残留 Obsidian 语法（**改完文章或跑完迁移后跑一次**；有错退出码 1） |
+| `pnpm verify:docs` | 文档自检：核对三份文档与仓库事实是否一致（版本号、断言/截图数、模块路由清单、导航子项、需求编号、阻塞项、阶段状态）。**改完东西收工前跑一次** |
 | `node scripts/import-posts.mjs --batch 1` | 迁移旧博客笔记（**默认 dry-run 只出报告**；加 `--write` 才落盘。详见下面「迁移旧笔记」一节） |
 | `node scripts/convert-wallpaper.mjs` | 把 `dosc/photo` 的 4 张壁纸转成 webp（桌面 + 移动两套），改壁纸素材时用 |
 | `pnpm make:logo` | 从 `imiss-logo.svg` 重新栅格化 Logo 与 favicon |
@@ -138,7 +133,7 @@ src/config/          所有可配置项（改站点基本只动这里）
 src/content/posts/   博客文章（Markdown）
 src/content/spec/    关于页、留言页等特殊页面内容
 src/content/dynamic/ 动态（短消息）
-src/assets/images/  需要构建期优化的图（壁纸 / 封面 / 排行榜配图 / 桌宠图集）
+src/assets/images/  需要构建期优化的图（壁纸 / 封面 / 桌宠图集）
 public/images/posts/ 文章内图片（不参与构建期优化）
 public/assets/videos/ 背景视频（原片 + 无缝兜底版）
 agent/               博客专用 Agent（Python，规划中，见 PROJECT_STATUS）
@@ -166,7 +161,7 @@ tags: [Linux, 进程]
 ![示意图](/images/posts/my-post/01.jpg)
 ```
 
-> 为什么不放 `src/assets/`：文章图片数量大，进构建期图片优化管线会显著拖长构建时间；只有壁纸、封面、排行榜配图、桌宠图集这些少量图才交给 Astro 优化。
+> 为什么不放 `src/assets/`：文章图片数量大，进构建期图片优化管线会显著拖长构建时间；只有壁纸、封面、桌宠图集这些少量图才交给 Astro 优化。
 
 ## 迁移旧笔记（Obsidian → 本站）
 
@@ -209,37 +204,6 @@ pnpm verify:posts                                # 落盘后校验
 
 **怎么用**：桌面端鼠标移到横幅**最左/最右边缘**会淡出一个箭头，点它换上一张/下一张（可循环）；也可以**按住横幅左右拖**。
 手机端不显示箭头，**左右滑动**换图。键盘：Tab 能聚焦到两侧箭头，按 Enter / 空格换图。
-
-## 维护排行榜
-
-排行榜数据在 `src/config/rankConfig.ts`：**日漫 / 国漫各两组（全剧 + 单集）+ 二游一份名单，共 5 份**；**数组顺序就是名次**，只有一期、手工维护。条目配图放 `src/assets/images/rank/`；不填配图会自动用主题色渐变占位，不会出现裂图。
-
-页面：`/rank/jp/`（日漫排行）、`/rank/cn/`（国漫排行），右上角可在「全剧 / 单集」间切换（状态写在 URL 的 `?kind=` 上，可以直接分享链接）；`/rank/game/`（二游排行）**没有维度**，直接是一份名单——它的数据在同一个文件里写成一个数组即可（`game: { ..., data: [ … ] }`）。
-
-> 现在是**占位数据**（示例作品 01~10），所以页面底部有一条提示。填完真实数据后，把同一个文件里的 `dataStatus` 从 `"placeholder"` 改成 `"final"`，提示就会消失；两张演示剧照 `_demo-0*.webp` 也可以一并删掉。
-
-### 以后怎么给榜单配背景图
-
-每个名次可以配**一张背景版**，它会整行铺满、标题白字压在上面。加图就三步：
-
-1. 把图片放进 `src/assets/images/rank/`（**格式随便**：jpg / png / webp / avif 都行）
-2. 在 `src/config/rankConfig.ts` 对应条目上加一行：`cover: "assets/images/rank/jp-all-01.jpg"`
-3. `pnpm dev` 看效果；改完图跑一次 `pnpm build`（构建期会自动生成 webp/avif 多档与 LQIP 占位色）
-
-**图片规格（给素材时按这个准备最省事）**
-
-| 项 | 值 |
-| --- | --- |
-| 比例 | **5.7 : 1**（宽:高），例如 **1600 × 280** |
-| 体积 | 单张 ≤ 150 KB（每页 10 张 ≤ 1.5 MB） |
-| 命名 | `榜单-维度-名次`：`jp-all-01.jpg`、`jp-ep-03.jpg`、`cn-all-01.jpg`、`game-01.jpg`（二游没有维度） |
-| 文字 | **不要在图里做字**（标题由页面渲染，换标题不用重做图） |
-
-> ⚠️ 直接给 16:9 的截图也能用，但会被**居中裁掉约 70% 的高度、只留中间一条**。
-> 哪条留下、哪条被切，看这张对照图：`docs/imiss/rank-cover-guide.png`
-> （想重新生成：`node scripts/make-rank-cover-guide.mjs`）。构图怕被裁的图，单独说明要保留哪一块。
->
-> 没写 `cover` 的条目会走主题色渐变占位，不会裂图；**写了路径但文件不存在**也会自动按缺图处理（构建日志里有 warning）。
 
 ### 桌宠怎么调
 

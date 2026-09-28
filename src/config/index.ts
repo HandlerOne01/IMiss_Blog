@@ -55,7 +55,6 @@ export type {
 	FontDefinition,
 	FontSelectionConfig,
 } from "../types/fontConfig"; // 字体类型定义
-export type { RankBoardConfig, RankConfig, RankEntry, RankKind } from "../types/rankConfig"; // 排行榜类型（本站新增）
 export type {
 	RoadmapConfig,
 	RoadmapLine,
@@ -89,7 +88,6 @@ export { live2dWidgetConfig, spineModelConfig } from "./pioConfig"; // 看板娘
 export { petConfig } from "./petConfig"; // 桌宠配置（R-PET，本站新增）
 export { plantumlConfig } from "./plantumlConfig"; // PlantUML 图表配置
 export { profileConfig } from "./profileConfig"; // 用户资料配置
-export { rankConfig } from "./rankConfig"; // 排行榜数据（R-RANK，本站新增）
 export { roadmapConfig } from "./roadmapConfig"; // 学习路线数据（R-PATH，本站新增）
 // 布局配置
 export { sidebarLayoutConfig } from "./sidebarConfig"; // 侧边栏布局配置

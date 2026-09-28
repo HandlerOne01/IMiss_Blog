@@ -91,7 +91,7 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 			titleSize: "4.5rem",
 			// 主页横幅副标题（打字机逐条循环）
 			// ⚠️ 占位文案，同上（B-10）
-			subtitle: ["爱弥斯的小站", "技术笔记 · 番剧排行", "还有一只会聊天的爱弥斯"],
+			subtitle: ["爱弥斯的小站", "技术笔记 · 学习路线", "还有一只会聊天的爱弥斯"],
 			// 主页横幅副标题字体大小
 			subtitleSize: "1.5rem",
 			typewriter: {

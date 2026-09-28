@@ -3,7 +3,7 @@ import { i18n } from "@i18n/translation";
 import { getSortedPosts } from "@utils/content-utils";
 import { url } from "@utils/url-utils";
 import type { APIRoute } from "astro";
-import { rankConfig, siteConfig } from "@/config";
+import { siteConfig } from "@/config";
 
 export const prerender = true;
 
@@ -91,16 +91,9 @@ const KEY_PAGES: KeyPage[] = [
 		descKey: I18nKey.sponsorDescription,
 		pageKey: "sponsor",
 	},
-	// 排行榜（本站新增，没有对应 i18n key）：
-	// 直接从 rankConfig 生成，榜单改名/加榜时这里自动跟着变。
-	// 站点简介里就写着"定期更新的番剧排行榜"，AI 抓取入口却不提这两个页面说不过去（P2 审查提出）。
-	...Object.values(rankConfig.boards).map(
-		(board): KeyPage => ({
-			label: board.title,
-			path: `/rank/${board.id}/`,
-			desc: board.description,
-		}),
-	),
+	// 学习路线（本站新增，没有对应 i18n key）：排行模块随 P2R 删除后，这一页顶上它原来的位置
+	// （v1.41：`/rank/{jp,cn,game}/` 与它们的 llms.txt 条目一并移除，`/rank/*` 不做 301）。
+	{ label: "学习路线", path: "/roadmap/", desc: "8 条主线把全站笔记串成一条学习路径（数据全部来自站内文章）" },
 ];
 
 export const GET: APIRoute = async ({ site }) => {

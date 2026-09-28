@@ -16,7 +16,7 @@ export const profileConfig: ProfileConfig = {
 
 	// 个人签名
 	// ⚠️ 占位文案，待发起人确认
-	bio: "技术笔记、番剧排行，和一只会聊天的爱弥斯。",
+	bio: "技术笔记、学习路线，和一只会聊天的爱弥斯。",
 
 	// 链接配置
 	// 已经预装的图标集：fa7-brands，fa7-regular，fa7-solid，material-symbols，simple-icons

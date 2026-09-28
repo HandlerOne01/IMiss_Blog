@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * verify-posts.mjs —— 内容与排行数据校验（阻断式），对应 R-CNT-06 / ARCH.md §9.4
+ * verify-posts.mjs —— 内容校验（阻断式），对应 R-CNT-06 / ARCH.md §9.4
  *
  * 用法：
  *   pnpm verify:posts               # 校验并打印结果（有错误时退出码 1）
@@ -15,7 +15,6 @@
  *   [错误] 正文非空
  *   [错误] 正文里的本地图片路径真实存在（含 /images/posts/... 与相对路径）
  *   [错误] frontmatter.image 若非外链则文件存在
- *   [错误] rankConfig 每条榜单条目的 title 非空、cover 文件存在
  *   [警告] 正文没有任何标题（源笔记里确有这种纯列表的短笔记，见下方说明）
  *   [警告] 残留 Obsidian 语法：![[ ]]、[[ ]]、%%注释%%、^blockid
  *   [警告] 站内链接 /posts/... 指向的文章不存在（分批导入期间会出现）
@@ -38,7 +37,6 @@ import matter from "gray-matter";
 const POSTS_DIR = "src/content/posts";
 const PUBLIC_DIR = "public";
 const QUARANTINE_DIR = "src/content/_quarantine";
-const RANK_CONFIG = "src/config/rankConfig.ts";
 const REPORT = "reports/verify-posts.json";
 
 const argv = process.argv.slice(2);
@@ -234,35 +232,6 @@ for (const file of files) {
 	}
 }
 
-/* ── rankConfig：title 非空 / cover 存在 ── */
-
-if (fs.existsSync(RANK_CONFIG)) {
-	// 先剥掉 TS 注释：文件头的用法说明里就写着 `cover: "assets/images/rank/你的图.webp"`
-	// 这种示例（实测踩过，会把示例当成真配图报错）
-	const src = fs
-		.readFileSync(RANK_CONFIG, "utf8")
-		.replace(/\/\*[\s\S]*?\*\//g, "")
-		.split("\n")
-		.map((line) => line.replace(/(^|\s)\/\/.*$/, "$1"))
-		.join("\n");
-	const entries = [...src.matchAll(/title:\s*"([^"]*)"/g)];
-	const covers = [...src.matchAll(/cover:\s*"([^"]*)"/g)];
-	if (entries.length === 0) err(RANK_CONFIG, "没解析到任何 title（rankConfig 结构变了？）");
-	for (const m of entries) {
-		if (!m[1].trim()) err(RANK_CONFIG, `榜单条目 title 为空（第 ${lineOf(src, m.index)} 行）`);
-	}
-	for (const m of covers) {
-		const value = m[1];
-		if (!value || isExternalUrl(value)) continue;
-		const abs = value.startsWith("/") ? path.join(PUBLIC_DIR, value) : path.join("src", value);
-		if (!fs.existsSync(abs)) {
-			err(RANK_CONFIG, `榜单配图不存在：${value}（第 ${lineOf(src, m.index)} 行）`);
-		}
-	}
-} else {
-	warn(RANK_CONFIG, "找不到 rankConfig.ts，跳过榜单数据校验");
-}
-
 /* ── 隔离（可选） ── */
 
 let quarantined = 0;
@@ -289,7 +258,7 @@ const group = (list, title, icon) => {
 	}
 };
 
-console.log(`verify:posts —— 检查 ${files.length} 篇文章 + 榜单配置`);
+console.log(`verify:posts —— 检查 ${files.length} 篇文章`);
 group(errors, "错误", "❌");
 group(warnings, "警告", "⚠️");
 if (info.length) {

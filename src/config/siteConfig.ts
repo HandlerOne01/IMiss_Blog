@@ -53,8 +53,10 @@ export const siteConfig: SiteConfig = {
 	site_url: "https://imiss.example.com",
 
 	// 站点描述
+	// ⚠️ v1.41（P2R）：原文后半句是"外加定期更新的番剧排行榜"——排行模块已整体删除（R-PATH-06），
+	// 这句会跟着进 meta description 与 llms.txt，留着就是对访客与 AI 抓取入口说假话，故改写为学习路线。
 	description:
-		"IMiss Blog —— 以《鸣潮》爱弥斯为主题的个人技术博客：C/C++、Linux、网络、数据库与算法的学习笔记，外加定期更新的番剧排行榜，和一只会聊天的爱弥斯桌宠。",
+		"IMiss Blog —— 以《鸣潮》爱弥斯为主题的个人技术博客：C/C++、Linux、网络、数据库与算法的学习笔记，外加把全站笔记串成一条路径的学习路线，和一只会聊天的爱弥斯桌宠。",
 
 	// 站点关键词
 	keywords: [
@@ -66,7 +68,7 @@ export const siteConfig: SiteConfig = {
 		"C++",
 		"Linux",
 		"学习笔记",
-		"番剧排行",
+		"学习路线",
 		"ACGN",
 	],
 

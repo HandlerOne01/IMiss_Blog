@@ -10,7 +10,8 @@
  *   1. 三份文档版本号一致
  *   2. 断言条数：文档里"当前口径"的数字 == 最近一次 `reports/verify-*.log` 里的实测值
  *   3. 截图张数：文档里"当前口径"的数字 == `reports/screenshots/*.png` 实际张数
- *   4. 排行页清单：`src/pages/rank/*.astro` == 文档里列出的 `/rank/xxx/`（prd 站点地图 + ARCH §5.2）
+ *   4. 模块路由清单（**v1.40 起"模块无关"**）：`src/pages/rank/*.astro` 还在 → 每个路由文件都要在 ARCH 里登记；
+ *      已删（P2R 之后就是这一态）→ prd §2 站点地图不许再留 `/rank/` 条目、ARCH 必须登记替代它的 `src/pages/roadmap.astro`
  *   5. 导航子项（**v1.41 起两态**）：「排行」组还在 → prd R-NAV-02 列的 `/rank/xxx/` == `navBarConfig.ts` 里
  *      「排行」的 children 且都有路由文件；「排行」组已删（现在就是这一态）→ `navBarConfig.ts` 必须有
  *      「学习路线」→ `/roadmap/`（**不带 children**、全文件无「排行」组），且 prd 的 R-NAV-02 行仍存在、不再列任何 `/rank/…`
@@ -18,7 +19,8 @@
  *   7. 阻塞项：`阻塞项 N 条` == B-xx 行数，且编号连续
  *   8. 阶段状态：§2 标了 ✅ 的阶段，§3 的小节标题也必须带 ✅（反之亦然）
  *   9. "最后更新"日期三份一致
- *  10. 配置事实：`displaySettingsConfig.enable` / `rankConfig.dataStatus` ↔ 文档说法；"4 组数据"是否漏了二游那第 5 份
+ *  10. 配置事实：`displaySettingsConfig.enable` ↔ 文档说法
+ *      （原 10b `rankConfig.dataStatus` 与 10c"4 组数据是否漏了二游那第 5 份"两条随排行模块一并删除，见 P2R-8）
  *  11. 文件编码：受版本控制的文本文件不带 UTF-8 BOM（PowerShell 会偷偷加）
  *
  * 用法：`pnpm verify:docs`（先跑过 `pnpm verify:ui` 才有最新的 reports 日志做基准；
@@ -378,37 +380,9 @@ const allDocs = { "prd.md": prd, "ARCH.md": arch, "PROJECT_STATUS.md": status, [
 		dsEnable !== null && (dsEnable === "true") === prdSaysOn,
 		`配置 enable=${dsEnable}；prd 段落${prdSaysOn ? "有" : "没有"}"现已是 enable: true"`,
 	);
-
-	// 10b. rankConfig.dataStatus ↔ 文档是否都说"占位数据"
-	const rcSrc = await readAny("src/config/rankConfig.ts");
-	const dataStatus = /dataStatus:\s*"(\w+)"/.exec(rcSrc)?.[1] ?? null;
-	const placeholderMentions = ["PROJECT_STATUS.md", README].filter((d) =>
-		/占位数据/.test(allDocs[d]),
-	).length;
-	record(
-		"配置事实",
-		`rankConfig.dataStatus 与文档的"占位/正式"说法一致（实际 ${dataStatus}）`,
-		(dataStatus === "placeholder") === placeholderMentions > 0,
-		`dataStatus=${dataStatus}；PROJECT_STATUS/README 提到"占位数据"的份数=${placeholderMentions}`,
-	);
-
-	// 10c. 出现"4 组数据/4 组榜单"的行，必须同时提到二游（否则就是漏了第 5 份）
-	//      —— P2 加二游排行时，B-08 与 README 就是这么停在旧说法的。
-	//      注意别把"4 组实测规格"这类说法算进来（那是 R-RANK-03 的四条版式规格），所以要限定后面跟的词。
-	const badLines = [];
-	for (const [doc, text] of Object.entries(allDocs)) {
-		for (const line of text.split("\n")) {
-			if (/(4|四)\s*组\s*(数据|榜单)/.test(line) && !/二游/.test(line)) {
-				badLines.push(`${doc}: ${line.trim().slice(0, 60)}…`);
-			}
-		}
-	}
-	record(
-		"配置事实",
-		'提到"4 组/四组"排行榜数据的行都同时说明了二游那第 5 份',
-		badLines.length === 0,
-		badLines.length ? badLines.join(" ｜ ") : "没有漏项",
-	);
+	// ⚠️ v1.41（P2R）：这里原有两条排行专属检查，随排行模块一起删除（P2R-8）——
+	//    10b `rankConfig.dataStatus` ↔ 文档"占位数据"说法（配置文件已不存在，读它只会把脚本整个抛错）；
+	//    10c 出现"4 组/四组（数据|榜单）"的行是否都提到二游那第 5 份（榜单只剩 0 份，"第 5 份"无从谈起）。
 }
 
 // ── 11. 受版本控制的文本文件不带 UTF-8 BOM ────────────────
