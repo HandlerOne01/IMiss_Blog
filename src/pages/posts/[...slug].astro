@@ -32,7 +32,6 @@ import { coverImageConfig } from "@/config/coverImageConfig";
 import { licenseConfig } from "@/config/licenseConfig";
 import { profileConfig } from "@/config/profileConfig";
 import { siteConfig } from "@/config/siteConfig";
-import { sponsorConfig } from "@/config/sponsorConfig";
 import { formatDateToYYYYMMDD } from "@/utils/date-utils";
 import { getApiUrlList, processCoverImageSync } from "@/utils/image-utils";
 import {
@@ -48,9 +47,9 @@ import {
 } from "@/utils/schema-utils";
 import { url } from "@/utils/url-utils";
 
-const showSponsorButton =
-	sponsorConfig.showButtonInPost && siteConfig.pages.sponsor;
-const showPostActionCard = siteConfig.post.share || showSponsorButton;
+// P4-8（v1.47）：打赏按钮整条移除 —— `sponsorConfig` 已删除，`/sponsor/` 也已不存在。
+// 这张卡片现在只剩"分享"一种用途，但仍保留 `siteConfig.post.share` 开关（关上就整卡不渲染）。
+const showPostActionCard = siteConfig.post.share;
 
 export async function getStaticPaths() {
 	const blogEntries = await getSortedPosts();
@@ -442,27 +441,16 @@ const seriesData = await getSeriesPosts(entry);
                     <div class="flex items-center gap-3 flex-1">
                       <div class="h-12 w-12 rounded-lg bg-(--primary) flex items-center justify-center text-white dark:text-black/70 shrink-0">
                         <Icon
-                          name={sponsorConfig.showButtonInPost &&
-                          siteConfig.pages.sponsor
-                            ? "material-symbols:favorite"
-                            : "material-symbols:share"}
+                          name="material-symbols:share"
                           class="text-2xl"
                         />
                       </div>
                       <div>
                         <h3 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-1">
-                          {
-                            sponsorConfig.showButtonInPost && siteConfig.pages.sponsor
-                              ? i18n(I18nKey.sponsorButton)
-                              : i18n(I18nKey.shareOnSocial)
-                          }
+                          {i18n(I18nKey.shareOnSocial)}
                         </h3>
                         <p class="text-sm text-neutral-600 dark:text-neutral-400">
-                          {
-                            sponsorConfig.showButtonInPost && siteConfig.pages.sponsor
-                              ? i18n(I18nKey.sponsorButtonText)
-                              : i18n(I18nKey.shareOnSocialDescription)
-                          }
+                          {i18n(I18nKey.shareOnSocialDescription)}
                         </p>
                       </div>
                     </div>
@@ -482,17 +470,6 @@ const seriesData = await getSeriesPosts(entry);
                             avatar={posterAvatarUrl}
                             avatarSelector={posterAvatarSelector}
                           />
-                        )
-                      }
-                      {
-                        showSponsorButton && (
-                          <a
-                            href={url("/sponsor/")}
-                            class="inline-flex items-center gap-2 px-6 py-3 bg-(--primary) text-white dark:text-black/70 rounded-lg font-medium hover:bg-(--primary)/80 hover:scale-105 active:scale-95 transition-all whitespace-nowrap"
-                          >
-                            <span>{i18n(I18nKey.sponsor)}</span>
-                            <Icon name="fa7-solid:arrow-right" class="text-sm" />
-                          </a>
                         )
                       }
                     </div>
@@ -532,27 +509,16 @@ const seriesData = await getSeriesPosts(entry);
                     <div class="flex items-center gap-3 flex-1">
                       <div class="h-12 w-12 rounded-lg bg-(--primary) flex items-center justify-center text-white dark:text-black/70 shrink-0">
                         <Icon
-                          name={sponsorConfig.showButtonInPost &&
-                          siteConfig.pages.sponsor
-                            ? "material-symbols:favorite"
-                            : "material-symbols:share"}
+                          name="material-symbols:share"
                           class="text-2xl"
                         />
                       </div>
                       <div>
                         <h3 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-1">
-                          {
-                            sponsorConfig.showButtonInPost && siteConfig.pages.sponsor
-                              ? i18n(I18nKey.sponsorButton)
-                              : i18n(I18nKey.shareOnSocial)
-                          }
+                          {i18n(I18nKey.shareOnSocial)}
                         </h3>
                         <p class="text-sm text-neutral-600 dark:text-neutral-400">
-                          {
-                            sponsorConfig.showButtonInPost && siteConfig.pages.sponsor
-                              ? i18n(I18nKey.sponsorButtonText)
-                              : i18n(I18nKey.shareOnSocialDescription)
-                          }
+                          {i18n(I18nKey.shareOnSocialDescription)}
                         </p>
                       </div>
                     </div>
@@ -572,17 +538,6 @@ const seriesData = await getSeriesPosts(entry);
                             avatar={posterAvatarUrl}
                             avatarSelector={posterAvatarSelector}
                           />
-                        )
-                      }
-                      {
-                        showSponsorButton && (
-                          <a
-                            href={url("/sponsor/")}
-                            class="inline-flex items-center gap-2 px-6 py-3 bg-(--primary) text-white dark:text-black/70 rounded-lg font-medium hover:bg-(--primary)/80 hover:scale-105 active:scale-95 transition-all whitespace-nowrap"
-                          >
-                            <span>{i18n(I18nKey.sponsor)}</span>
-                            <Icon name="fa7-solid:arrow-right" class="text-sm" />
-                          </a>
                         )
                       }
                     </div>

@@ -25,12 +25,8 @@ const KEY_PAGES: KeyPage[] = [
 	{ labelKey: I18nKey.home, path: "/" },
 	{ labelKey: I18nKey.archive, path: "/archive/" },
 	{ labelKey: I18nKey.about, path: "/about/" },
-	{
-		labelKey: I18nKey.friends,
-		path: "/friends/",
-		descKey: I18nKey.friendsDescription,
-		pageKey: "friends",
-	},
+	// P4-8（v1.47）：`/friends/` 与 `/sponsor/` 两个条目已删除 —— 两个页面的源文件都没了
+	// （真 404），留着 `pageKey: "friends" / "sponsor"` 只是引用两个已经不存在的路由。
 	{
 		labelKey: I18nKey.guestbook,
 		path: "/guestbook/",
@@ -85,12 +81,7 @@ const KEY_PAGES: KeyPage[] = [
 		descKey: I18nKey.malSubtitle,
 		pageKey: "mal",
 	},
-	{
-		labelKey: I18nKey.sponsor,
-		path: "/sponsor/",
-		descKey: I18nKey.sponsorDescription,
-		pageKey: "sponsor",
-	},
+	// P4-8（v1.47）：`/sponsor/` 条目已删除（打赏整条移除，页面文件也没了）。
 	// 学习路线（本站新增，没有对应 i18n key）：排行模块随 P2R 删除后，这一页顶上它原来的位置
 	// （v1.41：`/rank/{jp,cn,game}/` 与它们的 llms.txt 条目一并移除，`/rank/*` 不做 301）。
 	{ label: "学习路线", path: "/roadmap/", desc: "8 条主线把全站笔记串成一条学习路径（数据全部来自站内文章）" },
