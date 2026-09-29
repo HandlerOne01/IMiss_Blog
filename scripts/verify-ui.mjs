@@ -6858,17 +6858,25 @@ async function main() {
 		// ⑦ 音乐配置：本地歌单已清空、两个入口开关都关了（配置层的事实，不是只看渲染）
 		{
 			const musicCfg = await fs.readFile(path.resolve("src/config/musicConfig.ts"), "utf8");
-			const playlistEmpty = /playlist:\s*\[\s*\]/.test(musicCfg);
-			const navOff = /showInNavbar:\s*false/.test(musicCfg);
-			const sideOff = /showInSidebar:\s*false/.test(musicCfg);
-			// ⚠️ `meting.id`（网易云歌单 10046455237）**故意保留未删**：归属未定，见报告。
-			//    这条断言只钉"歌单空 + 入口关"，不碰 meting。
-			const metingKept = musicCfg.includes("10046455237");
+			// P4-8 收尾轮（v1.48）：`meting.id` 的归属已定 —— 发起人 2026-09-29 确认
+			// `10046455237` **不是自己的**，已清成空串。这条断言**就地换成新口径**（不是删掉）：
+			// 旧口径钉的是"上游歌单 ID 还在（=保留未删）"，新口径钉的是"上游歌单 ID 不再出现在
+			// **生效的配置**里 + `id` 确实为空 + `mode` 仍是 local（没被顺手切走）"。
+			// ⚠️ **必须先剥掉 `//` 行注释再扫**：本仓库的惯例是"清空值、并在注释里标注原值来源"
+			//    （R-ID-05 就是这么做的），`musicConfig.ts` 的注释里**故意留着**那个上游 ID 作历史记录。
+			//    不剥注释的话这条断言会被自己的说明文字判红 —— 第一版实测正是这样红的
+			//    （`meting.id 已清空=false` 而 id 其实早就空了），与 T85"判据扫错层"是同一类坑。
+			const musicCode = musicCfg.replace(/\/\/[^\n]*/g, "");
+			const playlistEmpty = /playlist:\s*\[\s*\]/.test(musicCode);
+			const navOff = /showInNavbar:\s*false/.test(musicCode);
+			const sideOff = /showInSidebar:\s*false/.test(musicCode);
+			const metingCleared = !musicCode.includes("10046455237") && /^\s*id:\s*""/m.test(musicCode);
+			const modeStillLocal = /mode:\s*"local"/.test(musicCode);
 			record(
 				"R-ID-06",
-				"musicConfig：本地歌单已清空 + 两个播放器入口开关均 false（meting.id 按「归属未定」保留）",
-				playlistEmpty && navOff && sideOff && metingKept,
-				`playlist 空=${playlistEmpty}，showInNavbar=false=${navOff}，showInSidebar=false=${sideOff}，meting.id 保留=${metingKept}`,
+				"musicConfig：本地歌单已清空 + 两个播放器入口开关均 false + 上游 meting 歌单 ID 已清空（mode 仍 local）",
+				playlistEmpty && navOff && sideOff && metingCleared && modeStillLocal,
+				`playlist 空=${playlistEmpty}，showInNavbar=false=${navOff}，showInSidebar=false=${sideOff}，meting.id 已清空=${metingCleared}，mode=local=${modeStillLocal}`,
 			);
 		}
 		await goto(`${BASE}/`);

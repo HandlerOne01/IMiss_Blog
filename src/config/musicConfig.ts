@@ -34,7 +34,11 @@ export const musicPlayerConfig: MusicPlayerConfig = {
 		// 类型：song=单曲, playlist=歌单, album=专辑, search=搜索, artist=艺术家
 		type: "playlist",
 		// 歌单/专辑/单曲 ID 或搜索关键词
-		id: "10046455237",
+		// P4-8 收尾轮（v1.48）：原来是上游示例歌单 ID `10046455237`（发起人 2026-09-29 确认
+		// 不是自己的），已清空。**本机模式是 `local`（见上面 `mode`），这一项只在把 `mode`
+		// 切成 `meting` 时才生效** —— 留空是发起人 2026-09-29 的决定；将来要用 meting 模式，
+		// 先把这里填成自己的歌单/单曲 ID。
+		id: "",
 		// 认证 token（可选）
 		auth: "",
 		// 备用 API 配置（当主 API 失败时使用）
