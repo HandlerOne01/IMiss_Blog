@@ -3,8 +3,8 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | IMiss Blog |
-| 文档版本 | v1.42 |
-| 最后更新 | 2026-09-27 |
+| 文档版本 | v1.43 |
+| 最后更新 | 2026-09-29 |
 | 关联文档 | `ARCH.md`（架构与技术设计）、`PROJECT_STATUS.md`（阶段、进度、下一步、阻塞项） |
 | 基线代码 | Firefly v6.16.8（Astro 7 静态站点），来源 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\my_-blog\Blog template` |
 | 需求来源 | 项目发起人口述需求 + 参考站点 <https://firefly.cuteleaf.cn/series/> + 原型 `my_-blog\blog_test` + 排行榜参考图 `my_-blog\dosc\排行`（⚠️ **历史来源**：排行模块已于 v1.41 整体移除、参考图随之作废，此行只为保留需求出处，见 R-PATH-06 与 `ARCH.md` §14.4） |
@@ -139,7 +139,7 @@
 | R-ID-01 | 站点名改为 IMiss Blog |① 导航栏标题 = `IMiss Blog`；② 浏览器标题、OG 标题同步；③ 页脚版权名（`profileConfig.name`）与站点名分开，用作者名 | 首页标签页显示 `IMiss Blog`；导航栏左侧文字为 `IMiss Blog` | ★ |
 | R-ID-02 | 主题色改为爱弥斯粉 | `themeColor.hue = 345`，亮/暗两套主题都检查对比度（正文与背景、按钮文字）。⚠️ 注意：**345 是默认值**——R-ID-07 的显示设置面板对访客开放后，访客能在面板里拖"主题色相"覆盖它（写进他自己的 localStorage，只影响本人） | 亮暗模式下主色、链接、按钮均为粉色系；未动过面板时色相为 345；正文对比度 ≥ 4.5:1 | ★ |
 | R-ID-03 | 站点元信息 | 标题、副标题、描述、关键词、`site_url`（域名待提供，先占位并记待办） | `site_url` 用占位域名时 sitemap 正常生成、不报错（RSS/Atom 已随 R-ID-06 删除）；填真值后 OG 图为绝对地址；`verify:ui` 断言 description/keywords 非空、URL 是本站占位域名 | ★ |
-| R-ID-04 | 站点标识（Logo 与 favicon）【假设】 | 设计一个矢量标识（**手写 SVG**：`src/assets/images/logo/imiss-logo.svg`），三要素取自爱弥斯：粉色晶体心 + 青色四角星芒 + 机械翼片，深蓝紫方圆底（深浅两种导航栏都清晰，也适合做 favicon）；由 `pnpm make:logo` 栅格化成导航栏 Logo（webp，亮/暗各一）与 favicon 四档（32/128/180/192）。正式 Logo 到位后替换 SVG 或直接覆盖产物 | 导航栏亮暗模式下标识都清晰、不拉伸；32px favicon 下仍可辨认；改设计只需改那一个 SVG 并重跑脚本 | ◆ |
+| R-ID-04 | 站点标识（Logo 与 favicon）【假设】 | 设计一个矢量标识（**手写 SVG**：`src/assets/images/logo/imiss-logo.svg`），三要素取自爱弥斯：粉色晶体心 + 青色四角星芒 + 机械翼片，深蓝紫方圆底（深浅两种导航栏都清晰，也适合做 favicon）；由 `pnpm make:logo` 栅格化成导航栏 Logo（webp，亮/暗各一）与 favicon 四档（32/128/180/192）。正式 Logo 到位后替换 SVG 或直接覆盖产物。**四档全部登记进 `siteConfig.favicon` 并各带 `sizes`**（v1.43 / P6-8：此前只登记了 32px，180/192 生成了却无人引用） | 导航栏亮暗模式下标识都清晰、不拉伸；32px favicon 下仍可辨认；改设计只需改那一个 SVG 并重跑脚本；**`apple-touch-icon` 指向 180×180 那张**（Apple 约定），`verify:ui` 有断言钉住 | ◆ |
 | R-ID-05 | 清理上游示例凭据与假数据 | 模板把上游作者的示例值直接提交在了配置里：`mal.clientId` 是**带前导制表符的 32 位十六进制串**（形如真实凭据，`mal-utils.ts` 还会把它原样塞进请求头）；另有 `mal.username`、`vndb.userId`、`bangumi.userId`、`bilibili.uid`。**首页横幅里的上游作者邮箱（`mailto:xiaye@msn.com`，会被编码成 base64 挂到每个页面）与 GitHub 链接也属于这一批**（见 R-NAV-06）。全部清空或替换为本站占位，避免把别人的凭据与身份随仓库分发 | 配置里不再出现上游示例 ID；`mal.clientId` 为空字符串且无前后空白；`verify:ui` 对 `/`、`/about/`、`/guestbook/`、`/posts/*` 的上游信息扫描零命中 | ★ |
 | R-ID-06 | 删除订阅（RSS / Atom）功能 | 发起人不需要订阅功能。要删的对象：① `/rss/`、`/atom/` 两个介绍页与 `/rss.xml`、`/atom.xml` 两个 feed 路由；② `src/utils/feed-utils.ts`；③ `<head>` 里两条 `<link rel="alternate">`；④ 页脚的 RSS/Atom 链接（保留 Sitemap）；⑤ **首页横幅那行订阅图标**（`homeText.linksEnable: false` + 清空 links）；⑥ 侧栏资料卡的订阅图标（`profileConfig.links` 清空）。恢复清单见 `ARCH.md` §14.4 | 四条订阅路由**真 404**（文件已删，不是 noindex 存根）；首页/页脚/资料卡/head 里都不再出现 rss/atom 字样；`verify:ui` 有对应断言 | ★ |
 | R-ID-07 | 显示设置面板（调色盘 + 界面结构管理） | **上游自带、默认 `enable: false`**（P1 期间未做任何改动）。面板条目：主题色选择器（调色盘）、文章列表布局、卡片边框、卡片跟随主题色、壁纸模式切换、全屏布局、水波纹、渐变过渡、横幅标题、壁纸轮播、覆盖模式三个滑块、樱花特效。**发起人已决定（2026-09-24）：对访客默认开启，且所有条目全开**（原话"肯定要这个啊"）→ **现已是 `enable: true` + 13 个条目全开**。**面板本身的改进暂缓**：发起人指示"先不改，先把 P2/P3 做完"，所以改造项（增删条目 / 样式 / 交互 / 重置按钮等）排在 P2、P3 之后 | 面板按钮（`#display-settings-switch`，调色盘图标）出现在导航栏、面板容器已渲染、每项都能生效并写入 localStorage；`verify:ui` 有对应断言；体积代价已实测（`ARCH.md` §13：**+11.6 KB/页**，低于上游注释估的 33KB） | ◆ 已实现（改进待排期） |

@@ -364,6 +364,19 @@ const COLLECT = `(() => {
     settingsPanel: !!document.querySelector('[data-floating-panel-trigger="display-settings-switch"]'),
     infoText: txt(infoRoot),
     favicons: [...document.querySelectorAll('link[rel*="icon"]')].map((l) => l.getAttribute("href")),
+    // P6-8：apple-touch-icon 单收一份带 sizes 的（光看上面的 href 列表分不出"哪个 rel 配哪个尺寸"，
+    // 而这条 bug 的本质正是「rel 挑错了文件」）。选择器写成 [rel="apple-touch-icon"] 精确匹配。
+    appleTouchIcons: [...document.querySelectorAll('link[rel="apple-touch-icon"]')].map((l) => ({
+      href: l.getAttribute("href"),
+      sizes: l.getAttribute("sizes"),
+      type: l.getAttribute("type"),
+    })),
+    // P6-8：favicon 数组里每一项的 sizes 也要能看到 —— 断言"32px 那张不许被当成触屏图标"时，
+    // 报告里得同时有"选中的是谁"和"候选里都有谁"，否则红了也不知道该改哪。
+    faviconSizes: [...document.querySelectorAll('link[rel="icon"]')].map((l) => ({
+      href: l.getAttribute("href"),
+      sizes: l.getAttribute("sizes"),
+    })),
     bodyText: document.body.innerText.replace(/\\s+/g, " ").trim().slice(0, 4000),
   };
 })()`;
@@ -2289,6 +2302,22 @@ async function main() {
 	record("R-ID-01", "站点名 IMiss Blog（标题 + 导航栏品牌）", home.title.includes("IMiss Blog") && (home.brand ?? "").includes("IMiss Blog"), `title=${home.title} brand=${home.brand}`);
 	record("R-ID-02", "主题色相 = 345", home.hueComputed === EXPECT_HUE || home.hueInline === EXPECT_HUE, `inline=${home.hueInline} computed=${home.hueComputed}`);
 	record("R-ID-04", "favicon 已换成 imiss", home.favicons.some((h) => (h ?? "").includes("imiss-32.png")), JSON.stringify(home.favicons));
+	// P6-8：apple-touch-icon 必须是 180px 那张（Apple 约定边长），不是"数组里第一个 png"。
+	// 断言分两半：① 选中的文件 = imiss-180.png 且带 sizes="180x180"（Apple 认这个提示）；
+	// ② 它**不能**是 32px —— 这一半是回归关键：旧实现挑中的正是 imiss-32.png，
+	// 只要有人把 Layout 的挑选逻辑改回"第一个 png"，② 立刻红。
+	// 旧配置下这条会红（当时数组只有 32px 一项）—— 修 P6-8 前先注入验证过它真的会红。
+	{
+		const ati = home.appleTouchIcons ?? [];
+		const first = ati[0];
+		const hit = /imiss-180\.png/.test(first?.href ?? "");
+		record(
+			"R-ID-04",
+			"apple-touch-icon 指向 180px 图标（不是 32px）",
+			ati.length >= 1 && hit && first?.sizes === "180x180" && !/imiss-32\.png/.test(first?.href ?? ""),
+			`apple-touch-icon=${JSON.stringify(ati)} ｜ rel=icon 候选=${JSON.stringify(home.faviconSizes)}`,
+		);
+	}
 	record("R-ID-04", "导航栏 Logo 已换成 imiss", (home.logoSrc ?? "").includes("imiss"), home.logoSrc ?? "（没取到 logo）");
 	record("R-WDG-01", `站点统计只剩 ${EXPECT_STAT_ROWS} 行`, home.statRows === EXPECT_STAT_ROWS, `实际 ${home.statRows} 行`);
 	record("R-WDG-01", "站点统计不含已删文案", EXPECT_ABSENT_STAT_TEXT.every((t) => !(home.statText ?? "").includes(t)), "运行时长/最后活动/天前 均未出现");

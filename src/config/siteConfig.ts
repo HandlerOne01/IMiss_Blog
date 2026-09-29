@@ -98,6 +98,9 @@ export const siteConfig: SiteConfig = {
 	// 如果启用了OpenGraph图片功能，数组中需要包含png格式的favicon图标
 	// IMiss Blog：临时 favicon 由 scripts/make-logo.mjs 从桌宠图集裁出（见 prd.md R-ID-04），
 	// 正式图标到位后覆盖 public/favicon/imiss-*.png 即可
+	// ⚠️ P6-8：数组**每一项都要写 `sizes`**。Layout.astro 选 apple-touch-icon 时按这里的
+	// 尺寸挑（优先 180×180，见该文件 `appleTouchIcon`），schema-image.ts 也按尺寸挑最大的
+	// raster 当 publisher logo；不写 sizes 会让它们退化成"猜"，32px 有被挑中的风险。
 	favicon: [
 		{
 			// 图标文件路径
@@ -105,7 +108,18 @@ export const siteConfig: SiteConfig = {
 			// 可选，指定主题 'light' | 'dark'
 			// theme: "light",
 			// 可选，图标大小
-			// sizes: "32x32",
+			sizes: "32x32",
+		},
+		// P6-8：下面两张早就由 `pnpm make:logo` 生成，此前**无人引用**（180 是 Apple 触屏图标
+		// 的标准边长，192 是 Android/Chrome 主屏图标）。接进来后 apple-touch-icon 才会指向
+		// 180px 那张，而不是"数组里第一个 png"（那时是 32px → 主屏图标被放大成糊的）。
+		{
+			src: "/favicon/imiss-180.png",
+			sizes: "180x180",
+		},
+		{
+			src: "/favicon/imiss-192.png",
+			sizes: "192x192",
 		},
 	],
 

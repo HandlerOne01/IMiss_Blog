@@ -63,6 +63,9 @@ export type SiteConfig = {
 	favicon: Array<{
 		src: string;
 		theme?: "light" | "dark";
+		// "WxH"，如 "180x180"。**建议每一项都写**（P6-8）：Layout.astro 据此挑 apple-touch-icon
+		// （优先 180×180）、schema-image.ts 据此挑最大的 raster 当 publisher logo；
+		// 不写就等于放弃挑选依据，退回"数组顺序"。
 		sizes?: string;
 	}>;
 

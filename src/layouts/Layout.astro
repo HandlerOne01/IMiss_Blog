@@ -111,9 +111,23 @@ if (title) {
 
 const favicons: Favicon[] =
 	siteConfig.favicon.length > 0 ? siteConfig.favicon : defaultFavicons;
-// apple-touch-icon：优先取 favicon 中的 png，否则取第一个
+// apple-touch-icon（P6-8）：**优先 180×180**，其次其它 png 里面积最大的，最后才退到第一项。
+// 旧实现是「取 favicon 数组里第一个 .png」，而数组里第一项正是 32px 那张 → 加到 iOS 主屏的
+// 图标是放大糊掉的 32px。180×180 是 Apple 的约定边长（`sizes="180x180"`）。
+// 选面积最大而非"第一个"还有一层保险：`siteConfig.favicon` 里没写 sizes 时 w 为 0，
+// 依据 `sizes` 排序就退化成"保持原顺序"，仍与旧行为一致，不会把没写 sizes 的配置选崩。
+const parseFaviconSize = (sizes?: string): number => {
+	const m = sizes?.match(/^(\d+)x(\d+)$/);
+	return m ? Number(m[1]) * Number(m[2]) : 0;
+};
 const appleTouchIcon =
-	favicons.find((f) => f.src.toLowerCase().endsWith(".png")) ?? favicons[0];
+	favicons.find(
+		(f) => f.sizes === "180x180" && f.src.toLowerCase().endsWith(".png"),
+	) ??
+	[...favicons]
+		.filter((f) => f.src.toLowerCase().endsWith(".png"))
+		.sort((a, b) => parseFaviconSize(b.sizes) - parseFaviconSize(a.sizes))[0] ??
+	favicons[0];
 
 // const siteLang = siteConfig.lang.replace('_', '-')
 if (!lang) {
