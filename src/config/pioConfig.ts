@@ -8,6 +8,13 @@ export const spineModelConfig: SpineModelConfig = {
 	// Spine模型配置
 	model: {
 		// Spine模型文件路径
+		// ⚠️ P4-8（v1.47）：`public/pio/**`（约 15 MiB 的上游看板娘素材）已按发起人批准整体删除，
+		//    所以下面这个路径**现在指向一个不存在的文件**。这是刻意的、当前安全的：
+		//      · `enable: false`（见上方）→ 没有任何消费者会去 fetch 这个路径；
+		//      · `scripts/prune-pio-assets.ts` 本来就会在构建后把 `dist/pio` 整个删掉，
+		//        即"就算素材还在，产物里也没有它"。
+		//    保留这行是为了不改动类型契约与配置结构；**将来要重新启用 spine 看板娘时，
+		//    必须先把模型素材放回 public/pio/models/spine/… 再改这里**，别以为改个 enable 就能用。
 		path: "/pio/models/spine/firefly/1310.json",
 		// 模型缩放比例
 		scale: 1.0,
@@ -90,6 +97,9 @@ export const live2dWidgetConfig: Live2DWidgetConfig = {
 	model: [
 		{
 			// Live2D模型本地文件路径
+			// ⚠️ P4-8（v1.47）：同 spine —— `public/pio/**` 已整体删除，该路径不再指向真实文件。
+			//    `enable: false` 下无人消费，且 prune-pio-assets.ts 会把 dist/pio 整个删掉，故当前无影响；
+			//    要重新启用 live2d，先把 snow_miku 模型素材放回 public/pio/models/live2d/ 再说。
 			path: "/pio/models/live2d/snow_miku/model.json",
 			// 动作声音音量 范围0~1，默认 0（静音）
 			volume: 0,
