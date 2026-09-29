@@ -23,7 +23,7 @@ export type {
 } from "./expressiveCodeConfig";
 export type { FontSelectionConfig } from "./fontConfig";
 // P4-8（v1.47）：友链类型不再 re-export（`src/config/friendsConfig.ts` 已删除）。
-// `src/types/friendsConfig.ts` 本身保留为孤立的类型定义文件，见报告 §遗留。
+// P4-8 收尾轮（v1.48）：`src/types/friendsConfig.ts` 也已整文件删除 —— 零引用、零消费者。
 export type { GalleryAlbum, GalleryConfig } from "./galleryConfig";
 export type { LicenseConfig } from "./licenseConfig";
 export type { MermaidConfig } from "./mermaidConfig";
@@ -54,7 +54,7 @@ export type {
 	WALLPAPER_MODE,
 } from "./siteConfig";
 // P4-8（v1.47）：打赏类型不再 re-export（`src/config/sponsorConfig.ts` 已删除）。
-// `src/types/sponsorConfig.ts` 本身保留为孤立的类型定义文件，见报告 §遗留。
+// P4-8 收尾轮（v1.48）：`src/types/sponsorConfig.ts` 也已整文件删除 —— 零引用、零消费者。
 
 // 响应式图像布局类型
 export type ResponsiveImageLayout = "constrained" | "full-width" | "none";

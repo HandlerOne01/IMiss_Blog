@@ -7,6 +7,10 @@ import type { NavBarLink } from "@/types/navBarConfig";
 // 渲染时若 name 未被用户修改（仍等于默认值），就用 i18n 翻译；
 // 若用户改了 name（不再是默认值），映射不命中，保留自定义名称。
 // VNDB / AnimeList 等品牌名各语言一致，不放入映射，保持原名。
+//
+// P4-8 收尾轮（v1.48）：`友链` / `打赏` 两条映射已删除 —— 它们的消费者（导航项与页面）
+// 在 v1.47 已整条移除，映射不再可达（删前全仓库 grep 确认零引用；i18n key 本身仍留在
+// `src/i18n/**` 里未动）。这里只删"名字 → key"的查表项，不动任何语言的文案。
 
 const NAVBAR_DEFAULT_NAMES: Record<string, I18nKey> = {
 	// 分组
@@ -21,7 +25,6 @@ const NAVBAR_DEFAULT_NAMES: Record<string, I18nKey> = {
 	分类: I18nKey.categories,
 	标签: I18nKey.tags,
 	系列: I18nKey.series,
-	友链: I18nKey.friends,
 	留言: I18nKey.guestbook,
 	动态: I18nKey.dynamic,
 	项目: I18nKey.projects,
@@ -29,7 +32,6 @@ const NAVBAR_DEFAULT_NAMES: Record<string, I18nKey> = {
 	书签导航: I18nKey.booknav,
 	哔哩哔哩: I18nKey.bilibili,
 	番组计划: I18nKey.bangumi,
-	打赏: I18nKey.sponsor,
 	关于我: I18nKey.about,
 };
 

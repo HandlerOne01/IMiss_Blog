@@ -133,7 +133,10 @@ function serializeMenus(menus: Props["config"]["menus"]) {
 		home: () => (window.location.href = "/"),
 		scrollToTop: () => window.scrollTo({ top: 0, behavior: "smooth" }),
 		sleep: (widget) => widget.sleep(),
-		github: () => window.open("https://github.com/CuteLeaf/Firefly", "_blank"),
+		// P4-8 收尾轮（v1.48）：这里原来有一条 `github` 动作，打开的是上游主题仓库的署名链接。
+		// 该链接已删除；`pioConfig.menus.items` 里那条 `action: "github"` 因此落回
+		// `menuActions[item.action] || (() => {})` 的空动作（菜单项还在，点了不跳转）。
+		// 未同步删配置里的菜单项：本轮只批准"去掉这条上游链接"，改配置属于另一件事（见报告 §遗留）。
 		switchModel: (widget) => {
 			const container = document.getElementById("l2d-widget-container");
 			const models = JSON.parse(container?.dataset.models || "[]");
