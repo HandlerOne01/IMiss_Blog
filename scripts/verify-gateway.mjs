@@ -64,6 +64,14 @@ const CONTRACT = {
 };
 const START_CMD = "cd ..\\agent_-for_-blog; langgraph dev";
 
+/**
+ * 「真后端那一 段」打谁。
+ * 默认就是契约里的 2024；给一个环境变量覆盖**只为一件事**：让"后端没起 → 那 4 项 ⏭ SKIP
+ * 且退出码仍为 0"这条规矩能被**确定性地验一次**（把值指到一个没人监听的端口即可），
+ * 而不是靠"恰好后端没起"。⚠️ 它只影响最后那 4 项，前面 47 项全部走 stub。
+ */
+const REAL_UPSTREAM = process.env.PET_VERIFY_REAL_UPSTREAM || CONTRACT.upstream;
+
 /** 探针哨兵：既证明"请求真的带过它"，也用来断言它**没**出现在网关日志里 */
 const CANARY = "PET_GATEWAY_CANARY_7f3a1c";
 const FAKE_SECRET = "sk-canary-should-not-appear";
@@ -948,16 +956,16 @@ async function main() {
 
 	/* ── 九、真后端：同一套调用序列透传之后契约仍然成立（连不上 → SKIP）────── */
 	{
-		const probe = await rawRequest(`${CONTRACT.upstream}/ok`, { timeoutMs: CONTRACT.deadUpstreamTimeoutMs });
+		const probe = await rawRequest(`${REAL_UPSTREAM}/ok`, { timeoutMs: CONTRACT.deadUpstreamTimeoutMs });
 		const alive = probe.status === 200 && jparse(probe.text)?.ok === true;
 		if (!alive) {
-			const reason = `真后端没在跑（GET ${CONTRACT.upstream}/ok → ${probe.status || "连接失败"}）→ 本段 4 项全部跳过，退出码不受影响。启动命令：${START_CMD}`;
+			const reason = `真后端没在跑（GET ${REAL_UPSTREAM}/ok → ${probe.status || "连接失败"}）→ 本段 4 项全部跳过，退出码不受影响。启动命令：${START_CMD}`;
 			record("真后端 · 透传", "GET /ok 经网关 → 200 {ok:true}", false, reason, true);
 			record("真后端 · 透传", "POST /assistants/search 经网关能列出配置的图", false, reason, true);
 			record("真后端 · 透传", "POST /threads 经网关能建线程", false, reason, true);
 			record("真后端 · 透传", "POST /threads/{id}/runs/stream 经网关拿到契约 SSE 信封", false, reason, true);
 		} else {
-			const gw = await startGateway("real", { PET_GATEWAY_UPSTREAM: CONTRACT.upstream });
+			const gw = await startGateway("real", { PET_GATEWAY_UPSTREAM: REAL_UPSTREAM });
 			const j = { threadId: null, assistantId: null };
 			{
 				const r = await rawRequest(`${gw.base}/api/agent/ok`, { timeoutMs: 10000 });
