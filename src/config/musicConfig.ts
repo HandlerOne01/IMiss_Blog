@@ -3,10 +3,14 @@ import type { MusicPlayerConfig } from "../types/musicConfig";
 // 音乐播放器配置
 export const musicPlayerConfig: MusicPlayerConfig = {
 	// 是否在导航栏显示音乐播放器入口
-	showInNavbar: true,
+	// P4-8（v1.47）：原本为 true。本地歌单唯一一首是上游示例曲（《崩坏：星穹铁道》的
+	// 「使一颗心免于哀伤-哼唱」，与本站《鸣潮》爱弥斯主题不符），已按发起人决定删除，
+	// 歌单随之清空。歌单为空时若仍开启入口，导航栏/侧栏会留一个点开没内容的空播放器
+	// （可见回归），故两个入口一并关闭。发起人加回自己的歌之后再打开。
+	showInNavbar: false,
 
 	// 是否在侧边栏显示音乐播放器组件
-	showInSidebar: true,
+	showInSidebar: false,
 
 	// 使用方式："meting" 使用 Meting API，"local" 使用本地音乐列表
 	mode: "local",
@@ -46,14 +50,9 @@ export const musicPlayerConfig: MusicPlayerConfig = {
 	// 2. 或者直接填入歌词字符串内容
 	// lrc: "[00:00.00]歌词内容...",
 	local: {
-		playlist: [
-			{
-				name: "使一颗心免于哀伤",
-				artist: "知更鸟 / HOYO-MiX / Chevy",
-				url: "/assets/music/使一颗心免于哀伤-哼唱.mp3",
-				cover: "/assets/music/cover/109951169585655912.webp",
-				lrc: "",
-			},
-		],
+		// P4-8（v1.47）：上游示例曲「使一颗心免于哀伤-哼唱.mp3」（《崩坏：星穹铁道》，知更鸟 /
+		// HOYO-MiX / Chevy）与其封面 `cover/109951169585655912.webp` 已随 public/assets/music/ 一并删除，
+		// 歌单清空。加回自己的歌时把 url/cover 指到 public/assets/music/ 下的新文件再打开上面两个开关。
+		playlist: [],
 	},
 };
