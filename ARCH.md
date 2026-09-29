@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.44 |
+| 文档版本 | v1.45 |
 | 最后更新 | 2026-09-29 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | Firefly v6.16.8，Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -49,24 +49,26 @@
                                     │
 ┌────────────────────────── 运行期（云服务器 / 本机） ──────────────────────────┐
 │  Nginx  ── 静态文件 ──→  dist/（HTML 不缓存，/_astro 与 /assets 长缓存）       │
-│    └── /api/ 反代 ──→  FastAPI 网关 :8000（SSE，proxy_buffering off）        │
-│                          └── langgraph_sdk ──→ LangGraph Server :2024      │
+│    └── /api/agent/ 反代 ──→ Node 网关 :8787（server/pet-gateway.mjs，零依赖）  │
+│         （SSE，proxy_buffering off）│  白名单 / 限流 / 长度 / 体积 / 单轮上限  │
+│                          └── 原样透传（不翻译协议）──→ LangGraph Server :2024 │
 │                                                 └── DeepSeek API            │
 │                          └── LangSmith（追踪，被动上报，不在关键路径上）       │
 │                                                                             │
-│  浏览器：静态页面 + 桌宠组件 ─ fetch(/api/pet/chat, SSE) ─→ 网关              │
+│  浏览器：静态页面 + 桌宠组件 ─ fetch(/api/agent/threads/{id}/runs/stream, SSE) │
 │          无后端时：桌宠走本地 mock，不报错（PRD R-AGT-03）                    │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
 > ⚠️ 上面构建期图里的 `scripts/export-agent-data.mjs` 与 `agent/data/{blog-index.json,rank.json}` 是 **P5 之前的设计稿、从未落地**：本仓库没有这个脚本、`agent/data/` 目录也不存在（package.json 里没有 `export:agent`）。`rank.json` 那半条还牵着后端侧仍保留的 `ask_rank` 意图 —— 属**另一个仓库**的事，本计划只登记不修（**R32**，见交付报告）。
+> ⚠️ **运行期那张图里的 "Python FastAPI 网关 :8000" 已在 v1.45（P5-5）被推翻**：真正落地的是**本仓库的零依赖 Node 反代 `server/pet-gateway.mjs`（:8787）**，`agent_-for_-blog` 一行未改。设计变更的理由见 §8.1，落点见 §8.4~§8.7。
 
 **运行时数据流（桌宠对话）**
 
-1. 桌宠组件生成并保存 `threadId`（localStorage），用户输入 → `fetch(apiBase + "/pet/chat", { method: "POST" })`。
-2. 网关校验（同源/CORS、限流、长度）→ 调用 LangGraph（`langgraph_sdk` 或进程内直调）→ 逐 token 转发为 SSE。
-3. 桌宠收到 `state` 事件改动画状态，收到 `token` 事件写入气泡，收到 `meta` 事件渲染文章链接。
-4. 请求结束（`state: done`）→ 回到待机；出错 → `failed` 状态 + 气泡内可读提示。
+1. 桌宠组件按 §8.9 的调用序列发请求：`GET /ok` → `POST /assistants/search` → `POST /threads` → `POST /threads/{id}/runs/stream`（SSE）。`threadId` 由**服务端**建（前端持有在内存里，不写 localStorage —— 后端是内存 checkpoint，存了也要处理失效）。
+2. 请求打到**同源路径** `/api/agent/...`，由 Nginx 转给网关；网关做来源/限流/长度/体积四道闸门，再把**原样的端点与协议**透传给 LangGraph Server（`:2024`），SSE 逐 chunk 转发、不缓冲。
+3. 桌宠按 §8.9.3 的取法从 `values` 事件里取「最后一个 `values` 里最后一条 `content` 非空的 `ai` 消息」写进气泡，并按 §8.10 的三档时间闸门兜底。
+4. 请求结束 → 回到待机；出错 / 连不上 / 契约不符 → `failed` 状态 + **本地 mock 台词**（R-AGT-03：绝不向访客报技术错误）。
 
 ---
 
@@ -94,13 +96,15 @@ imiss_-blog/                      ← 工作区根（= 站点仓库）
 │  ├─ verify-ui.mjs               ← 【P1 已落地】界面验收（CDP 断言 + 截图，零依赖）
 │  ├─ verify-docs.mjs             ← 【v1.12 已落地】文档一致性自检（文档 ↔ 仓库事实）
 │  ├─ verify-agent.mjs / verify-agent-robust.mjs ← 【P5 已落地】Agent 契约自检 / 适配层健壮性回归
+│  ├─ verify-gateway.mjs          ← 【v1.45 / P5-5 已落地】网关自检（自带 stub 上游 + 真后端一段，51 项）
 │  ├─ verify-ui-log.mjs           ← 【P5 已落地】跑 verify-ui 并把 UTF-8 日志落成 reports/verify-ui.log
 │  ├─ convert-wallpaper.mjs       ← 【P3 已落地】壁纸图 → webp（dosc/photo → imiss-d*/m*）
 │  ├─ import-posts.mjs            ← 【P4 已落地】旧笔记迁移（dry-run 默认，见 §9.2）
 │  ├─ verify-posts.mjs            ← 【P4 已落地】内容校验（阻断式，见 §9.4）
 │  └─ export-agent-data.mjs       ← 【设计未落地】给 Agent 导出索引（v1.41 核对：脚本不存在，见 §2 的说明）
-├─ deploy/nginx.conf              ← 【新增】生产站点配置
-├─ reports/                       ← 【新增，.gitignore 已忽略】脚本产出：reports/screenshots/*.png、reports/import-report.json、reports/image-mapping-*.json
+├─ server/pet-gateway.mjs         ← 【v1.45 / P5-5 新增】桌宠 Agent 网关：零依赖 Node 同源反代（:8787）
+├─ deploy/                        ← 【v1.45 新增】`nginx.conf`（/api/agent/ 反代，只有 Agent 那一段）+ `README.md`（起法与构建变量）+ `pet-gateway.service`（可选 systemd）
+├─ reports/                       ← 【新增，.gitignore 已忽略】脚本产出：reports/screenshots/*.png、reports/import-report.json、reports/image-mapping-*.json、reports/verify-gateway.log
 ├─ src/assets/fonts/*.woff2       ← 【P0 已落地】本地字体（11 个，约 205KB）
 ├─ src/assets/images/pet/         ← 【P1 已落地】桌宠图集（P3 会用它做桌宠，Logo 也从这里裁）
 └─ agent/                         ← 【新增】Python Agent 服务（见 §8）
@@ -151,7 +155,7 @@ src/
 │  │  └─ pet/pet-aemeath.webp     ✅ 桌宠图集（P1 提前入库，P3 使用；Logo 已不再从它裁）
 ├─ config/fontConfig.ts           ✅ 已改：三个字体改 `local` provider（P0，见 §14.3 T16）
 └─ utils/
-   ├─ pet-agent-client.ts         ➕ 桌宠 ↔ Agent 适配层（唯一与后端耦合的文件）
+   ├─ agent-client.ts             ➕ 桌宠 ↔ Agent 适配层（唯一与后端耦合的文件；原设计稿叫 `pet-agent-client.ts`，**从未存在过**，见 §8.6）
    └─ roadmap-utils.ts            ➕ 路线页数据解析与页顶数字实算（原 `utils/` 无排行专属文件）
    ⛔ utils/feed-utils.ts         ❌ 已删（R-ID-06 订阅功能移除；恢复清单见 §14.4）
 ```
@@ -185,7 +189,7 @@ src/
 | ~~R-RANK-01 ~ R-RANK-07~~ | ~~见 §5.2 文件清单~~ | **v1.41 已随排行模块删除**（R-RANK 在 `prd.md` 里标「已废弃」保号；那一格改由 R-PATH 学习路线承担 —— 落点见本表下方的 R-PATH 行） | —— |
 | **R-PATH-01 ~ R-PATH-06** | `src/config/roadmapConfig.ts` + `src/types/roadmapConfig.ts` + `src/utils/roadmap-utils.ts`（新增）+ `src/pages/roadmap.astro` + `src/components/pages/roadmap/*` + `src/styles/pages/roadmap.css` | 新增 | 见 **§5**；纯静态零 JS，页顶数字构建期实算，篇目用 `slug` + `category` 成对定位（解析不到**构建期直接失败**） |
 | R-PET-01 ~ R-PET-05 | `src/components/features/AemeathPet.astro`（新增）+ `petConfig.ts`（新增）+ `Layout.astro` 插一行 | 新增 + 插一行 | 见 §7；`Layout.astro` 只在 `<WavesEffect />` 之后插 `<AemeathPet />` |
-| R-AGT-01 ~ R-AGT-06 | `agent/**`（新增）+ `src/utils/pet-agent-client.ts`（新增） | 新增 | 见 §8 |
+| R-AGT-01 ~ R-AGT-06 | `agent/**`（**设计稿，未落地**，见 §8.1~§8.3）+ `src/utils/agent-client.ts`（新增，**v1.45 起是这个名字**）+ **`server/pet-gateway.mjs`（P5-5 网关）** | 新增 | 见 §8。R-AGT-02 的"对外只暴露一个网关"由**同源反代**满足（`/api/agent/*` → 网关 → §8.9 的 5 个端点），**不是**设计稿里的 `POST /api/pet/chat` |
 | **R-AGT-07**（P5-0） | `src/config/agentConfig.ts`（新增）+ `src/types/agentConfig.ts`（新增）+ `scripts/verify-agent.mjs`（新增）+ `src/config/index.ts`（挂 barrel） | **新增配置与契约测试，不写业务逻辑** | 见 **§8.9**。`enable` 保持 `false`（P5-0 阶段桌宠仍走 `petConfig.mockReplies`，一个请求都不发）；`baseUrl`/`graphId`/`timeoutMs`/`resumeWords`/`fallbackToMock`/`debug` 六个字段只放"能被改的值"。契约测试零依赖、服务没起时 SKIP 且**退出码 0**、契约不符**退出码 1** |
 | R-CNT-01 ~ R-CNT-08 | `scripts/import-posts.mjs`、`scripts/verify-posts.mjs`（新增）+ `src/content/posts/**`、`public/images/posts/**` | 新增 | 见 §9 |
 | R-CMT-01 R-CMT-02 | `src/config/commentConfig.ts`（不动）+ `src/content/spec/guestbook.md`（改文案） | 改内容 | 评论系统保持 `type: "none"`，留言页自动落到 `commentNotConfigured` 分支，显示"评论未配置"占位卡片；留言页说明文案在 `guestbook.md` 里重写 |
@@ -279,9 +283,9 @@ src/
 | ~~`src/pages/rank/*` + `rankConfig.ts` + `RankBoard.astro` + `rank.css`~~ | ~~R-RANK-01~07~~ | **v1.41 已随排行模块删除**（R-RANK-01~07 在 `prd.md` 里标「已废弃」保号；恢复路径 §14.4） |
 | `src/components/features/AemeathPet.astro` + `petConfig.ts` + `pet-utils.ts`（`PET_MOOD_STATES` 等帧率口径）+ `src/utils/pet-chat-text.ts`（`cleanMarkdown()`）+ `Layout.astro` 一行 | R-PET-01 / R-PET-02 / R-PET-03 / R-PET-05 / R-PET-06 / R-PET-07 / R-PET-10 / R-PET-11 | §7.1~§7.6 |
 | `pioConfig.ts` 保持关闭 + 互斥注释 | R-PET-04 | §7.5 |
-| `agent/src/agent/**`（含 `persona.txt`） | R-AGT-01 / R-AGT-06 | §8.3 |
-| `agent/src/gateway/**` | R-AGT-02 / R-AGT-05 | §8.4、§8.5 |
-| `src/utils/pet-agent-client.ts` | R-AGT-03 / R-AGT-04 | §8.6 |
+| ~~`agent/src/agent/**`（含 `persona.txt`）~~ | R-AGT-01 / R-AGT-06 | **设计稿，从未在本仓库落地**：R-AGT-06 的硬约束是"完全新建、**不改** `agent_-for_-blog`"，实际服务就是它（人设文本在本仓库 `agent/` 留档，代码在另一个仓库）。见 §8.1、§8.2 的说明 |
+| **`server/pet-gateway.mjs`**（v1.45 / P5-5 落地） + `scripts/verify-gateway.mjs` + `deploy/nginx.conf` | R-AGT-02 / R-AGT-05 | **§8.4、§8.5、§8.7**（原设计是 `agent/src/gateway/**` 的 Python FastAPI 网关，已推翻） |
+| `src/utils/agent-client.ts` | R-AGT-03 / R-AGT-04 / R-AGT-08 | §8.6、§8.10 |
 | `scripts/import-posts.mjs` | R-CNT-01 / R-CNT-02 / R-CNT-03 / R-CNT-05 / R-CNT-07 | §9.2、§9.3 |
 | `scripts/verify-posts.mjs` | R-CNT-06 | §9.4 |
 | 去重规则 + 只读约定 | R-CNT-04 / R-CNT-08 | §9.1、§9.5 |
@@ -749,14 +753,19 @@ export interface PetConfig {
 浏览器不能跑 Python，所以"桌宠用 Python SDK 调 Agent"必须拆成两段：
 
 - **前端 → 网关**：普通 HTTP + SSE（浏览器唯一能做的）。
-- **网关 → Agent**：Python 侧调用。用户指定的 Python SDK 路线 = `langgraph_sdk`（LangGraph Server 的官方 Python 客户端）+ `langsmith`（追踪/评测）。LangSmith 负责**观测**，不承担推理运行时。
+- **网关 → Agent**：一段**原样透传**。⚠️ **v1.45（P5-5）改写了这一段的落地形态**：设计稿是"网关用 `langgraph_sdk` 调 Agent"（Python FastAPI，:8000），但那种网关必须建在 `agent_-for_-blog` 里，与 R-AGT-06「**完全新建，不改 agent_-for_-blog 的任何代码**」直接冲突。实际做法是**本仓库的零依赖 Node 反代**（`server/pet-gateway.mjs`，:8787）：它不翻译协议、不引 `langgraph_sdk`，只把 §8.9 的 5 个端点按白名单透传给 `langgraph dev`，把"安全与限额"（R-AGT-05）全部做在这一层。`langsmith` 追踪仍然由**后端进程自己**上报（§8.9.4 / §8.9.7 #11），与网关无关。
 
 参考实现 `agent_-for_-blog`（**只读**）给出的既定做法，本项目沿用同样的骨架与约定：LangGraph 图 + 单一 LLM 实例 + `persona.txt` 人设文件 + `Store` 长期记忆 + `interrupt()` 人在环 + DeepSeek（`ChatOpenAI` 兼容接口）。
 
 ### 8.2 目录结构
 
+> ⛔ **下面这棵树是 P5 之前的设计稿，只有后半部分（网关）被证明是错的。**
+> 实际情况：`agent/` 目录**在本仓库里只放人设文本与档案**（`agent/persona-aemeath-v7.txt` / `agent/persona-notes.md` / `agent/archive/`），
+> **没有** `langgraph.json` / `pyproject.toml` / `src/agent/**` / `src/gateway/**` —— 那些代码全在另一个仓库 `agent_-for_-blog`（只读，见 R-AGT-06 与 §8.1）。
+> **v1.45（P5-5）落地的网关是 `server/pet-gateway.mjs`**（零依赖 Node ESM，本仓库），不是这里画的 FastAPI 网关。
+
 ```
-agent/
+agent/                              # ⚠️ 设计稿（本仓库实际只有人设文本，见上）
 ├─ langgraph.json                 # 注册 blog_agent（后续可加 recommend/collect）
 ├─ pyproject.toml                 # langgraph / langchain-openai / fastapi / langsmith / uvicorn
 ├─ .env.example                   # 只放占位（.env 不入库）
@@ -770,10 +779,20 @@ agent/
 │  ├─ state/main.py
 │  └─ common/{llm,persona,store,index}.py
 │  └─ common/persona.txt          # 爱弥斯人设（改文案不用动代码）
-└─ src/gateway/
+└─ src/gateway/                   # ⛔ 已推翻（v1.45 / P5-5）：见 §8.4/§8.5/§8.7，实际落点是 server/pet-gateway.mjs
    ├─ main.py                     # FastAPI：/api/pet/chat、/api/pet/health、/api/pet/reset
    ├─ client.py                   # 传输层：server（langgraph_sdk）/ inproc 两种模式
    └─ limits.py                   # 限流、长度校验、CORS
+```
+
+**实际落点（v1.45 / P5-5）**
+
+```
+server/pet-gateway.mjs             # 零依赖 Node 反代：白名单 / 来源 / 限流 / 长度 / 体积 / 单轮上限 / SSE 直通
+scripts/verify-gateway.mjs         # 51 项断言（自带 stub 上游 + 真后端一段）→ pnpm verify:gateway
+deploy/nginx.conf                  # /api/agent/ → 127.0.0.1:8787（只有 Agent 那一段）
+deploy/README.md                   # 起法 / 环境变量 / 构建期 PUBLIC_AGENT_BASE_URL
+deploy/pet-gateway.service         # 可选：systemd 常驻单元
 ```
 
 ### 8.3 图设计（首期）
@@ -828,105 +847,129 @@ DEEPSEEK_MODEL=deepseek-chat
 > 前端**一个都不碰** —— 换默认图只改 `graphId` 一个值。所以"能不能路由到别的问题"这件事
 > 由后端图决定，前端只负责把这一句话发出去、把最后一条 `ai` 消息取回来。
 
-### 8.4 网关接口契约（前端唯一依赖）
+### 8.4 网关接口契约（前端唯一依赖）—— **P5-5 已实现：同源反代**
 
-**`POST /api/pet/chat`**
+> **本节 v1.45（P5-5）重写。** 原稿写的是"对外只有一个 `POST /api/pet/chat` + `/api/pet/health` + `/api/pet/reset`"的**自定义协议**，
+> 那要求一个**协议翻译层**（前端 `{message}` → LangGraph `input.messages`，再把上游 SSE 翻成 `token`/`state`/`meta`），
+> 而翻译层只能写在 `agent_-for_-blog` 里 —— 与 R-AGT-06「**不改 agent 仓库**」冲突。**该设计已废弃，别按它实现。**
+> 现在的口径：**网关 = 同源反代 + 四道闸门，不翻译协议**；前端依赖的端点就是 §8.9 那 5 个，只多一个 `/ok` 探测。
 
-```jsonc
-// 请求
-{
-  "threadId": "a4f1…",        // 前端生成的 uuid，localStorage 持久化
-  "message": "帮我找一篇讲智能指针的文章",
-  "userId": "anon-3f9c"       // 可选，匿名哈希；用于 Store 记忆隔离
-}
-```
+**挂载点与端点（`server/pet-gateway.mjs`）**
 
-```text
-// 响应：text/event-stream
-event: state
-data: {"state":"thinking"}
-
-event: token
-data: {"text":"我记得"}
-
-event: meta
-data: {"posts":[{"title":"C++11 智能指针","url":"/posts/cpp11-smart-pointer/"}]}
-
-event: state
-data: {"state":"done"}
-```
-错误时：`event: error` + `{"code":"rate_limited","message":"说得太快啦，缓一缓再问"}`（HTTP 状态仍为 200，便于前端统一处理；校验失败等硬错误用 4xx）。
-
-**`GET /api/pet/health`** → `{"ok":true,"agent":"blog_agent","llm":"deepseek-chat"}`
-
-**`POST /api/pet/reset`** → `{"threadId":"…"}` → 清除该线程状态（`{ok:true}`）
-
-**传输模式**（`client.py`）
-
-| 模式 | 触发 | 用途 |
+| 对外路径（同源） | 上游（`PET_GATEWAY_UPSTREAM`，默认 `http://127.0.0.1:2024`） | 说明 |
 | --- | --- | --- |
-| `server`（默认） | `PET_AGENT_TRANSPORT=server` | 通过 `langgraph_sdk` 调 LangGraph Server（`langgraph dev`/`up`），有 threads/checkpoint/Studio |
-| `inproc` | `PET_AGENT_TRANSPORT=inproc` | 网关进程内直接 `graph.ainvoke()`，不需要 Server；用于快速自测与无 Server 的降级运行 |
+| `GET  /api/agent/ok` | `GET /ok` | 可用性探测（§8.9.1 #0） |
+| `POST /api/agent/assistants/search` | `POST /assistants/search` | 现查 `assistant_id`（**不许硬编码**） |
+| `POST /api/agent/threads` | `POST /threads` | 建线程 |
+| `POST /api/agent/threads/<id>/runs/stream` | 同左 | **SSE 流式那一轮**（不缓冲，`x-accel-buffering: no`） |
+| `GET  /api/agent/threads/<id>/state` | 同左 | `interrupt` 兜底 / 失效判定 |
+| `GET  /__gw/health` | ——（本进程自己答） | 非密诊断：生效的限额、来源白名单、前缀、路由白名单 |
 
-两种模式共用同一个 `graph.py`，前端无感知。
+`/api/agent` 前缀可配（`PET_GATEWAY_PREFIX`，默认就是它），**剥掉前缀之后再按白名单匹配**；bare `/ok`、`/threads/...` 也认（本地开发便利）。
+**不在白名单上的路径一律 404**（`/docs`、`/assistants/{id}`、`/threads/{id}` 这些上游自带面**访客不可达**）；路径在、方法不对 → **405**。
 
-### 8.5 安全与限额（R-AGT-05）
+**前端怎么切过来**：构建时给 `PUBLIC_AGENT_BASE_URL=/api/agent`（§8.10 的表）。**前端只依赖 `baseUrl` 一个值**，代码一个字节都不用改。
 
-> ⚠️ **下表是"网关侧的目标口径"，不是现状**（2026-09-26 澄清）。
-> 网关（`src/gateway/`）**还没实现**，`langgraph dev` 是**裸跑**的：实测它返回 `access-control-allow-origin: *`，
-> 且没有任何鉴权、限流、长度校验、线程数上限。**现状与目标的差距逐条列在 §8.9.7 的未决项里，
-> 对应的上线前必修项是 `PROJECT_STATUS.md` 的 B-14。** 别把下表当成"已经配好了"。
+**传输与失败面的硬保证**（每一条都有 `pnpm verify:gateway` 的断言）
 
-| 项 | 目标取值 | 实现位置（规划） | 现状 |
+| 保证 | 实现要点 |
+| --- | --- |
+| 只暴露白名单 | 路由正则白名单（含 `<id>` 收紧成 `[A-Za-z0-9_-]{1,128}`）；路径先解码再判，`%2f`/`%5c`/`%00`/`..`/`\` 一律拒 |
+| 来源可信 | `Origin` 不在白名单 → **403**（无 `Origin` 时按 `Referer` 的来源判；两者都没有 = curl / 同源非 CORS → 放行）；预检 204 只回**具体来源**，永不 `*`；客户端的 `Origin`/`Referer`/`Cookie` **不转发上游** |
+| SSE 不被攒 | `content-type: text/event-stream; charset=utf-8` + `cache-control: no-cache, no-transform` + `connection: keep-alive` + `x-accel-buffering: no` + `flushHeaders()` + **逐 chunk 写**；上游状态码原样透传；两端都 `setNoDelay(true)` |
+| 超时可控 | 单轮硬上限 `PET_GATEWAY_ROUND_TIMEOUT_MS`（默认 300 000 ms，= 前端硬上限 = §12.2 的 `proxy_read_timeout`）：流已开始 → 干净收尾；未开始 → **504** |
+| 失败不泄漏 | 上游不可达 / DNS 失败 / 连接被拒 → **502 `{error:"upstream_unreachable"}`**，**不回显上游错误文本与栈**（只在自己日志里留一个错误码） |
+
+### 8.5 安全与限额（R-AGT-05）—— **现状 vs 已实现（P5-5）**
+
+> **本节 v1.45（P5-5）重写。** 原表是"网关侧的目标口径 / 实现位置（规划）"两栏，落点写的是 Python 的 `limits.py` + `PET_ALLOWED_ORIGINS`；
+> 现在这些限额**已经真的落在一个文件里了**：`server/pet-gateway.mjs`（零依赖 Node），并由 `pnpm verify:gateway` 逐条钉住。
+> ⚠️ **但"已实现并本机验过" ≠ "生产已生效"**：生产要生效还差两件事 —— ① 域名到位后把线上域名填进 `PET_ALLOWED_ORIGINS`（**B-01** 依赖）；
+> ② 在 Nginx 后面显式打开 `PET_GATEWAY_TRUST_PROXY=1`。**在 ①没做之前，生产环境带 `Origin` 的写请求会被 403**（默认白名单只有两个 localhost）。
+
+| 项 | 取值（已生效的默认值） | 落点 | 状态 |
 | --- | --- | --- | --- |
-| CORS 白名单 | 线上域名 + `http://localhost:4321`（dev） | `limits.py`，来自 `PET_ALLOWED_ORIGINS` 环境变量 | ⛔ **未实现**：`langgraph dev` 实测 `ACAO: *` |
-| 限流 | 20 次/分钟/IP，内存令牌桶 | `limits.py`（首期单机内存即可，不做 Redis） | ⛔ 未实现 |
-| 消息长度 | ≤ 1000 字 | 网关校验 + 前端 `maxlength` | ⛔ 未实现（前端的 `maxlength` 是体验，不是安全） |
-| 输出上限 | `max_tokens` ≤ 800 | LLM 调用参数 | 后端图侧可配（未在契约里锁） |
-| 线程数上限 | 同 IP 同时活跃线程 ≤ 3 | `limits.py` | ⛔ 未实现 |
-| 日志 | 只记 `threadId`/耗时/状态，不记消息原文 | `main.py` | ⛔ 未实现 |
-| 密钥 | 只在 `.env`（不入库）；前端零密钥 | `.env.example` 只放占位 | ✅ 前端确实零密钥；后端 `.env` 已存在且不入库 |
-| 鉴权 | （未定） | — | ⛔ **为零**：拿到 `assistant_id` 即可调用 |
+| CORS / 来源白名单 | 线上域名 + `http://localhost:4321` + `http://localhost:4323`；不在名单 → **403**；无 `Origin` 按 `Referer` 判；预检 204 只回具体来源 | `server/pet-gateway.mjs`（`PET_ALLOWED_ORIGINS`） | ✅ **已实现**（默认值里的 localhost 两项已在 `verify:gateway` 里断言）｜⛔ **线上域名那一项还没填**（等 B-01） |
+| 限流 | **20 次/分钟/IP**，内存令牌桶，键 = IP；超了 **429 + `Retry-After`** | 同上（`PET_GATEWAY_RATE_LIMIT`） | ✅ **已实现**（边界实测：3 次配额下第 4 次 429） |
+| 消息长度 | **≤ 1000 码点**（按码点数，emoji/CJK 各算一个），超了 **400 `message_too_long`**、**不截断** | 同上（`PET_GATEWAY_MAX_CHARS`） | ✅ **已实现**（两侧边界都测：1000 放行 / 1001 拒绝，`actual` 报码点数） |
+| 请求体上限 | **≤ 8192 字节**，边读边判，超了 **413** | 同上（`PET_GATEWAY_MAX_BODY`；Nginx 侧另有 `client_max_body_size 8k`） | ✅ **已实现** |
+| 单轮时长上限 | **300 000 ms**；流已开始干净收尾 / 未开始 504 | 同上（`PET_GATEWAY_ROUND_TIMEOUT_MS`） | ✅ **已实现**（两种情况都实测） |
+| 日志 | 一行一请求：时间 / 方法 / 路径 / 状态 / 耗时 / IP（流式那行带 thread id）；**不含正文、消息、答复、上游响应体、header 值** | 同上（`logRequest()`） | ✅ **已实现**（双向断言：金丝雀与假密钥**不在**日志、thread id **在**日志） |
+| 客户端 IP | 默认只认 socket 对端地址；`X-Forwarded-For` 需 **`PET_GATEWAY_TRUST_PROXY=1`** | 同上（`clientIp()`） | ✅ **已实现**｜⛔ **生产必须在 Nginx 后面才开**（没有反代而开 = 访客伪造 XFF 就换一个新桶，限流形同虚设） |
+| 输出上限 | `max_tokens` ≤ 800 | LLM 调用参数（**后端图侧**） | ⛔ **仍未落**（不在契约里锁；属另一个仓库） |
+| 线程数上限 | 同 IP 同时活跃线程 ≤ 3 | —— | ⛔ **仍未实现**（当前只限"请求速率"，不限"线程数"；前端一个会话只建一个线程，风险低） |
+| 鉴权 | （未定） | —— | ⛔ **仍为零**：网关不持令牌，拿到 `assistant_id` 即可调用（`/assistants/{id}` 那条路已被 404 堵死，但 `assistants/search` 仍在白名单上）。**要不要加口令，见 §8.9.7 #3** |
+| 密钥 | 只在 `.env`（不入库）；前端零密钥 | 后端 `.env.example` 只放占位 | ✅ 前端确实零密钥；后端 `.env` 已存在且不入库；`/__gw/health` 与日志**都不回显 `PET_*` 原文** |
 
-### 8.6 前端适配层（`src/utils/pet-agent-client.ts`）
+> 为什么"前端 `maxlength=500`"与"网关 1000"不一样大且**不该一样大**：前端那个是**体验参数**（`petConfig.agent.maxLength`，本表口径"不是安全边界"），
+> 网关这个是**安全边界**。安全边界比体验参数**松**是正确方向 —— 反过来的话，前端一次误改就把真正的闸门改没了。
+> 真正的边界 **1000** 由网关守，且**按码点**数（`[...str].length`），所以 `"🙂".repeat(1001)` 会被拒（它的 UTF-16 长度是 2002、字节 4004 —— 拿后两者当判据都会算错）。
 
-对外只暴露三个方法，组件不直接写 fetch：
+### 8.6 前端适配层（`src/utils/agent-client.ts`）
+
+> **v1.45 更正**：本节原来写的文件名是 `src/utils/pet-agent-client.ts` —— **那个文件从来没存在过**（P5-1 落地时用的就是 `agent-client.ts`）。
+> 接口草图也早就不是那样了：**没有** `petChat` / `petHealth` / `petReset`，也**没有** `onState` / `onToken` / `onMeta`（那是 §8.4 里已被废弃的
+> `POST /api/pet/chat` 那套自定义协议的配套设计）。下面这份是**照着真实源码改写的**，口径以源码与 §8.10 为准。
+
+对外只暴露「一轮问答」与几个探针，组件不直接写 `fetch`、不自己解析 SSE：
 
 ```ts
-export interface PetAgentEvents {
-  onState(s: "thinking" | "done" | "error"): void;
-  onToken(text: string): void;
-  onMeta(posts: { title: string; url: string }[]): void;
-  onError(message: string): void;
+// 组件唯一需要调的函数（永不抛异常：失败一律降级成 mock 台词）
+export async function askAemeath(message: string, opts?: {
+  signal?: AbortSignal;                          // 关聊天框 / 切页时取消
+  events?: { onReply?: (text: string) => void }; // 答复文本更新（实现里做了去重）
+  lastReply?: string;                            // 上一轮气泡里那句（判"是不是在回答 interrupt"）
+}): Promise<AgentTurn>;
+
+export type AgentTurnStatus = "answer" | "interrupt" | "fallback" | "disabled";
+export interface AgentTurn {
+  text: string;             // 进气泡的文本
+  status: AgentTurnStatus;  // 组件按它做状态联动（§8.10 / R-AGT-04）
+  fromMock: boolean;        // 走了 mock（降级 / 开关关掉）
+  reason?: string;          // **只给日志与断言看**，绝不许进气泡
+  interrupt?: { ask: string; reply: string; via: "values" | "updates" | "state" };
+  elapsedMs: number;
 }
-export function petChat(message: string, ev: PetAgentEvents, signal?: AbortSignal): Promise<void>;
-export function petHealth(): Promise<{ ok: boolean }>;
-export function petReset(): Promise<void>;
+
+// 探针与排障（`probe` 是降级判定的唯一入口；`resetSession` / `sessionSnapshot` 给测试用）
+export async function probe(baseUrl: string, timeoutMs?: number): Promise<boolean>;
+export function resetSession(): void;
+export function sessionSnapshot(): { hasThread: boolean; hasAssistant: boolean; confirmedBase: string; threadAttemptAgeMs: number };
 ```
 
-- `apiBase` 取自 `petConfig.agent.apiBase`，为空则用同源 `/api`。
-- `petConfig.agent.enable === false`、`petHealth()` 失败、或 SSE 解析失败 → 走内部 `mockReply()`（本地台词 + 一条"Agent 未连接"提示），**不抛异常、不弹技术报错**。
-- 用 `AbortController` 支持关闭气泡时中断请求。
-- SSE 解析用 `fetch` + `ReadableStream` 手写（不引第三方库，约 40 行）。
+- `baseUrl` 来自 `agentConfig.baseUrl`（构建期 `PUBLIC_AGENT_BASE_URL` 覆盖，默认 `http://127.0.0.1:2024`）；适配层自己 `replace(/\/+$/,"")` 去掉尾斜杠。
+- `enable === false`、`probe()` 失败、SSE 解析失败、答复命中禁词表、`values` 里取不到答复 → 走 `fallbackReply()`（本地人设台词，**起头明说"我这边接不上话"**），**不抛异常、不弹技术报错**（R-AGT-03）。
+- 用 `AbortController` 支持关闭气泡时中断；三档时间闸门（连接/首字节、60 秒无新 chunk、300 秒硬上限）见 §8.10。
+- SSE 解析是 `fetch` + `ReadableStream` 手写（约 30 行，不引第三方库）；**导出 `SSEParser` / `normalizeNewlines` 是为了让 `verify-agent-robust.mjs` 能直接喂畸形字节**（D-17/D-18 那两个反例）。
 
 ### 8.7 启动与运维
 
-```powershell
-# Agent 图（LangGraph Server，端口 2024）
-cd agent
-python -m pip install -e . "langgraph-cli[inmem]"
-langgraph dev                     # 开发：带 Studio UI；生产用 langgraph up 或 uvicorn
+> **v1.45（P5-5）重写。** 原稿写的是 `uvicorn src.gateway.main:app --host 127.0.0.1 --port 8000` —— **那个网关不存在**（见 §8.1/§8.2）。
+> 现在要起的是**本仓库的 Node 网关**，端口 **8787**。
 
-# 网关（端口 8000）
-uvicorn src.gateway.main:app --host 127.0.0.1 --port 8000
+```powershell
+# ① Agent 图（LangGraph Server，端口 2024）—— 属另一个仓库，只读
+cd ..\agent_-for_-blog
+.venv\Scripts\langgraph.exe dev --port 2024 --no-browser   # 开发：带 Studio UI；生产用 langgraph up
+
+# ② 网关（端口 8787，零依赖，不需要 npm install）
+node server/pet-gateway.mjs                # 前台；Ctrl+C 停
+node server/pet-gateway.mjs --help         # 看全部环境变量与路由白名单
+systemctl start pet-gateway                # Linux 常驻（deploy/pet-gateway.service）
+
+# ③ 自检（起完网关就能跑；真后端那一段连不上会 SKIP，不影响退出码）
+pnpm verify:gateway
 ```
 
 | 环境注意 | 说明 |
 | --- | --- |
-| Windows | `langgraph dev` 的彩色日志需要 `colorama`；`langgraph-checkpoint-postgres` 的 `psycopg` 必须装 `[binary]` 变体（否则报 `no pq wrapper available`）——两条都来自参考实现的实测记录，本项目**首期用内存 checkpoint**，不依赖 Postgres |
-| `.env` 编码 | 保持纯 ASCII、注释单独占行（`python-dotenv` 在中文 Windows 上按 GBK 读，行尾注释会被吞进值里） |
-| 常驻 | Linux 服务器用 systemd（两个 unit：langgraph server、gateway）；Windows 用 `nssm` 或计划任务 |
-| 启动顺序 | 先 LangGraph Server，再网关；网关 `/api/pet/health` 里做一次 Server 可达性探测并在启动日志里明确打印 |
+| 启动顺序 | 先 LangGraph Server（2024），再网关（8787）。**反过来也能起** —— 网关不探活上游，上游不可达时按请求回 502（`upstream_unreachable`），恢复后自动可用 |
+| 就绪判据 | 网关启动会打一行 `[gw] … listening on http://127.0.0.1:8787 prefix=/api/agent upstream=127.0.0.1:2024 limits=…`；`GET /__gw/health` 回生效配置（**非密**，可给监控用）。⚠️ 别拿 `GET /api/agent/ok` 当"网关起来了"的判据 —— 那个是**上游**的探针 |
+| 生产必做的两项 | ① `PET_ALLOWED_ORIGINS` 加上线上域名（不加 → 浏览器带 `Origin` 的写请求一律 403）；② 只在 Nginx 后面开 `PET_GATEWAY_TRUST_PROXY=1`（开了才认 `X-Forwarded-For`；没有反代而开 = 可伪造） |
+| 中间层 | Nginx 那段见 `deploy/nginx.conf`（只有 Agent 那一段，静态站点部分见 §12.2）；`client_max_body_size 8k` 与网关的 8192 对齐 |
+| 配置改了要重启 | 网关**启动时读一次** `PET_*`（`readConfig()`），运行期不变 —— 与 `langgraph dev` 的 `.env` / 人设同一个毛病（§8.9.4）：**改完没重启 = 行为还是旧的** |
+| 日志 | 一行一请求打到 stdout（`journalctl -u pet-gateway -f`）。**授权范围只有** 时间/方法/路径/状态/耗时/IP/thread id/本地 note 码；排障时**不要**临时加"把 body 打出来"（那会把访客提问写进日志，`verify:gateway` 的「日志不泄漏」会红，见 §14.3 T82） |
+| Windows | 零 bash 依赖、不 shell out；`node server/pet-gateway.mjs` 直接起。要后台跑就用 `Start-Process`/计划任务，或 `nssm`（Linux 用 systemd） |
 
 ### 8.8 构建期数据导出（前端与 Agent 的契约）
 
@@ -1193,17 +1236,17 @@ const reply = ai?.content ?? "";                    // ← 只有它进气泡
 
 | # | 未决项 | 现状（实测） | 上线前必须做什么 |
 | --- | --- | --- | --- |
-| 1 | **CORS 是 `*`，不是白名单** | `langgraph dev` 的预检与实际响应都返回 `access-control-allow-origin: *`（**任何网站都能在访客浏览器里直连这个服务**）。⚠️ 这与 §8.5 写的「仅同源 + 白名单跨域」**不符——那段是网关侧的规划口径，不是现在的现状**（网关还没实现）。 | 生产必须收紧到本站域名白名单。见 `PROJECT_STATUS.md` **B-14** |
-| 2 | **直连 2024 还是走网关** | 契约按**直连 `langgraph dev`（127.0.0.1:2024）**冻结，与 `prd.md` R-AGT-02 写的"对外只暴露一个网关 `POST /api/pet/chat`"**是两条路线**。直连的好处是不用先做网关就能联调；坏处是鉴权/限流/密钥边界没有落点 | 二选一：① 上线前补网关，契约里的端点序列挪到网关后面（前端只需改 `baseUrl`）；② 明确放弃网关，把 `baseUrl` 指向反代后的同源路径 |
-| 3 | **鉴权为零** | 本机无任何鉴权，`assistant_id` 拿到即可调用 | 上线前定：网关侧令牌 / 同源 + Nginx 限流（`ARCH.md` §12.2） |
-| 4 | **域名与反代路径未定** | `baseUrl` 现在硬编码 `http://127.0.0.1:2024` | 域名到位后（**B-01**）改 `agentConfig.baseUrl`，同步 §12.2 的 `/api/` 反代与 SSE 关闭缓冲 |
+| 1 | ~~**CORS 是 `*`，不是白名单**~~ **✅ 已决定并实现（v1.45 / P5-5）** | 上游 `langgraph dev` 裸跑时确实是 `access-control-allow-origin: *`（任何网站都能在访客浏览器里直连它）。**已不再依赖上游收紧 CORS**：上线走**同源**（`PUBLIC_AGENT_BASE_URL=/api/agent`），浏览器根本不发预检；上游那个 `*` 只在"直连 2024"这种本机开发形态下存在 | ✅ **已实现**：`server/pet-gateway.mjs` 的来源白名单（不在名单 → 403，预检只回具体来源、永不 `*`）+ `deploy/nginx.conf` 把 2024 收到回环地址后面。断言见 `scripts/verify-gateway.mjs`。**剩下的只是运维动作**（填线上域名，见 B-14） |
+| 2 | ~~**直连 2024 还是走网关**~~ **✅ 已决定（v1.45 / P5-5）：走网关** | 契约按直连 2024 冻结；P5-5 选了"**补网关，而且网关只做反代不做翻译**"（`prd.md` R-AGT-02 原稿那个 `POST /api/pet/chat` 需要改后端，与 R-AGT-06 冲突，已废弃，见 §8.1/§8.4） | ✅ **已实现**：网关 = `server/pet-gateway.mjs`（:8787），契约里那 5 个端点原样透出；前端**只改 `baseUrl`**（构建期给 `PUBLIC_AGENT_BASE_URL=/api/agent`）。自检 `pnpm verify:gateway`（51 项，含真后端透传） |
+| 3 | ~~**鉴权为零**~~ **⚠️ 已降级为"仅剩鉴权"这一项（v1.45 / P5-5）** | 从"零鉴权 + 零限流 + 白名单全开"收窄到**只剩"没有口令"**：白名单外的路径一律 404（`/assistants/{id}`、`/docs`、`/threads/{id}` 全部不可达）、来源白名单 403、限流 429、长度/体积/时长都有闸门；**但** `POST /assistants/search` 仍在白名单里，所以"拿到一个 `assistant_id` 就能发起一轮"这条**依然成立**（`assistant_id` 由 `search` 现查即可，不是秘密） | ⛔ **仍未解决**（要求发起人拍板）：候选是①网关侧共享口令（`Authorization`，前端构建期注入 —— 但静态站的注入值**对访客可见**，只能挡"不知道口令的脚本"，挡不住"读过站点 JS 的人"）；②只在 Nginx 做 IP/UA 级限流与 bot 规则；③接受现状（有速率上限与长度闸门，最坏是被刷 token）。**当前口径：不上口令**，等域名到位后连同 B-14 一起决定 |
+| 4 | **域名与反代路径未定** | `baseUrl` 默认回落 `http://127.0.0.1:2024`（P5-5 起生产用构建期变量覆盖成 `/api/agent`） | 域名到位后（**B-01**）改 `agentConfig.baseUrl` 的覆盖值，并把线上域名填进 `PET_ALLOWED_ORIGINS`；同步 §12.2 的 `/api/agent/` 反代与 SSE 关闭缓冲（`deploy/nginx.conf` 已写好） |
 | 5 | **线程是内存 checkpoint，重启即清空** | `langgraph dev` 用内存 checkpoint；服务一重启，旧 `thread_id` 全部失效 | 决定：前端检测到线程失效就**新建线程并重放最近 N 轮**，还是接受"重启后忘掉上下文"。当前契约只要求"失效即降级/新建"，不要求续接 |
-| 6 | **限流与长度上限没有落点** | §8.5 定的 20 次/分钟/IP、≤1000 字，实测**服务端没有**（那是网关规划） | 上线前在网关或 Nginx 做；前端侧 `maxlength` 是体验不是安全 |
-| 7 | **检索轮的耗时抖动大** | 实测 30~120 秒（同一句话两次运行差一倍以上） | 前端要么给"正在翻"的中间反馈（桌宠 `thinking` 态），要么把超时放宽到 180 秒；不要按"平均 45 秒"设计 |
-| 8 | **本机直连 Fandom / `web_fetch` 不通** | 只有 `127.0.0.1:2024` 正常 | 与前端无关，但**排障时别把网络问题误判成契约问题**：先看 `GET /ok` |
+| 6 | ~~**限流与长度上限没有落点**~~ **✅ 已实现（v1.45 / P5-5）** | 20 次/分钟/IP、≤1000 码点、≤8192 字节、单轮 300 秒 —— **全部落在 `server/pet-gateway.mjs`**，不再是"规划" | ✅ 见 §8.5 的表（每行都有 ✅/⛔ 标记）；`pnpm verify:gateway` 逐条断言（含 429 边界与两个方向的长度边界） |
+| 7 | **检索轮的耗时抖动大** | 实测 30~120 秒（同一句话两次运行差一倍以上） | 前端要么给"正在翻"的中间反馈（桌宠 `thinking` 态），要么把超时放宽到 180 秒；不要按"平均 45 秒"设计。✅ P5-1~P5-3 已按三档闸门落地（§8.10）；✅ 网关侧 300 秒硬上限与之对齐 |
+| 8 | **本机直连 Fandom / `web_fetch` 不通** | 只有 `127.0.0.1:2024` 正常 | 与前端无关，但**排障时别把网络问题误判成契约问题**：先看 `GET /ok`（走网关时先看 `GET /__gw/health`：它**不依赖上游**，能区分"网关没起"与"上游没起"） |
 | 9 | **`interrupt` 只有自然语言，没有结构化载荷**（v1.35 新增，复核 D-8） | 前端"该回哪个约定词"只能从 `__interrupt__[0].value` 的**问句措辞**反推（`replyForAsk()` 的几条正则）。缓解后仍脆弱：后端把「要不要我按站里的常用范围替你挑几篇？」这种**宽松提问**问出来时，前端只能回默认词 | **要改 `agent_-for_-blog`（本轮不做）**：在 `interrupt` 里带结构化字段，例如 `{"value":"<给人看的问句>","kind":"word_count","options":["不提供","需要","不需要"],"default":"不提供"}`；前端按 `kind` 选词、`value` 只负责上屏，彻底不解析自然语言。落地前这条一直是"改一个字就翻转载荷"的脆弱点（§8.9.5 已登记） |
 | 10 | **失效自愈的"清缓存 + 新建"是前端单方面行为**（v1.35 新增，复核 D-3） | 前端在 4xx 后 `resetSession()` + 重试一次；**新线程没有上下文**（旧线程的历史不会重放） | 与未决项 #5 是同一个决定：要不要"重放最近 N 轮"。当前口径是"接受重启后忘掉上下文，但**不许永久降级**" |
-| 11 | **LangSmith 追踪会把"人设 + 对话 + 库表结构 + SQL 与结果行"复制到第三方**（v1.44 / P5-4 新增，**已实测**） | `agent_-for_-blog/.env` 里 `LANGSMITH_TRACING=true` / `LANGSMITH_PROJECT=new-agent`，服务启动时读取 → 每一轮 run 都**被动上报**到 `api.smith.langchain.com`（本机实测：一轮推荐点击就生成 **36 条 run / 171 642 字节**载荷）。**实测泄漏面**：① **人设全文**（`ChatOpenAI.in.messages[0].kwargs.content` = **13 690 字**，开头 `# 爱弥斯 · 人设 v7`）；② **用户问题原文**（多轮 run）；③ **库名与完整表结构 DDL**（`sql_db_schema` 输出 **2 945 字**：`blog` 表全部列名、类型、中文列注释、甚至 `3 rows from blog table` 示例行）；④ **实际执行的 SQL**（253 字）与**查询结果行**（443 字，含标题与站内 URL）；⑤ **她的答复原文**（`compose_answer` 的输出，435 字）。⚠️ **不是"只上报元数据"**：LangSmith 默认就把 `inputs`/`outputs` 全量存下来（这也是它的产品价值），`ttl_seconds=1209600`（14 天） | **上线前必须决定，三选一**：① **保留追踪但隔离**（推荐给"还想用 LangSmith 调试"的场景）：给生产单独建一个 project、**只允许服务端 key**、把 `LANGSMITH_TRACING` 做成显式开关（默认关）、并按 LangSmith 的隐私设置确认数据保留期；② **生产关闭**（`LANGSMITH_TRACING=false`）—— 最省事，代价是线上出问题没有 trace 可看；③ **自托管 LangSmith**（数据不出自己机器，代价是要多跑一个服务）。⚠️ 无论选哪个，**都不能把 `.env` 提交进仓库**（已 gitignore），且前端侧不许出现任何 LangSmith key（§2 第 1 条） |
+| 11 | **LangSmith 追踪会把"人设 + 对话 + 库表结构 + SQL 与结果行"复制到第三方**（v1.44 / P5-4 新增，**已实测**）｜**✅ 已决定（v1.45）：保持现状，线上也全量追踪** | **发起人 2026-09-28 拍板：「保持现状（线上也全量追踪）」** —— `LANGSMITH_TRACING` 在生产**保持开启**，**接受**"人设全文 + 访客提问 + 库表结构 + SQL 与结果行"被复制到第三方（`api.smith.langchain.com`）、**保留 14 天**。实测泄漏面（P5-4，证据 `reports/_p54-trace-final.json`，**第 7991 行起就是人设原文**）：一轮推荐点击 = **36 条 run / 171 642 字节**，含 ① **人设全文 13 690 字符**（`ChatOpenAI.in.messages[0].kwargs.content`，开头 `# 爱弥斯 · 人设 v7`）；② 用户问题原文（多轮 run）；③ 库名与完整表结构 DDL **2 945 字**（`sql_db_schema` 输出，含列注释与 `3 rows from blog table` 示例行）；④ 实际 SQL 253 字 + 结果行 443 字（含标题与站内 URL）；⑤ 她的答复原文 435 字。⚠️ **不是"只上报元数据"**：LangSmith 默认全量存 `inputs`/`outputs`（这也是它的产品价值），`ttl_seconds=1209600`（14 天） | ✅ **已决定，不再等拍板**；**不改后端代码**（`.env` 本来就是这个配置）。**将来要翻案，三个开关就够**（都在 `agent_-for_-blog/.env` + 重启进程，§8.9.4）：① `LANGSMITH_TRACING=false` —— 生产**直接关闭**追踪，最省事，代价是线上出问题没 trace 看；② `LANGSMITH_HIDE_INPUTS` / `LANGSMITH_HIDE_OUTPUTS` —— ⚠️ **候选开关、本项目尚未实测**：官方文档的语义是"不上传 inputs/outputs"，但**它到底是"不上传"还是"只是不上屏"没有在本机验过**，用之前必须先实测一轮再用 LangSmith API 核对（本次拍板**没有**依赖它）；③ **自托管 LangSmith** —— 数据不出自己机器，代价是多跑一个服务。底线不变：`.env` **不入库**（已 gitignore），前端侧不许出现任何 LangSmith key（§2 第 1 条） |
 
 #### 8.9.8 契约的可执行形态（`pnpm verify:agent`）
 
@@ -1243,6 +1286,7 @@ const reply = ai?.content ?? "";                    // ← 只有它进气泡
 | 适配层 | **`src/utils/agent-client.ts`**（新增） | HTTP + SSE + `interrupt` 判定 + 降级。**只依赖 `agentConfig`**，组件不许自己写 `fetch` / 解析 SSE |
 | 配置 | `src/config/agentConfig.ts` | `enable` 已改 **true**（P5-2）；`baseUrl` **支持构建期环境变量覆盖**（见下）；`graphId`/`timeoutMs`/`resumeWords`/`fallbackToMock`/`debug` 照旧 |
 | 对话入口 | `src/components/features/AemeathPet.astro` 的 `openChat()` / `runAsk()` / `closeChat()` | 气泡 DOM、九状态联动、会话作废（不再读 `petConfig.agent.enable`——那是遗留死配置） |
+| **服务端那一层（v1.45 / P5-5 新增）** | **`server/pet-gateway.mjs`** + `scripts/verify-gateway.mjs` + `deploy/nginx.conf` | 同源反代 + 四道闸门（来源/限流/长度/体积）+ 单轮上限 + SSE 不缓冲。**前端不感知它的存在**（只感知 `baseUrl`）；正文见 §8.4~§8.7，断言见 §11 的 `verify:gateway` 行 |
 
 **`baseUrl` 怎么定（发起人 2026-09-26 确认：Agent 是跑在云服务器上的，不是访客本机）**
 
@@ -1254,7 +1298,7 @@ const reply = ai?.content ?? "";                    // ← 只有它进气泡
 | 场景 | 怎么配 | 说明 |
 | --- | --- | --- |
 | 本地开发 | **什么都不用设** | 打本机 2024，就是现在的行为 |
-| 上线（**推荐：同源反代**） | `PUBLIC_AGENT_BASE_URL=/api/agent`，Nginx 把 `/api/agent/` 反代到 `127.0.0.1:2024` | ① **同源没有 CORS 问题**（现在是 `ACAO: *`，见 B-14；同源之后浏览器不发预检，也不必求对方改 CORS）；② SSE 只需 Nginx 上 `proxy_buffering off`（§12.2 已写好）；③ 端口不外露，限流/鉴权将来都落这一层 |
+| 上线（**推荐：同源反代**）**✅ P5-5 已实现** | `PUBLIC_AGENT_BASE_URL=/api/agent`，Nginx 把 `/api/agent/` 反代到**网关 `127.0.0.1:8787`**（网关再原样透传到 `127.0.0.1:2024`） | ① **同源没有 CORS 问题**（直连时上游是 `ACAO: *`，见 §8.9.7 #1；同源之后浏览器不发预检）；② SSE 只需 Nginx 上 `proxy_buffering off`（`deploy/nginx.conf` / §12.2 已写好）+ 网关不缓冲；③ 端口不外露，限流/长度/来源都落在网关这一层（§8.5）；④ ⚠️ **上线时 `PET_ALLOWED_ORIGINS` 必须加上线上域名**，否则同源 POST 带的 `Origin` 会被网关 403 |
 | 独立域名 / 将来的网关 | 给完整 URL（如 `https://agent.example.com`） | 前提是它实现了 §8.9 的端点序列 |
 
 > **前端只依赖 `baseUrl` 一个值**：直连（本机 2024）与反代（同源 `/api/agent`）走的是同一份代码，
@@ -1506,6 +1550,7 @@ dosc/blog/**/*.md（只读）
 | `pnpm verify:docs` | **文档一致性自检**（`scripts/verify-docs.mjs`，**共 15 项（原 17 项）**）：核对三份文档互相之间、以及文档与仓库事实是否一致——版本号与"最后更新"日期、断言/截图数与最近一次实测、**模块路由清单**（`src/pages/rank/` 在不在决定判据走哪一支：还在就要求每个路由文件都在 ARCH 登记，已删就要求 prd §2 不再列 `/rank/` 且 ARCH 登记 `src/pages/roadmap.astro`）与路由文件、导航子项与 `navBarConfig.ts`、需求编号引用闭环、阻塞项条数与编号连续、§2 与 §3 阶段状态，以及**配置事实**（`displaySettingsConfig.enable`）。**每次收工前跑一次**（P2 加二游排行时文档漂移了 12 处，就是没有这道关卡） | ✅（v1.12 新增；v1.41 随排行删除摘掉 `rankConfig.dataStatus` 与"4 组数据是否漏了第 5 份"两条检查 → 17 → 15；同轮补两处**闸门自身的防御**：基准日志候选过滤接受 `_verify*.log`、找不到基准日志**判 FAIL** 而不是记 `pass=true` 的 INFO，见 §14.3 **T77**） |
 | `pnpm verify:agent` | **Agent 接口契约自检**（`scripts/verify-agent.mjs`，零依赖）：把 `ARCH.md` §8.9 的契约变成 **14 项断言**——配置对齐（读 `agentConfig.ts` 原文核对，**baseUrl/graphId 同时认字面量、常量、函数回落三种形态**，见 T59）/ `GET /ok` / `GET /assistants/search` 去重后 4 张图 / 闲聊轮事件白名单+`values` 或 `updates` 收尾+与 `GET state` 一致+最终答复 / 检索轮「工具输出进了流但没进答复」/ 推荐轮 `interrupt`→`resume:「不提供」`（**原始汇总行会打出两轮的末事件名**）/ `configurable`+`context` 400 坑 / 降级探测（死端口不可用 + 活服务可用对照项）。**退出码规矩与其它 `verify:*` 不同**：Agent 没在跑 = **SKIP + 退出码 0**（打印 `langgraph dev` 启动命令），**契约不符 = 退出码 1**。⚠️ **SKIP 与 ✅ 必须长得不一样**（v1.35 起）：`⏭️ [SKIP]` 单列一行 + 单独打"跳过原因"，汇总行 `✅ 通过 N，❌ 失败 N，⏭️ 跳过 N` **三项分开计数**，并额外打一行"本轮 N 项**没有执行**（不计入通过）"；JSON 里带 `skippedIds`。产物 `reports/verify-agent.log` + `reports/verify-agent.json` | ✅（v1.33 / P5-0 新增；v1.35 修 D-1、SKIP 语义收紧） |
 | `pnpm verify:agent:robust` | **适配层健壮性回归**（`scripts/verify-agent-robust.mjs`，**26 条**）：P5 独立复核那批"只有畸形输入才暴露"的缺陷的**可执行反例**。做法：用 esbuild（Astro 自带依赖）把 `src/utils/agent-client.ts` 打成临时 ESM（`reports/_agent-client.bundle.mjs`，gitignore 内）再 `import()` —— 测的是**真源码**，改一处代码这里立刻跟着变；再用 `globalThis.fetch` 的**内存假后端**喂畸形 SSE（跨 chunk 的 `\r`、EOF 未闭合、70KB 单事件、schema 行当答复、挂住的 `/state`、404 失效、5 万字答复、宽松问句）。覆盖 D-2/D-3/D-4/D-5/D-6/D-8/D-9/D-15/D-16/D-17/D-18。**不依赖真后端、不起浏览器、不起服务**（几秒跑完，CI 可跑）；退出码：有失败 = 1。产物 `reports/verify-agent-robust.log` + `.json` | ✅（v1.35 / P5 复核修复新增） |
+| `pnpm verify:gateway` | **网关自检**（`scripts/verify-gateway.mjs`，零依赖，**51 项**）：P5-5 那个网关拦的东西**都不可能靠读代码验掉**（缓冲只在"上游分两次、中间隔 1.5 秒"时才看得出来；上游不可达/永不响应这两种失败模式真后端造不出来），所以脚本**自己 spawn 网关实例**（`spawn(process.execPath, [...])` + 环境变量覆盖，stdout/stderr 落 `reports/gateway-<name>.log`），上游用**脚本内自带的 stub**。覆盖：预检 5 项（`node --check` / 只 import `node:` 内建 / 不 shell out / `package.json` 注册 / `--help`）+ 路由白名单 8 项（前缀剥离、bare 路径、query 原样透传、`/assistants/abc` 与 `/docs` 与编码穿越都 404 且**不打上游**、DELETE/GET `/threads` 405）+ 来源 7 项（evil Origin 403 且不打上游、实际响应 ACAO 非 `*`、预检 204、站外 Referer 403、无来源放行、origin/referer/cookie **不转发上游**）+ 体积与长度 7 项（413 / `invalid_json` / **1001 码点拒绝且 `actual=1001`**（拿 UTF-16 长度 2002 或字节 4004 当判据都会算错）/ **恰好 1000 码点放行** / `type:"human"` 与分片 `content` 两种形状同样受约束 / 续跑轮不被误杀）+ SSE 4 项（响应头、**不缓冲：首块 <1000ms 且第二块 ≥1400ms 后才到**、帧完整、上游 404 原样透传）+ **限流 2 项**（`PET_GATEWAY_RATE_LIMIT=3` 下第 4 个 429 + `Retry-After`）+ **客户端 IP 2 项**（`PET_GATEWAY_TRUST_PROXY=1` 时**真按 XFF 最左项分桶**：打满 2 次后第 3 次 429、换一个伪造 IP 立刻可用；**默认时换个伪造 IP 换不到新桶**：同一个 socket 第 3 次仍 429 —— 两半都测，"开了却没读"与"没开却读了（可伪造）"两种坏法都会显形）+ **出厂口径 4 项**（用**纯默认配置**起的实例从 `/__gw/health` 把 20/60s/8192/1000/300000/trustProxy=false、白名单两项、`/api/agent`、上游默认值、路由白名单**逐个读回来比对** —— 这是"生产值非空过"的钉子）+ 失败模式 4 项（死端口 502 且**响应体无栈无 `ECONNREFUSED`**、health 不依赖上游、未开始的 504、**已开始时的干净收尾**）+ **日志不泄漏 4 项（双向）**（金丝雀消息与假密钥**不在**日志；thread id **在**流式日志行上；并断言金丝雀真的到过上游、假密钥真的回到过客户端 —— 防"读错文件/猜错形状"导致的假绿）+ **真后端 4 项**（`/ok` → `assistants/search` → `/threads` → `runs/stream` 全走网关，断言拿到 200 与可解析的 `data:` 信封）。**退出码**：任一断言失败 = 1；**真后端没起 = 那 4 项 ⏭ SKIP 且退出码 0**（与 `verify:agent` 的规矩一致）。产物 `reports/verify-gateway.log` / `.json` / `gateway-*.log`。⚠️ **注入验证过**（4 处，逐个还原并核对 sha256）：去掉长度校验 → 长度 3 条红；关掉来源白名单 → 来源 5 条红；把 SSE 改成攒完再发 → 「不缓冲」红而「帧完整」仍绿（证明那条断言抓的是**时序**不是**内容**）；把请求体打进日志 → 「金丝雀不在日志」红而「thread id 在日志」仍绿 | ✅（v1.45 / P5-5 新增） |
 | `pnpm verify:ui` 的 **R-AGT 段** | **端到端联动断言（实测 23 条，见 §8.10；条数随真机轮次增减，**逐条以 `reports/verify-ui.log` 的 `[R-AGT-*]` 记录为准**）**：产物里 `enable` 是真的（不写死 chunk 文件名）/ `enable:false` **零请求** / `enable:true` 真往返 + 人设口径（无「您」无加粗无表格无完整域名 + 不是出厂 mock）/ `interrupt` 反问进气泡 + 续跑拿到真答复 / 死端口降级仍可用 / 状态联动与复位（关框、Swup 切页、连续提问）/ 气泡与整页 DOM 无禁词表 / 注入已还原；**v1.35 起另加 6 条用"页面内假后端"跑的反例**：500 字长答复可读可滚（带截图）/ 禁词闸门 / thread 404 自愈 / `/state` 永挂仍 1~3 秒上屏 / 协议不符立刻降级 / 在飞时再发送有可见反馈。⚠️ Agent 没在跑时**真往返那两条记 SKIP 不计失败**（与 `verify:agent` 的退出码规矩一致：环境未就绪不算回归）。**R-PET-11 起这段里还挂着聊天框的 19 条**（同一个"页面内假后端"手法，见 §7.6 第 27 条）。**v1.37 加 3 条**：① **身份类禁自称**（发起人 2026-09-27 决定）：同一会话里连问 5 条身份问题，只扫**她说的那部分**（不扫整页——站内本来就有讲 AI 的文章正文；也不扫用户那句话——`AI` 是他打的），**6 个自称词 0 命中、且每条都明确「我是爱弥斯」**，另加"不许越过底线（自称真人 / 冒充官方）"的反向判据与"起手历史必须为 0"的前置自检；② **"同一句答复被重复上屏"的回归**：假后端**仿真实 langgraph**（首快照 = 整份 state，含上一轮答复）返回 R1 长 / R2 短，断言**第二问的气泡是第二问的答复且不残留 R1**（旧实现在这里会停在第一句，见 T69）；③ **降级必须一眼可分辨**：面板带 `data-pet-chat-source`、台词走"接不上话"起头池、**连着两次不重样**、且不与真答复同形 | ✅（v1.34 / P5-1~P5-3 新增；v1.35 加 6 条 + 修 2 条假红口径；v1.36 挂上 R-PET-11 的 19 条；v1.37 加身份类禁自称 + 重复上屏回归 + 降级可分辨 3 条；**v1.41 给「身份类禁自称」与「降级可分辨」这两条加"降级感知路径"**（它们在脚本里的断言编号没有进 `prd.md` 的需求表，口径正文在 R-AGT-03 / R-PET-11）：**判据只落在"没降级的轮次"上，只有全部轮次都降级才记带原因的 SKIP**（v1.41 审查修复：原来是"任意一轮降级就整条 SKIP" —— 那会把"4 轮 live 全答对"降级成 SKIP，更坏的是把"4 轮 live 答坏了"的**真回归**变成 SKIP + exit 0）。**探测的信号恰好三类**：客户端降级（`data-pet-chat-source ≠ live` / 命中客户端 `FALLBACK_LEADS` 起头池）+ **后端降级哨兵**（测试侧常量 `BACKEND_DEGRADE_MARKERS`，关键词抄自 `reports/` 里实际出现过的后端降级原句）—— ⚠️ **后端换了降级文案时哨兵要跟着同步**，否则"后端连不上文章库"那几轮会重新被判成人设回归（假红，R39）。历轮这两条的假红（身份类 20 轮里红 4、降级可分辨红 1）都是"后端不可用时她答的是降级台词 / 后端降级话术"这个耦合，见 §14.3 T70 的同类教训） |
 | `pnpm make:logo` | 把 `src/assets/images/logo/imiss-logo.svg`（手写矢量设计源）栅格化成导航栏 Logo（webp）与 favicon 四档 PNG | ✅（P1 新增） |
 
@@ -1544,10 +1589,10 @@ dosc/blog/**/*.md（只读）
  │        ├─ /            → root /var/www/imiss-blog/dist（静态）
  │        ├─ /_astro/     → 一年缓存，immutable
  │        ├─ /assets/     → 30 天缓存（含视频，需支持 Range）
- │        └─ /api/        → proxy_pass http://127.0.0.1:8000（SSE，禁用缓冲）
+ │        └─ /api/agent/  → proxy_pass http://127.0.0.1:8787（P5-5 网关，SSE，禁用缓冲）
  │
- └─ （不对外）127.0.0.1:2024  LangGraph Server
-              127.0.0.1:8000  网关（FastAPI）
+ └─ （不对外）127.0.0.1:8787  Node 网关（server/pet-gateway.mjs，零依赖反代）
+              127.0.0.1:2024  LangGraph Server（网关的上游）
 ```
 
 ### 12.2 `deploy/nginx.conf` 要点
@@ -1588,18 +1633,27 @@ server {
   #    `/rank/`、`/rank/jp/`、`/rank/cn/`、`/rank/game/` 四个地址**一律不做 301**，由上面的 `=404` 规则
   #    返回真 404（verify:ui 的 R-PATH-06 用 `redirect: "manual"` 按 404 断言 —— 这里再加任何跳转都会让它红）。
 
-  location /api/ {
-    proxy_pass http://127.0.0.1:8000;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_buffering off;            # SSE 必须
-    proxy_read_timeout 300s;
-    proxy_set_header Connection "";
+  location /api/agent/ {
+    # ★ Agent 那一段的**唯一正文**在 deploy/nginx.conf（v1.45 / P5-5 落地）——改一处就够，别在这里再维护一份
+    #   它做四件事：转到网关 8787（不是 2024！）、关缓冲与缓存、300 秒读/写超时、body 8k
+    include /etc/nginx/snippets/pet-gateway.conf;   # = deploy/nginx.conf，摘掉注释头就是这个片段
   }
 }
 ```
+
+> **为什么这里不照抄一遍 `location`**：`deploy/nginx.conf` 已经成为该段落的**唯一真相源**（P5-5 之前 ARCH 里这份 `server{}` 是唯一的文字，
+> 而 `deploy/nginx.conf` 这个文件当时**根本不存在** —— 文件与文档各说各话的典型）。现在两处的关系是"这一节管**整个 server{}**（静态 + 关页 + 404），
+> `deploy/nginx.conf` 管 **Agent 那一段**"，前者 `include` 后者。要点对照表：
+
+| 要点 | 取值 | 为什么 |
+| --- | --- | --- |
+| `proxy_pass` 目标 | `http://127.0.0.1:8787/api/agent/` | **8787 是网关**（P5-5）；直连 2024 就绕过了所有闸门。**尾部斜杠要留**（路径原样透传，网关自己剥前缀） |
+| `proxy_buffering off` + `proxy_cache off` | 必开 | SSE 被攒着不发 = 前端一个字都看不到（`verify:gateway` 的「不缓冲」那条就是钉它） |
+| `proxy_read_timeout` / `proxy_send_timeout` | `300s` | 与前端 300 秒硬上限、网关 `PET_GATEWAY_ROUND_TIMEOUT_MS` 三处对齐（§8.10） |
+| `proxy_http_version 1.1` + `proxy_set_header Connection ""` | 必开 | HTTP/1.0 会把流式连接变成短连接 |
+| `chunked_transfer_encoding on` | 开 | 流式响应没有 `content-length`，靠 chunked |
+| `X-Forwarded-For` / `X-Forwarded-Proto` / `Host` | 必开 | 网关侧要 **`PET_GATEWAY_TRUST_PROXY=1`** 才认 XFF（否则访客可伪造，见 §8.5） |
+| `client_max_body_size 8k` | 与网关 8192 对齐 | 超了 Nginx 先回 413，不让大包进到网关 |
 
 ### 12.3 发布流程
 
@@ -1673,8 +1727,10 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | D9 | 评论区先关闭但页面保留 | 直接删留言页 | 页面结构与导航一次到位，评论系统到位后只改一个配置 |
 | D10 | 留言/评论与 Agent 解耦 | 用 Agent 当留言后端 | 两者目标不同（留言是异步公开记录，Agent 是实时对话）；耦合会让简单需求变复杂 |
 | D11 | **人设「不许自称 AI，必须明确自己是爱弥斯」**（人设 v7，2026-09-27 发起人决定） | 保留 v6 的「被问是不是 AI 就诚实承认」 | **这是产品决定，由发起人拍板，不是技术偏好**：气泡里出现"我是 AI / 我是程序"会直接毁掉角色。**唯一保留、优先级更高的底线是不许越界到另一个方向**：不得宣称自己是真人、不得宣称自己是官方爱弥斯本人——否则就从"演得像"变成"给访客一个能截图打脸的硬伤"。落地只在后端人设文件（`agent/persona-aemeath-v7.txt` → `src/agent/common/persona.txt`），**契约与前端都不动**；验证是"真机问出来的字"（R-AGT 段身份类禁自称），不是"人设文件里写了什么" |
+| D12 | **网关 = 本仓库的零依赖 Node 同源反代（`server/pet-gateway.mjs`，:8787），只做安全与转发，不翻译协议**（v1.45 / P5-5） | ① 设计稿：`agent_-for_-blog` 里的 FastAPI 网关 + 自定义协议 `POST /api/pet/chat`；② 不做网关，直连 2024，只在 Nginx 上限流 | ① 与 **R-AGT-06「不改 agent 仓库」** 直接冲突（翻译层只能写在后端）；② 直连形态下"CORS/鉴权/长度"没有落点，而 `langgraph dev` 实测 `ACAO: *`；③ **反代只要前端改一个 `baseUrl`**（构建期变量），契约 §8.9 一个字不用动；④ 零依赖 = 服务器上不需要 `npm install`、不需要 Python 侧改一行，且没有可被 `npm audit` 的供应链面。**代价照实说**：网关因此**不理解 SSE 语义**（不会把技术错误翻译成人设台词 —— 那仍然是前端 `agent-client.ts` 的职责，§8.6），也没有真正意义上的"鉴权"（§8.9.7 #3 仍开着） |
+| D13 | **LangSmith 追踪保持现状：生产也全量追踪**（v1.45 补记，发起人 2026-09-28 拍板） | ① 生产关闭（`LANGSMITH_TRACING=false`）；② `LANGSMITH_HIDE_INPUTS` / `LANGSMITH_HIDE_OUTPUTS`；③ 自托管 LangSmith | 发起人选的 ① 的反面：**接受**把"人设全文（13 690 字符）+ 访客提问 + 库表结构 DDL + 实际 SQL 与结果行 + 她的答复"复制到第三方 `api.smith.langchain.com`、**保留 14 天**（实测一轮推荐点击 = 36 条 run / 171 642 字节，证据 `reports/_p54-trace-final.json`）。理由（按发起人的取舍如实记录）：**要能在线上出问题时看到 trace**，而"保留但隔离/自托管"都要额外的运维成本。⚠️ **这不是技术推荐，是知情后的取舍**；将来要翻案**不用改一行代码**，三个开关见 §8.9.7 #11（其中 `LANGSMITH_HIDE_*` 的两个开关**本项目尚未实测**，只能说成"候选"） |
 
-### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 79 条，编号连续 T1~T79：T1~T19 来自 P0/P1，T20~T26 来自 P2，T27~T29 来自 P3，T30~T33 来自 P3-9/P3-11，T34~T38 来自 P4，T39~T40 来自 R-PET-06，T41~T42 来自 R-PET-07，T43 来自 R-PET-08，T44 来自 R-PET-09，T45~T46 来自 R-PET-10，T47~T48 来自 P5-0 契约冻结，T49~T58 来自 P5-1~P5-3 接线，**T53/T54 于 v1.35 补登记**（这两条在 P5-1 就被引用过、但一直没进表），**T59~T63 来自 P5 独立复核修复**，**T64~T67 来自 R-PET-11 聊天框重做**，**T68~T70 来自 v1.37 人设 v7 与"重复上屏"修复**，**T71~T73 来自 v1.38 父级独立复跑**，**T74 来自 v1.39 文档纠偏**，**T75~T79 来自 v1.41（P2R 学习路线落地 / 排行移除）的实施与收尾**）
+### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 82 条，编号连续 T1~T82：T1~T19 来自 P0/P1，T20~T26 来自 P2，T27~T29 来自 P3，T30~T33 来自 P3-9/P3-11，T34~T38 来自 P4，T39~T40 来自 R-PET-06，T41~T42 来自 R-PET-07，T43 来自 R-PET-08，T44 来自 R-PET-09，T45~T46 来自 R-PET-10，T47~T48 来自 P5-0 契约冻结，T49~T58 来自 P5-1~P5-3 接线，**T53/T54 于 v1.35 补登记**（这两条在 P5-1 就被引用过、但一直没进表），**T59~T63 来自 P5 独立复核修复**，**T64~T67 来自 R-PET-11 聊天框重做**，**T68~T70 来自 v1.37 人设 v7 与"重复上屏"修复**，**T71~T73 来自 v1.38 父级独立复跑**，**T74 来自 v1.39 文档纠偏**，**T75~T79 来自 v1.41（P2R 学习路线落地 / 排行移除）的实施与收尾**，**T80~T82 来自 v1.45（P5-5 网关）的实施与注入验证**）
 
 实现时按这张表走，不要凭"应该没问题"假设。每条都给了文件与行号，可当场复核。
 
@@ -1759,6 +1815,9 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | T77 | **文件名不匹配 → 读旧日志 → 计数闸门静默失效** —— `verify-docs` 的"断言数与最近实测一致"从 `reports/` 里挑候选日志，过滤是 `^verify.*\.log$`；某一轮把实测落成了 `reports/_verify-task2-green.log`（**下划线开头，不匹配**）→ 闸门回退去读**停更的旧日志** → 输出 `257 == 257 ✅`，而真实值已经是 **263** | 文档计数闸门**看起来在查、其实查的是过期数字**：新加的断言（或删掉的断言）永远不会让文档红，漂移一路带到收工 | ① 候选过滤**同时接受 `_verify*.log`**；② **找不到基准日志必须响亮报错**（原来是一条 `pass=true` 的 INFO —— "闸门没读到基准"与"一切正常"长得一模一样）；③ 通则：**任何"按文件名挑输入"的闸门都要问一句"挑不到会怎样"**。v1.41 已在 `scripts/verify-docs.mjs` 里实施 ①② |
 | T78 | **验证用的"注入器"自己必须先被验证** —— 某轮为了证明"某条判据真的会红"，写了个把标记注入文件的脚本；它把**多行 LF 标记**写进一个 **CRLF** 的 `.cjs`，于是注入后的 `includes()` 判定**恒为 false** → **注入根本没生效**，而校验脚本照旧报 `✅`（**假绿**），差点被当成"注入证明"写进报告 | 一个"证明判据有效"的实验，自己先把判据架空了 —— 于是"已用注入验证过"这句话变成**没有证据的断言**。这类假绿比不加验证更坏 | ① 注入后**先断言注入成功**（用 `[\s\S]` 这类跨行正则匹配，别用受行尾影响的 `includes`）；② 注入器要有硬闸门：**`next === src` 就 `exit 2`**（没变就是没注入）；③ 判据的注入实验必须"先红后绿"两次都记录原始输出 |
 | T79 | **mobile 模拟下 `documentElement.scrollWidth − window.innerWidth` 的差值恒为 0** —— CDP 的设备模拟里 `window.innerWidth` **会随内容一起涨**（视口 390 → 实测涨到 1200），于是"有没有横向溢出"的判据**永远算不出红** | 一条看似标准的移动端溢出断言**永远不会失败**：页面真的溢出时它也报 ✅（假绿），而这种错只有"手工注入一个溢出元素"才会暴露 | 正确口径是 **`documentElement.scrollWidth − documentElement.clientWidth`**（`clientWidth` 不随内容涨）。实测同一注入态：**旧差法 0 / 新差法 810**。回归断言：`verify:ui` 的 R-PATH「390px 无横向溢出」（v1.41 已按新口径改） |
+| T80 | **安全闸门只认一种载荷形状 → 真正的客户端根本不经过它** —— 网关的消息长度闸门按 `input.messages[*]` 里 `role === "user"` 找"用户那句"。但**前端适配层发的是 `{type:"human", content}`**（LangGraph 的另一种写法，§8.9.2 的契约形状）：只认 `role:"user"` 的话，闸门**在真机上一次都不会触发**，只在测试里（手写成 `role:"user"`）生效 —— 也就是"安全边界变成了装饰" | 与 P5-4 那次 13 690 字人设外泄的假绿**同一个病**：实测口径与真实载荷形状不一致，于是"验过了"是空的。更坏的是它**双向都能骗人**：测试全绿（因为测试自己按判据的形状造数据），线上等于没拦 | ① 闸门要**同时认两种形状**（`role:"user"` **或** `type:"human"`，`content` 是字符串**或** `[{type:"text",text}]` 分片数组）—— 本仓库 `lastUserMessageText()` 就是这么写的；② 回归断言**必须拿"真前端发的那个形状"各测一遍**（`verify:gateway` 的「形状覆盖」两条：`type:"human"` 与分片数组）；③ 通则：**写"按形状取值"的判据时，先去抓一次真实流量，别照着自己脑子里的形状写** |
+| T81 | **对请求流用 `for await (… of req) { … break }` 会把 socket 一起 destroy → 精心构造的 413 变成 ECONNRESET** —— 网关的请求体上限要"边读边判、超了立刻停"，最自然的写法是 `for await (const c of req) { if (n > cap) break; }`。但 Node 的 `Readable` 异步迭代器在**提前退出**（break/return/throw）时会 `stream.destroy()`，而 `req` 的 destroy 就是**把这条连接掐掉** —— 客户端拿到的是 `socket hang up`，**根本读不到那 413 的 JSON**（判据看起来"实现了"，实际是"返回了但对方永远看不见"） | 症状具有误导性：脚本里若只断言"超限被拒"（比如只看"连不上/报错"），它甚至会绿；真机上表现为"发大包就直接断网"，用户与排查者都会往网络层想。**同类风险**：任何"读一半就停"的中间层（限流器、流式解析器、上传闸门） | ① 读请求体**用事件式 + `req.pause()`**：`req.on("data")` 里累加，超限就 `pause()` 并**立刻**把 413 写出去（剩下的字节留在内核缓冲里，连接照常收尾）；② 真要 `break`，就别指望还能往这条连接写东西；③ 回归断言必须**真的把 413 的 body 读出来**（`verify:gateway` 实测 `{"error":"body_too_large"}`，不是"连接出错了就算通过"）。⚠️ 注意 `for await` 读**响应**流（`upstreamRes`）没有这个问题：循环正常走完（`done`）不会调 `return()`，只有提前 `break` 才会 |
+| T82 | **响应收口挂在两处，任何"改变写出时机"的改动都会变成静默空响应** —— `server/pet-gateway.mjs` 的转发路径有**两条**收口来源：上游 `end` 事件（`upstreamRes.on("end", finishUp)`）与管道读完（`pipeChunked(...).then(finishUp)`），谁先到谁 `res.end()`。注入实验里把"逐 chunk 转发"改成"攒完整段再发"之后，**上游 `end` 先到 → 响应被 `res.end()` 收掉 → 之后那些 `res.write()` 全部落在已结束的响应上，客户端拿到 200 + 空 body**，而服务端**一行错都不报** | 这是最坏的一类：**不报错、不抛异常，只是内容没了**。本仓库在 v1.45 的注入验证里真的踩到（第一次注入 C 时 10 条断言红，其中 `GET /api/agent/ok` 返回 `200 null`）；如果当时没有"断言真的读 body"，它会以"透传成功"的样子混过去 | ① 改这条路径时**先问"现在是谁在什么时候 `res.end()`"**，两条收口路径要留**唯一**的语义（本项目保留"逐 chunk 写 + 上游结束即收口"）；② 任何"攒着再发"的实现都必须**同时**接管收口时机（注入 C 的最终版本就顺手摘掉了 `end` 那条）；③ 通用判据：**断言必须读响应体内容**（`verify:gateway` 的每一条都断言 body/headers，不是只看状态码）—— 只看状态码的话，"200 + 空 body"永远抓不到 |
 
 ### 14.4 被移除的上游功能怎么找回来
 

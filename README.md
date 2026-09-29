@@ -93,6 +93,12 @@ pnpm verify:posts   # 期望输出：`✅ verify:posts 通过：133 篇 0 错误
 pnpm verify:docs    # 期望输出：`文档检查 15 项：通过 15，失败 0`（有 FAIL 就是文档与仓库对不上了）
 ```
 
+改了**桌宠 Agent 那一层**（`server/pet-gateway.mjs` / `deploy/nginx.conf`）时，另跑一次**网关自检**（它自己起网关实例 + 自带 stub 上游，不需要你先手工起什么；真后端没起时那 4 项会跳过且不影响退出码）：
+
+```powershell
+pnpm verify:gateway # 期望输出：`网关检查 51 项：通过 51 / 失败 0 / 跳过 0`（退出码 0）
+```
+
 > 它会拦下这类问题：改了导航/路由/数据，但 `prd.md`、`ARCH.md`、`PROJECT_STATUS.md` 里还写着旧数字或旧清单。
 > 共 15 项检查（**原 17 项** —— v1.41 删掉排行模块时摘掉了两条排行专属检查）。
 
@@ -117,6 +123,8 @@ pnpm verify:docs    # 期望输出：`文档检查 15 项：通过 15，失败 0
 | `pnpm verify:ui` | 界面验收：235 项断言 + 泄漏扫描 + 对比度 A/B + 48 张截图（**要先 `pnpm build` 再 `pnpm preview`**） |
 | `pnpm verify:posts` | 内容校验：frontmatter / slug / 图片存在性 / 站内链接 / 残留 Obsidian 语法（**改完文章或跑完迁移后跑一次**；有错退出码 1） |
 | `pnpm verify:docs` | 文档自检：核对三份文档与仓库事实是否一致（版本号、断言/截图数、模块路由清单、导航子项、需求编号、阻塞项、阶段状态），**共 15 项（原 17 项）**。**改完东西收工前跑一次** |
+| `pnpm verify:gateway` | 网关自检（v1.45 / P5-5 新增，**51 项**）：自己起网关实例 + 自带 stub 上游，验路由白名单 / 来源 403 / 限流 429 / 长度与体积闸门 / **SSE 不缓冲** / 超时收口 / 日志不泄漏，最后对真后端跑一遍契约序列（**没起后端时那 4 项 ⏭ 跳过，退出码仍 0**） |
+| `node server/pet-gateway.mjs` | 起桌宠 Agent 网关（**零依赖同源反代**，默认 `127.0.0.1:8787` → 上游 `127.0.0.1:2024`）；`--help` 看全部环境变量。生产配置见 `deploy/README.md` |
 | `node scripts/import-posts.mjs --batch 1` | 迁移旧博客笔记（**默认 dry-run 只出报告**；加 `--write` 才落盘。详见下面「迁移旧笔记」一节） |
 | `node scripts/convert-wallpaper.mjs` | 把 `dosc/photo` 的 4 张壁纸转成 webp（桌面 + 移动两套），改壁纸素材时用 |
 | `pnpm make:logo` | 从 `imiss-logo.svg` 重新栅格化 Logo 与 favicon |
