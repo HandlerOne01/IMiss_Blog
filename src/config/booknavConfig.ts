@@ -67,22 +67,11 @@ export const booknavConfig: BooknavGroup[] = [
 			},
 		],
 	},
-	{
-		id: "opensource",
-		name: "项目",
-		icon: "material-symbols:code-rounded",
-		desc: "好用的开源项目",
-		weight: 90,
-		items: [
-			{
-				title: "Firefly",
-				url: "https://github.com/CuteLeaf/Firefly",
-				desc: "清晰美观的 Astro 个人博客主题模板",
-				icon: "/favicon/firefly-32.png",
-				weight: 10,
-			},
-		],
-	},
+	// P4-8（v1.47）：上游的「项目」组（id: opensource）整组删除 —— 它只有一张
+	// 「Firefly → github.com/CuteLeaf/Firefly」卡片。卡片删掉后组内 items 为 0，
+	// 而 `getEnabledBooknavGroups()`（src/utils/booknav-utils.ts:78）会把空组过滤掉，
+	// 留着只是一段永远不渲染的死配置，故整组移除。发起人以后要放自己的开源项目，
+	// 照下面的组格式加回来即可。
 	{
 		id: "design",
 		name: "设计",
@@ -131,26 +120,7 @@ export const booknavConfig: BooknavGroup[] = [
 			},
 		],
 	},
-	{
-		id: "resources",
-		name: "资源",
-		icon: "material-symbols:auto-stories-outline-rounded",
-		desc: "文档、教程与阅读",
-		weight: 70,
-		items: [
-			{
-				title: "Firefly Docs",
-				url: "https://docs-firefly.cuteleaf.cn",
-				desc: "Firefly 主题模板文档",
-				icon: "https://docs-firefly.cuteleaf.cn/logo.png",
-				weight: 10,
-			},
-			{
-				title: "夏夜流萤",
-				url: "https://blog.cuteleaf.cn",
-				desc: "飞萤之火自无梦的长夜亮起",
-				weight: 9,
-			},
-		],
-	},
+	// P4-8（v1.47）：上游的「资源」组（id: resources）整组删除 —— 它只有两张卡片
+	// （「Firefly Docs」与「夏夜流萤」，都指向上游作者站点），删完同样 items 为 0。
+	// 理由与上面的 opensource 组相同；发起人要放自己的文档/阅读站点时按组格式加回来。
 ];

@@ -1,0 +1,9 @@
+# P4-8（v1.47）：上游示例微动态（`2026-07-15-*.md` 4 条）已全部删除，这个目录因此变空。
+# git 不跟踪空目录，而 `src/content.config.ts:100` 用
+# `glob({ pattern: "**/*.md", base: "./src/content/dynamic" })` 显式声明了这个 base。
+# 本文件只为占住目录，让"集合为空"这件事是**显式的**：
+#   · 有这个占位文件 → Astro 报 `[WARN] No files found matching "**/*.md"`（正常空集合）
+#   · 没有（例如全新 clone，目录根本不存在）→ Astro 报
+#     `[WARN] The base directory ".../src/content/dynamic/" does not exist`（读起来像配置坏了）
+# 实测两种都只是 WARN、构建照常成功；这里选前者，语义更准。它不是内容条目（glob 只匹配 *.md）。
+# 发起人加回自己的微动态时，直接在这个目录下写 .md 即可（`pnpm new-dynamic`）。

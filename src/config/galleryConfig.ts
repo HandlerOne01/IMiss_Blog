@@ -5,7 +5,7 @@ export const galleryConfig: GalleryConfig = {
 	// 相册列表
 	albums: [
 		// 支持jpg/png/webp/avif/gif格式
-		// id: 相册唯一标识符（用于目录命名和URL路径），比如设置：id: "firefly-2026", 对应 public/gallery/firefly-2026/目录
+		// id: 相册唯一标识符（用于目录命名和URL路径），比如设置：id: "my-album", 对应 public/gallery/my-album/目录
 		// cover: 手动指定封面图（可选，不填会把cover.*文件作为封面图，如果没有cover.*文件，则使用第一张图片作为封面图）
 		// name: 相册名称
 		// description: 相册描述
@@ -15,25 +15,12 @@ export const galleryConfig: GalleryConfig = {
 		// password: 访问密码，设置后需要输入密码才能查看相册内容（可选）
 		// passwordHint: 密码提示，设置后在输入密码错误时显示（可选，需配合password使用）
 		// 每添加一个数组项就相当于添加了一个相册，记得在 public/gallery/ 目录下创建对应的子目录并放入图片
-		{
-			id: "firefly-2026",
-			name: "可爱流萤",
-			description: "飞萤之火自无梦的长夜亮起，绽放在终竟的明天。",
-			location: "崩坏：星穹铁道",
-			date: "2026-01-01",
-			tags: ["崩坏星穹铁道", "流萤"],
-		},
-		{
-			id: "encrypted-test",
-			name: "加密相册示例",
-			description:
-				"这是一个加密相册的示例，设置了访问密码，只有输入正确的密码才能查看相册内容。",
-			location: "崩坏：星穹铁道",
-			date: "2026-02-01",
-			tags: ["加密相册", "示例"],
-			password: "123456",
-			passwordHint: "示例密码123456",
-		},
+		//
+		// P4-8（v1.47）：上游的两个示例相册已按发起人批准删除 ——
+		//   · firefly-2026「可爱流萤」（上游《崩坏：星穹铁道》示例，配 public/gallery/firefly-2026/）
+		//   · encrypted-test「加密相册示例」（密码 123456 明文写在 desc 里，配 public/gallery/encrypted-test/）
+		// 配置项与 public/gallery/ 下的目录**必须成对增删**：只删目录会留下一个「0 张照片」的空相册，
+		// 只删配置会留下孤儿文件与孤儿路由。当前 albums 为空 → /gallery/ 渲染 I18nKey.galleryNoAlbums 空态。
 	],
 
 	// 瀑布流最小列宽(px)，浏览器根据容器宽度自动计算列数，默认 240

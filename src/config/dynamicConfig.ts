@@ -34,6 +34,8 @@ export const dynamicConfig: DynamicConfig = {
 
 		// Memos 用户标识，如 "users/你的memos用户名"，用于过滤指定用户的动态
 		// 注意：需与 Memos API 返回的 creator 字段完全一致（区分大小写），例如实际用户名为 admin 时应为 "users/admin"，而非"users/Admin"
-		parent: "users/xiaye",
+		// P4-8（v1.47）：这里原来填的是上游作者的 memos 用户名 "users/xiaye"（会出现在每一页的 HTML 源码里）。
+		// 已清空 —— memos.enable 为 false 时本项不生效；发起人启用 memos 时填自己的用户名。
+		parent: "",
 	},
 };
