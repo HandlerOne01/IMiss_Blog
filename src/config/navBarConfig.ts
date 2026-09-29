@@ -95,28 +95,12 @@ const getDynamicNavBarConfig = (): NavBarConfig => {
 	});
 
 	// 自定义导航栏链接
-	// ⚠️ 这里目前只保留对上游主题的署名链接。要放哪些网站由发起人决定（阻塞项 B-10），
-	//    定下来后直接替换下面的 children
-	links.push({
-		name: "链接",
-		url: "#",
-		icon: "material-symbols:link",
-		// 子菜单
-		children: [
-			{
-				name: "Firefly 主题",
-				url: "https://github.com/CuteLeaf/Firefly",
-				external: true,
-				icon: "fa7-brands:github",
-			},
-			{
-				name: "Firefly 文档",
-				url: "https://docs-firefly.cuteleaf.cn",
-				external: true,
-				icon: "material-symbols:docs",
-			},
-		],
-	});
+	// P4-8（v1.47）：这里原来有一整块 `links.push({ name: "链接", ... })`，内含两条对上游主题的
+	// 署名外链（「Firefly 主题」→ github.com/CuteLeaf/Firefly、「Firefly 文档」→ docs-firefly.cuteleaf.cn）。
+	// 发起人要求站上不再出现任何 Firefly 字样，故**整块删除**。
+	// 不需要额外的"空组处理"：`src/utils/nav-menu-utils.ts:19-21` 在 children 过滤后为 0 时 `return null`，
+	// 整组会从导航里自然消失，不会留下一个点不开的空「链接」下拉。
+	// ⚠️ 发起人以后要放自己的外链，是**阻塞项 B-10**（尚未拍板），照下面的格式加回来即可。
 
 	// 留言（原「社交」父项已删除，本项提升为顶层并置于最后，见 R-NAV-01）
 	links.push(LinkPresets.Guestbook);
@@ -134,7 +118,10 @@ export const navBarSearchConfig: NavBarSearchConfig = {
 // Link Presets - Allows free customization of the name, icon, and URL of navigation bar links
 //
 // ⚠️ 未使用的预设（上游的 Friends / Bilibili / Bangumi / Sponsor）已按 R-NAV-03 / R-NAV-04
-//    从这张表里删除，避免以后被误引用；对应的页面文件仍然保留，只是被 siteConfig.pages 关掉。
+//    从这张表里删除，避免以后被误引用。
+//    P4-8（v1.47）更正：这里原来写"对应的页面文件仍然保留，只是被 siteConfig.pages 关掉"——
+//    现在 Friends / Sponsor 两个**页面文件也已删除**（`/friends/`、`/sponsor/` 是真 404，
+//    不再是 noindex 存根），Bilibili / Bangumi 两个页面文件仍在、仍由 siteConfig.pages 关闭。
 // ============================================================================
 export const LinkPresets: Record<string, NavBarLink> = {
 	Home: {
