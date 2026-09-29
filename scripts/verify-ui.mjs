@@ -41,7 +41,10 @@ const EXPECT_BANNER_POSITION = "50% 35%";
 // 顶层导航顺序与子项顺序（prd.md R-NAV-01~04 / 第 2 章）
 // ⚠️ v1.41（P2R）：第 3 格由「排行」下拉换成「学习路线」单链接（R-PATH-01）——
 //    原来的 EXPECT_RANK_CHILDREN 常量与它的用法已随排行模块整体删除（Task 4 / R-PATH-06）。
-const EXPECT_TOP_NAV = ["主页", "文章", "学习路线", "我的", "链接", "留言"];
+// P4-8（v1.47）：第 5 格「链接」整组删除 —— 它只有两条对上游主题的署名外链
+// （Firefly 主题 / Firefly 文档），发起人要求站上不留 Firefly 字样。
+// `nav-menu-utils.ts:19-21` 在 children 过滤后为 0 时 `return null`，整组自然消失。
+const EXPECT_TOP_NAV = ["主页", "文章", "学习路线", "我的", "留言"];
 const EXPECT_MY_CHILDREN = [
 	{ name: "动态", href: "/dynamic/" },
 	{ name: "项目", href: "/projects/" },
@@ -58,7 +61,14 @@ const SAMPLE_POST = "/posts/linux-net/http-xieyi/";
 const EXPECT_HUE = "345";
 const EXPECT_STAT_ROWS = 4;
 const EXPECT_ABSENT_STAT_TEXT = ["运行时长", "最后活动", "天前"];
-const FORBIDDEN_ROUTES = ["/friends/", "/bilibili/", "/bangumi/", "/sponsor/"];
+// 仍然只是"被 siteConfig.pages 关掉"的页面：静态输出下是 200 + noindex 跳转存根（T17），
+// 真 404 交给生产 Nginx（deploy/nginx.conf，见 ARCH.md §12.2 / §14.3 T17）。
+const STUBBED_ROUTES = ["/bilibili/", "/bangumi/"];
+// P4-8（v1.47）：`/friends/` 与 `/sponsor/` **连页面源文件都删了**（上游作者身份 / 打赏入口整条移除），
+// 所以它们从"noindex 存根"升级成**真 404** —— 判据跟着改口径，而不是把断言悄悄删掉。
+const REMOVED_PAGE_ROUTES = ["/friends/", "/sponsor/"];
+// sitemap 那一半（"不在这两个页面的路由"）对上面两组都适用，保留合并视图
+const FORBIDDEN_ROUTES = [...STUBBED_ROUTES, ...REMOVED_PAGE_ROUTES];
 // R-ID-06：订阅功能整体移除后，这 4 条路由**连存根都没有**（文件已删），应该是真 404
 const REMOVED_FEED_ROUTES = ["/rss/", "/atom/", "/rss.xml", "/atom.xml"];
 // R-PATH-01：v1.41 起 /roadmap/ 顶上导航第 3 格，必须进 ALLOWED_ROUTES 才能被"路由 200"那一趟扫到
@@ -643,7 +653,8 @@ async function main() {
 	// 由 Web 服务器以 200 返回（Astro 只在 SSR/on-demand 下才有真 302）。
 	// 所以这里断言的是「它确实是那个 noindex 存根」，真 404 交给生产 Nginx
 	// （deploy/nginx.conf 里对这 4 条路径 return 404，见 ARCH.md §12.2 / §14.3 T17）。
-	for (const route of FORBIDDEN_ROUTES) {
+	// 另外 sitemap 断言读的是磁盘上的 dist/，对着 dev 跑会拿旧产物下结论。
+	for (const route of STUBBED_ROUTES) {
 		const res = await fetch(`${BASE}${route}`, { redirect: "manual" });
 		const body = await res.text();
 		if (isDevServer) {
@@ -665,6 +676,25 @@ async function main() {
 			`已关闭页面确实是 noindex 存根：${route}`,
 			isStub,
 			`HTTP ${res.status}，存根=${isStub}`,
+		);
+	}
+	// P4-8（v1.47）：`/friends/`、`/sponsor/` 的页面文件已删除 → **真 404**（不是存根）。
+	// 用 `redirect: "manual"`，别让托管层的 301 把它伪装成"跳到一个 200 页面"。
+	// 这一组与 REMOVED_FEED_ROUTES 同口径（文件没了 = 404），是目前最严的那一档。
+	for (const route of REMOVED_PAGE_ROUTES) {
+		const res = await fetch(`${BASE}${route}`, { redirect: "manual" });
+		const body = await res.text();
+		if (isDevServer) {
+			record("INFO(dev)", `已删除页面的 404 判定在 dev 下跳过：${route}`, true, "dev 行为与静态产物不同");
+			continue;
+		}
+		// 同时断言它**不是**那个 noindex 存根 —— 否则"页面还在、只是被开关关掉"会蒙混成 404
+		const looksLikeStub = /http-equiv="refresh"/.test(body) && /url=\/404\//.test(body);
+		record(
+			"R-NAV-05/06",
+			`已删除的上游页面是真 404（不是 noindex 存根）：${route}`,
+			res.status === 404 && !looksLikeStub,
+			`HTTP ${res.status}，像存根=${looksLikeStub}`,
 		);
 	}
 	// 产物检查：用绝对路径，避免依赖运行时 CWD
@@ -716,20 +746,58 @@ async function main() {
 		record("INFO(待建)", `本阶段尚未实现的路由：${route}`, true, `HTTP ${res.status}（建好后挪进 ALLOWED_ROUTES 断言 200）`);
 	}
 
-	// 上游信息泄漏扫描（P1 的核心目标之一：站点身份不该再夹带上游作者的信息）
-	// 这是审查时发现的盲区：只断言"导航里没有打赏"是不够的——首页横幅里曾经还挂着
-	// Sponsor 链接和上游邮箱（被 rehype-email-protection 编码成 base64 挂到每个页面）。
-	// 所以这里直接扫渲染出来的 HTML，命中即失败。
-	const UPSTREAM_LEAK_PATTERNS = [
+	// ── P4-8（v1.47）：上游身份零残留 —— 从"4 条路由抽样"升级成"全站产物逐个扫" ──────
+	// 这条断言的前身是 P1 的"上游信息泄漏扫描"（只 fetch `/`、`/about/`、`/guestbook/`、文章页
+	// 四条路由）。**抽样漏得太多了**：v1.47 实测旧产物 171 个 HTML 里有 **166** 个含上游字样
+	// —— 导航「链接」组、页脚 `Powered by … Firefly`、侧栏「站点信息」两处硬编码版本行，
+	// 这些在每一页都出现，而 4 条路由抽样恰好只覆盖了同一批面，看不出规模。现在改为
+	// 磁盘遍历 `dist/**/*.html` 全量扫，命中即红。
+	//
+	// 判据分三层（一层比一层严）：
+	//   ① **品牌/身份串**（大小写敏感）：出现即红。
+	//   ② **大小写不敏感的 `firefly` / `cuteleaf`**：只允许下面 3 个已登记的内部 JS 全局名，
+	//      其余任何大小写变体出现即红 —— 这样 "Firefly 主题"、"firefly docs" 之类都跑不掉。
+	//   ③ **可见文本**（剥掉 `<script>`/`<style>`/HTML 注释之后）：任何 firefly/cuteleaf 都算红。
+	//      这一层是"访客真能看到什么"的判据，也顺手挡住"把敏感字样塞进 HTML 注释"这种绕法
+	//      —— 那正是本轮自己踩过的坑（见下面 FOOTER 那段注释）。
+	//
+	// ⚠️ **唯一排除：`about/index.html`**。`src/content/spec/about.md` 现在整页是上游作者的
+	//    自我介绍（`夏叶` / `Firefly` / `github.com/CuteLeaf/Firefly` / `firefly.cuteleaf.cn`），
+	//    而它是本轮**硬约束禁止修改**的文件：`src/pages/about.astro:15-17` 在内容缺失时直接
+	//    `throw new Error("About page content not found")`，删了构建就断，而替换文字还在
+	//    发起人手上（阻塞项：等发起人自己的关于页文字）。
+	//    所以排除面**有且只有这一页**，且下面单独记一条 INFO 把"这页仍不干净"摆在明面上
+	//    —— 它不会被算成绿，也不会因为"看不见"而被忘掉。
+	const IDENTITY_NEEDLES = [
+		["Firefly", "上游主题名（品牌字样）"],
+		["CuteLeaf", "上游作者 GitHub 名（驼峰）"],
+		["Cuteleaf", "上游作者 GitHub 名"],
+		["夏夜流萤", "上游作者站点名"],
+		["夏叶", "上游作者实名"],
 		["xiaye@msn.com", "上游作者邮箱（明文）"],
 		["eGlheWVAbXNuLmNvbQ", "上游作者邮箱（base64 编码形态）"],
-		["blog.cuteleaf.cn/sponsor", "上游打赏页链接"],
+		["cuteleaf.cn", "上游作者域名"],
+		["ko-fi.com/cuteleaf", "上游 ko-fi 打赏入口"],
+		["ifdian.net/a/cuteleaf", "上游爱发电打赏入口"],
+		["Lovely firefly", "上游首页主标题"],
+		["In Reddened Chrysalis", "上游首页副标题诗"],
 		["38932988", "上游 Bilibili UID"],
 		["1143164", "上游 Bangumi userId"],
 		["u358128", "上游 VNDB userId"],
-		["Lovely firefly", "上游首页主标题"],
-		["In Reddened Chrysalis", "上游首页副标题诗"],
-		// R-ID-06：订阅功能移除后，这些不该再出现在任何页面里
+	];
+	// 合法内部标识符白名单 —— **只有这 3 个**。理由是：它们全是本站客户端 JS 的**全局变量名**
+	// （由 `Layout.astro` / `MusicManager.astro` / `BannerHomeTextOverlay.astro` 读写），
+	// 既不是品牌字样、也永远不会出现在可见文本里；改名要同时动 3~4 个文件的一致性，
+	// 与发起人"站上不留 Firefly 字样"（指的是可见的上游品牌 / 署名）不是一回事。
+	// 实测：v1.47 全量扫 165 个 HTML，去掉这 3 个记号之后，大小写不敏感的
+	// `firefly` / `cuteleaf` 在非 about 页面里**一个都不剩**（写死在这里，多一个都会红）。
+	const INTERNAL_FIREFLY_TOKENS = [
+		"window.__fireflyMusic",
+		"window.__fireflyLayoutTransitionGuard",
+		"window.fireflyCachedSubtitle",
+	];
+	// R-ID-06：订阅功能移除后，这些不该再出现在任何页面里
+	const FEED_LEAK_NEEDLES = [
 		["application/rss+xml", "head 里的 RSS alternate 链接"],
 		["application/atom+xml", "head 里的 Atom alternate 链接"],
 		["rss.xml", "订阅入口（rss.xml）"],
@@ -737,14 +805,104 @@ async function main() {
 		['href="/rss/"', "订阅页入口"],
 		['href="/atom/"', "订阅页入口"],
 	];
-	for (const route of ["/", "/about/", "/guestbook/", SAMPLE_POST]) {
-		const html = await (await fetch(`${BASE}${route}`)).text();
-		const hits = UPSTREAM_LEAK_PATTERNS.filter(([needle]) => html.includes(needle));
+	/** 递归列出 dist 下所有 HTML（同步实现：扫描前只要文件清单，不需要流式） */
+	const listDistHtml = async (dir = "dist", out = []) => {
+		let entries;
+		try {
+			entries = await fs.readdir(dir, { withFileTypes: true });
+		} catch {
+			return out;
+		}
+		for (const e of entries) {
+			const p = path.join(dir, e.name);
+			if (e.isDirectory()) await listDistHtml(p, out);
+			else if (e.name.endsWith(".html")) out.push(p);
+		}
+		return out;
+	};
+	// 剥掉 script / style / HTML 注释 → 剩下的才是"访客能看见的文本"
+	const visibleTextOf = (html) =>
+		html
+			.replace(/<script[\s\S]*?<\/script>/gi, " ")
+			.replace(/<style[\s\S]*?<\/style>/gi, " ")
+			.replace(/<!--[\s\S]*?-->/g, " ");
+
+	const ABOUT_HTML = path.join("dist", "about", "index.html");
+	const distHtmlFiles = await listDistHtml();
+	if (isDevServer) {
+		record("INFO(dev)", "上游身份零残留扫描已跳过", true, "读的是磁盘 dist/，dev 下可能是旧产物；请用 pnpm preview");
+	} else if (distHtmlFiles.length === 0) {
+		// "扫不到文件"绝不能算通过 —— 否则 dist 缺失时这条会伪装成绿（T77 同类）
+		record("R-ID-05/R-NAV-06", "上游身份零残留（全站产物）", false, "dist 下没找到任何 HTML：先跑 pnpm build");
+	} else {
+		const leakedFiles = [];
+		const removedOnlyFiles = [];
+		const visibleLeakFiles = [];
+		const feedLeakFiles = [];
+		let aboutNote = "";
+		for (const f of distHtmlFiles) {
+			const html = await fs.readFile(f, "utf8");
+			const isAbout = path.normalize(f) === path.normalize(ABOUT_HTML);
+			// ① 品牌 / 身份串
+			const hits = IDENTITY_NEEDLES.filter(([n]) => html.includes(n));
+			if (hits.length) {
+				if (isAbout) {
+					aboutNote = hits.map(([n, why]) => `${why}（${n}）`).join("；");
+				} else {
+					leakedFiles.push(`${f} → ${hits.map(([n]) => n).join("+")}`);
+				}
+			}
+			// ② 大小写不敏感的 firefly / cuteleaf（去掉白名单记号后必须为空）
+			let stripped = html;
+			for (const tok of INTERNAL_FIREFLY_TOKENS) stripped = stripped.split(tok).join("");
+			if (/firefly|cuteleaf/i.test(stripped)) {
+				if (!isAbout) {
+					const m = stripped.match(/[A-Za-z0-9_$@./:\-]*firefly[A-Za-z0-9_$@./:\-]*/i) || stripped.match(/[A-Za-z0-9_$@./:\-]*cuteleaf[A-Za-z0-9_$@./:\-]*/i);
+					removedOnlyFiles.push(`${f} → ${m ? m[0] : "?"}`);
+				}
+			}
+			// ③ 可见文本
+			if (/firefly|cuteleaf/i.test(visibleTextOf(html)) && !isAbout) {
+				visibleLeakFiles.push(f);
+			}
+			// R-ID-06：订阅残渣
+			const feedHits = FEED_LEAK_NEEDLES.filter(([n]) => html.includes(n));
+			if (feedHits.length) feedLeakFiles.push(`${f} → ${feedHits.map(([n]) => n).join("+")}`);
+		}
+		const fmt = (arr) => (arr.length ? `${arr.length} 个：${arr.slice(0, 5).join(" ｜ ")}${arr.length > 5 ? " …" : ""}` : "干净");
 		record(
 			"R-ID-05/R-NAV-06",
-			`渲染结果不含上游作者信息 / 打赏入口：${route}`,
-			hits.length === 0,
-			hits.length ? hits.map(([n, why]) => `${why}（${n}）`).join("；") : "干净",
+			`上游身份零残留（全站 ${distHtmlFiles.length} 个 HTML 逐个扫，唯一排除 about）`,
+			leakedFiles.length === 0,
+			fmt(leakedFiles),
+		);
+		record(
+			"R-ID-05",
+			"大小写不敏感的 firefly/cuteleaf 只剩 3 个已登记的内部 JS 全局名",
+			removedOnlyFiles.length === 0,
+			fmt(removedOnlyFiles),
+		);
+		record(
+			"R-ID-05",
+			"可见文本（剥 script/style/注释）里没有 firefly/cuteleaf",
+			visibleLeakFiles.length === 0,
+			fmt(visibleLeakFiles),
+		);
+		record(
+			"R-ID-06",
+			"全站产物没有订阅残渣（rss/atom 链接与入口）",
+			feedLeakFiles.length === 0,
+			fmt(feedLeakFiles),
+		);
+		// 这条是 INFO（不计入通过/失败）：把"排除面还没做完"摆在明面上。
+		// 发起人把 about.md 换成自己的文字之后，它会变成"0 命中"，那时就该把 ABOUT_HTML 例外删掉。
+		record(
+			"INFO(待办)",
+			"about 页仍整页是上游作者自我介绍（等发起人自己的文字；硬约束本轮禁改）",
+			true,
+			aboutNote
+				? `仍含：${aboutNote} —— 这是唯一被排除的页面`
+				: "about 页已经不含上游身份了 → 请把本文件里的 ABOUT_HTML 例外删掉",
 		);
 	}
 	// 文章页不该有打赏按钮（R-NAV-06 的第三项）
@@ -3907,7 +4065,7 @@ async function main() {
 			`figure ${http?.figures} 个；alt=[${(http?.images ?? []).map((i) => i.alt).join(",")}]`,
 		);
 		record(
-			"R-CNT-01",
+			"R-ID-10",
 			"文章 URL 走分类目录（/posts/<分类>/<slug>/）",
 			http?.path === "/posts/linux-net/http-xieyi/" && rb?.path === "/posts/cpp/hongheishufengzhuangshixian-mymap-he-myset/",
 			`${http?.path} / ${rb?.path}`,
@@ -3983,13 +4141,13 @@ async function main() {
 			record("R-CNT-04", "同一篇里的多条双链全部改写", false, `读不到产物：${err.message}`);
 		}
 
-		// 列表页收录（R-CNT-01/02）
+		// 列表页收录（R-ID-10/02）
 		try {
 			const arch = await (await fetch(`${BASE}/archive/`)).text();
 			const want = ["HTTP 协议", "差分", "My_server框架全流程梳理"];
 			const missing = want.filter((t) => !arch.includes(t));
 			record(
-				"R-CNT-01",
+				"R-ID-10",
 				"/archive/ 收录导入的文章",
 				missing.length === 0,
 				missing.length ? `缺 ${missing.join("、")}` : `抽查 ${want.length} 篇都在`,
@@ -4004,7 +4162,7 @@ async function main() {
 				missingCats.length ? `缺 ${missingCats.join("、")}` : `抽查 ${wantCats.length} 个分类都在`,
 			);
 		} catch (err) {
-			record("R-CNT-01", "/archive/ 与 /categories/ 收录检查", false, err.message);
+			record("R-ID-10", "/archive/ 与 /categories/ 收录检查", false, err.message);
 		}
 	}
 
@@ -6503,6 +6661,216 @@ async function main() {
 			`浮层打开=${openPanel?.open}（按钮自身隐藏=${openPanel?.btnHidden}）｜点 ${floatAnchor?.href} ｜ history.length ${beforeFloat?.histLen} → ${afterFloat?.histLen} ｜ 点完浮层被关=${panelAfter?.hidden}（必须 false）｜ 后退后 ${backFloat?.pathname}${backFloat?.hash}，首个子节点同一=${backFloat?.sameFirstChild}，visit 次数=${backFloat?.visits}`,
 		);
 		await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+		await goto(`${BASE}/`);
+	}
+
+	// ── P4-8（v1.47）：删除清单的"删干净了没有"（空态 / 导航 / 页脚 / 侧栏 / 音乐 / 路由）──
+	// 这一块每一条都对着 P4-8 批准清单里的一个具体删除项，删过头或没删干净都会红。
+	// 就地写 evalIn / goto（照 2586 行那一套的写法，不另造名字各异的一套）。
+	{
+		const evalIn = async (expr) =>
+			(await cdp.send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true })).result.value;
+		const goto = async (url) => {
+			const loaded = cdp.once("Page.loadEventFired", 8000).catch(() => null);
+			await cdp.send("Page.navigate", { url });
+			await loaded;
+			await sleep(900);
+		};
+		// 会被删掉的上游条目名（A1：2 个项目 + 2 个相册）。写死在这里当"反面清单"。
+		const REMOVED_ENTRY_NAMES = ["Firefly 主题模版", "示例项目", "可爱流萤", "加密相册示例"];
+		/**
+		 * 判断空态文案是不是落在**可见的**容器里。
+		 * ⚠️ 第一版这里是"取文案前 260 个字符，看里面有没有 card-base 和 hidden"——**假红了两条**：
+		 *    空态容器的 class 与文案之间还隔着一整段 `<svg>`（约 200 字符），260 的窗口根本够不着
+		 *    `card-base`，于是 `includes("card-base")` 恒 false。改成**从文案往前找最近的那个
+		 *    `<div class="card-base`，直接读它的开标签**再判 `hidden` —— 不再靠猜窗口大小。
+		 *    为什么必须区分子串：每页还有一个「筛选无结果」的空态元素（`projects-empty hidden` /
+		 *    `albums-empty hidden`），它带 hidden、且文案是"没有找到匹配的结果"；只断言"文案在不在"
+		 *    会被它蒙混过去（这正是本断言第一版想防的假绿）。
+		 */
+		const emptyStateIsVisible = (html, text) => {
+			const i = html.indexOf(text);
+			if (i < 0) return { ok: false, why: `产物里找不到空态文案「${text}」` };
+			// 只出现 1 次：出现多次时"往前找最近的那个 card-base"可能配错容器（下面按最近外层判，
+			// 一旦将来别处也渲染同一句，这条会立刻红，逼人把判据写准，而不是悄悄判成可见）。
+			const occurrences = html.split(text).length - 1;
+			if (occurrences !== 1) return { ok: false, why: `空态文案「${text}」出现 ${occurrences} 次（期望恰好 1 次，否则无法确定是哪一处可见）` };
+			const openIdx = html.lastIndexOf('<div class="card-base', i);
+			if (openIdx < 0) return { ok: false, why: `「${text}」不在 card-base 空态容器里` };
+			const openTag = html.slice(openIdx, html.indexOf(">", openIdx) + 1);
+			const hasHidden = /class="[^"]*\bhidden\b/.test(openTag);
+			return { ok: !hasHidden, why: `出现 ${occurrences} 次，容器开标签=${openTag.slice(0, 110)}` };
+		};
+
+		// ① /projects/：集合清空后仍可达、渲染真空态文案、且没有任何条目名
+		{
+			const res = await fetch(`${BASE}/projects/`);
+			const html = await res.text();
+			const empty = emptyStateIsVisible(html, "暂无项目");
+			const leftover = REMOVED_ENTRY_NAMES.filter((n) => html.includes(n));
+			record(
+				"R-ID-10",
+				"/projects/ 仍可达且渲染空态「暂无项目」（不是筛选无结果的 hidden 元素）",
+				res.status === 200 && empty.ok,
+				`HTTP ${res.status}，可见空态=${empty.ok}（${empty.why}）`,
+			);
+			record(
+				"R-ID-10",
+				"/projects/ 不出现任何已删除的上游项目名",
+				leftover.length === 0,
+				leftover.join("、") || "无残留",
+			);
+		}
+
+		// ② /gallery/：同上；另加"相册详情路由已消失"（配置与目录成对删除的证明）
+		{
+			const res = await fetch(`${BASE}/gallery/`);
+			const html = await res.text();
+			const empty = emptyStateIsVisible(html, "暂无相册");
+			const leftover = REMOVED_ENTRY_NAMES.filter((n) => html.includes(n));
+			record(
+				"R-ID-10",
+				"/gallery/ 仍可达且渲染空态「暂无相册」（不是筛选无结果的 hidden 元素）",
+				res.status === 200 && empty.ok,
+				`HTTP ${res.status}，可见空态=${empty.ok}（${empty.why}）`,
+			);
+			record(
+				"R-ID-10",
+				"/gallery/ 不出现任何已删除的上游相册名",
+				leftover.length === 0,
+				leftover.join("、") || "无残留",
+			);
+			// 只删 config 会留孤儿路由、只删目录会留空相册 —— 这条同时钉住"两条详情路由都没了"
+			const galleryDetail = [];
+			for (const u of ["/gallery/firefly-2026/", "/gallery/encrypted-test/"]) {
+				galleryDetail.push(`${u}=${(await fetch(`${BASE}${u}`, { redirect: "manual" })).status}`);
+			}
+			record(
+				"R-ID-10",
+				"两个上游相册的详情路由都已消失（真 404，配置与 public/gallery 目录成对删除）",
+				galleryDetail.every((s) => s.endsWith("=404")),
+				galleryDetail.join(" "),
+			);
+		}
+		// ②b 两个上游项目的详情路由：同上（`projects` 集合已空 → getStaticPaths 不产出任何页）
+		{
+			const projDetail = [];
+			for (const u of ["/projects/firefly/", "/projects/example-project/"]) {
+				projDetail.push(`${u}=${(await fetch(`${BASE}${u}`, { redirect: "manual" })).status}`);
+			}
+			record(
+				"R-ID-10",
+				"两个上游示例项目的详情路由都已消失（真 404）",
+				projDetail.every((s) => s.endsWith("=404")),
+				projDetail.join(" "),
+			);
+		}
+
+		// ③ 导航：不再有「链接」组，且不留下"点开是空的分组容器"
+		{
+			const tops = home.navTops || [];
+			record(
+				"R-NAV-01~04",
+				"导航里不再有「链接」组（整组消失，不是留一个空下拉）",
+				!tops.some((t) => t.name === "链接") && !home.allLabels.includes("链接"),
+				`顶层=${JSON.stringify(tops.map((t) => t.name))}`,
+			);
+			// "空分组容器"= 触发器 href 是 `#`（下拉）却没有任何子项。
+			// 上游那两条署名外链删掉后，如果 nav-menu-utils 不 return null，这里就会抓到空壳。
+			const emptyGroups = tops.filter((t) => t.href === "#" && (t.children?.length ?? 0) === 0);
+			record(
+				"R-NAV-01~04",
+				"不存在空的分组容器（href=# 的触发器必有子项）",
+				emptyGroups.length === 0,
+				emptyGroups.length ? JSON.stringify(emptyGroups.map((t) => t.name)) : "无空分组",
+			);
+			record(
+				"R-NAV-01~04",
+				"导航里没有上游署名项（Firefly 主题 / Firefly 文档）",
+				!home.allLabels.some((l) => /firefly|cuteleaf|夏夜流萤/i.test(String(l))),
+				JSON.stringify(home.allLabels.filter((l) => /firefly|cuteleaf|夏夜流萤/i.test(String(l)))),
+			);
+		}
+
+		// ④ 页脚：只留 Astro，不留上游字样
+		{
+			const html = await (await fetch(`${BASE}/`)).text();
+			const s = html.indexOf("<footer");
+			const footer = s >= 0 ? html.slice(s, html.indexOf("</footer>", s) + 9) : "";
+			const hasUpstream = /firefly|cuteleaf|夏夜流萤/i.test(footer);
+			const hasAstro = footer.includes(">Astro<") && footer.includes("https://astro.build");
+			const hasPoweredBy = footer.includes("Powered by");
+			record(
+				"R-ID-05",
+				"页脚是「Powered by Astro」，不含上游字样",
+				footer.length > 0 && hasPoweredBy && hasAstro && !hasUpstream,
+				`footer 长度=${footer.length}，Powered by=${hasPoweredBy}，Astro 链接=${hasAstro}，含上游字样=${hasUpstream}`,
+			);
+		}
+
+		// ⑤ 侧栏「站点信息」：两处硬编码的 Firefly 版本行都没了，但版本号还在（不留空格子）
+		{
+			const html = await (await fetch(`${BASE}/`)).text();
+			const i = html.indexOf("站点信息");
+			const panel = i >= 0 ? html.slice(i, i + 6000) : "";
+			const hasUpstream = /firefly|cuteleaf/i.test(panel);
+			const hasVersion = /v6\.16\.8/.test(panel);
+			// "不留空格子"的可判定代理：版本号那一格仍在（改成中性的 `v6.16.8`），
+			// 而不是把整行删掉导致只剩构建平台/许可两项。
+			record(
+				"R-ID-05",
+				"侧栏「站点信息」不含 Firefly 字样（中性版本行仍在，未留空格子）",
+				panel.length > 0 && !hasUpstream && hasVersion,
+				`面板长度=${panel.length}，含上游字样=${hasUpstream}，中性版本号 v6.16.8 仍在=${hasVersion}`,
+			);
+		}
+
+		// ⑥ 音乐：导航/侧栏入口都没有，产物里没有任何音频文件引用，
+		//    且运行时那个 <audio> 元素没有 src —— 没有 src 就**不可能**发出音频请求（含 404）。
+		{
+			const html = await (await fetch(`${BASE}/`)).text();
+			const navHasMusic = (home.allLabels || []).includes("音乐");
+			const sidebarWidget = /music-widget-|class="[^"]*music-player/.test(html);
+			const assetsRef = /\/assets\/music\//.test(html);
+			await goto(`${BASE}/`);
+			const probe = await evalIn(`(() => {
+				const audios = Array.prototype.map.call(document.querySelectorAll("audio"), (a) => ({
+					src: a.getAttribute("src") || "", currentSrc: a.currentSrc || "", preload: a.getAttribute("preload") || "",
+				}));
+				const audioRes = performance.getEntriesByType("resource").map((e) => e.name).filter((n) => /music|\\.mp3|\\.webm|\\.ogg/i.test(n));
+				return { audios, audioRes };
+			})()`);
+			const anySrc = (probe?.audios || []).some((a) => a.src || a.currentSrc);
+			record(
+				"R-ID-06",
+				"导航栏与侧栏都不再有音乐播放器入口 / 组件",
+				!navHasMusic && !sidebarWidget && !assetsRef,
+				`导航含「音乐」=${navHasMusic}，侧栏播放器 DOM=${sidebarWidget}，HTML 引用 /assets/music/=${assetsRef}`,
+			);
+			record(
+				"R-ID-06",
+				"页面没有音频请求（audio 元素无 src + 无音频资源加载记录 → 结构上不可能 404）",
+				(probe?.audios?.length ?? 0) >= 0 && !anySrc && (probe?.audioRes?.length ?? 0) === 0,
+				`audio 元素=${JSON.stringify(probe?.audios)}，音频资源请求=${JSON.stringify(probe?.audioRes)}`,
+			);
+		}
+
+		// ⑦ 音乐配置：本地歌单已清空、两个入口开关都关了（配置层的事实，不是只看渲染）
+		{
+			const musicCfg = await fs.readFile(path.resolve("src/config/musicConfig.ts"), "utf8");
+			const playlistEmpty = /playlist:\s*\[\s*\]/.test(musicCfg);
+			const navOff = /showInNavbar:\s*false/.test(musicCfg);
+			const sideOff = /showInSidebar:\s*false/.test(musicCfg);
+			// ⚠️ `meting.id`（网易云歌单 10046455237）**故意保留未删**：归属未定，见报告。
+			//    这条断言只钉"歌单空 + 入口关"，不碰 meting。
+			const metingKept = musicCfg.includes("10046455237");
+			record(
+				"R-ID-06",
+				"musicConfig：本地歌单已清空 + 两个播放器入口开关均 false（meting.id 按「归属未定」保留）",
+				playlistEmpty && navOff && sideOff && metingKept,
+				`playlist 空=${playlistEmpty}，showInNavbar=false=${navOff}，showInSidebar=false=${sideOff}，meting.id 保留=${metingKept}`,
+			);
+		}
 		await goto(`${BASE}/`);
 	}
 
