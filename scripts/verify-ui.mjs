@@ -6117,6 +6117,395 @@ async function main() {
 		}
 	}
 
+	// ── B-16：页内锚点（R-NAV-08）────────────────────────────────────────
+	// 症状（修复前）：点 TOC / 标题锚点后 URL 会带上 hash、也会滚到位，但 `history.length`
+	// **不变**（Swup 4.9.2 的 `handleLinkClick()` 对"同页锚点"走自己的 `link:anchor` 分支，
+	// 里面调的是 `updateHistoryRecord()` = `history.replaceState()`，不是 push）→ 按一次
+	// 「后退」直接离开该页（文章页退到上一份文档），读者回不到原来的位置。
+	// 修复：`astro.config.mjs` 里给 swup 加 `ignore: ['a[href^="#"]:not([href="#"])']`
+	// （@swup/astro 会把它序列化进 `ignoreVisit`），并去掉 `TOCManager` 自己那个
+	// `preventDefault()` + 手动滚动的点击处理器 —— 页内锚点整条路交回浏览器原生。
+	// 为什么这组断言要**同时**钉住四件事：只钉"hash 变了"的话，修复前的实现也满足
+	// （它靠 replaceState 补写 hash）—— 那种"看起来在查、其实查不出病"的断言正是 T79 一类。
+	// 所以每条都要 hash + **历史条目数** + **后退不重渲染**（元素身份 + Swup visit 计数）一起判。
+	{
+		const evalIn = async (expr) =>
+			(await cdp.send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true })).result.value;
+		const goto = async (url) => {
+			const loaded = cdp.once("Page.loadEventFired", 8000).catch(() => null);
+			await cdp.send("Page.navigate", { url });
+			await loaded;
+			await sleep(900);
+		};
+		/**
+		 * 轮询等条件成立。表达式抛错按"还没成立"处理（元素没了 → 该红的断言要红，
+		 * 不许把整轮炸掉 —— Task 2 踩过的同类坑）。
+		 */
+		const waitFor = async (expr, timeoutMs = 4000) => {
+			for (let waited = 0; waited <= timeoutMs; waited += 150) {
+				if (await evalIn(`(() => { try { return Boolean(${expr}); } catch { return false; } })()`)) return true;
+				await sleep(150);
+			}
+			return false;
+		};
+		/** 等平滑滚动停稳（`html { scroll-behavior: smooth }`：固定 sleep 在慢机器上会假红/假绿） */
+		const waitScrollStable = async (timeoutMs = 5000) => {
+			let last = null;
+			let same = 0;
+			for (let waited = 0; waited <= timeoutMs; waited += 150) {
+				const y = await evalIn("Math.round(window.scrollY)");
+				if (y === last) {
+					if (++same >= 3) return y;
+				} else {
+					same = 0;
+					last = y;
+				}
+				await sleep(150);
+			}
+			return last;
+		};
+		/**
+		 * 插桩（只在页面里，不落仓库）：visit 计数 + "当前 JS 上下文 / DOM 身份"。
+		 * ⚠️ `container` / `firstChild` 是**元素引用**：Swup 真重渲染了容器内容时它们会
+		 * 变成 detached（`isConnected === false`）。比"内容看起来一样"可靠。
+		 */
+		const arm = async () =>
+			evalIn(`(() => {
+				window.__b16ui = {
+					docId: Math.random().toString(36).slice(2),
+					visits: 0,
+					container: document.querySelector("#swup-container"),
+					firstChild: document.querySelector("#swup-container")?.firstElementChild ?? null,
+				};
+				// 同一个页面里可能被 arm 多次（每次换页后重新插桩），别重复挂 hook
+				if (!window.__b16uiHooked && window.swup?.hooks) {
+					window.__b16uiHooked = true;
+					window.swup.hooks.on("visit:start", () => { window.__b16ui.visits++; });
+				}
+				return { docId: window.__b16ui.docId, firstChild: window.__b16ui.firstChild ? window.__b16ui.firstChild.tagName + "#" + (window.__b16ui.firstChild.id || "") : null };
+			})()`);
+		/**
+		 * 采一份"锚点点击后应该看什么"的快照。
+		 * ⚠️ 每个 `same*` 判定都**显式要求两侧元素都在**（`!!a && !!b && a === b`）——
+		 * 写成 `a === b` 时，元素缺失会让两边都是 `undefined` 而**恒真**（T79 同源的"结构上不可能红"）。
+		 */
+		const observe = async (targetId) =>
+			evalIn(`(() => {
+				try {
+					const cur = document.querySelector("#swup-container");
+					const heading = ${targetId ? `document.getElementById(${JSON.stringify(targetId)})` : "null"};
+					return {
+						pathname: location.pathname,
+						hash: location.hash,
+						hashIsTarget: ${targetId ? `decodeURIComponent(location.hash.replace(/^#/, "")) === ${JSON.stringify(targetId)}` : "null"},
+						hrefEndsWithBareHash: location.href.endsWith("#"),
+						histLen: history.length,
+						histStateSource: history.state ? history.state.source : null,
+						scrollY: Math.round(window.scrollY),
+						headingTop: heading ? Math.round(heading.getBoundingClientRect().top) : null,
+						contextAlive: !!window.__b16ui && typeof window.__b16ui.docId === "string",
+						visits: window.__b16ui ? window.__b16ui.visits : null,
+						sameContainer: !!window.__b16ui?.container && !!cur && window.__b16ui.container === cur,
+						sameFirstChild: !!window.__b16ui?.firstChild && !!cur && !!cur.firstElementChild && window.__b16ui.firstChild === cur.firstElementChild,
+					};
+				} catch (e) { return { __error: String(e) }; }
+			})()`);
+		/** 取一个页内锚点的 href / 目标 id（取不到时返回 null，让断言变红而不是抛异常） */
+		const anchorInfo = async (sel) =>
+			evalIn(`(() => {
+				try {
+					const el = document.querySelector(${JSON.stringify(sel)});
+					if (!el) return null;
+					const href = el.getAttribute("href") || "";
+					if (!/^#./.test(href)) return { href, notFragment: true };
+					const id = decodeURIComponent(href.slice(1));
+					return { href, id, targetExists: !!document.getElementById(id) };
+				} catch (e) { return { __error: String(e) }; }
+			})()`);
+		const clickSel = async (sel) =>
+			evalIn(`(() => { try { const el = document.querySelector(${JSON.stringify(sel)}); if (!el) return "missing"; el.click(); return "ok"; } catch (e) { return String(e); } })()`);
+		const back = async () => {
+			await evalIn(`history.back(); "back"`);
+			await waitFor(`location.hash === ""`, 3000);
+			await waitScrollStable(3000);
+		};
+
+		// ① R-NAV-08（磁盘普查，不开浏览器）：全站的"同文档锚点"必须**全部**是 `#frag` 形态，
+		//    否则 `a[href^="#"]:not([href="#"])` 这个全局规则会漏掉一部分 —— 这是"为什么它是全局的"的证明。
+		//    反例形态：`<a href="/posts/x/#h">`（带路径的同页锚点）—— 扫描里一旦出现，这条立刻红。
+		{
+			const htmlFiles = [];
+			const walk = async (dir) => {
+				for (const ent of await fs.readdir(dir, { withFileTypes: true })) {
+					const p = path.join(dir, ent.name);
+					if (ent.isDirectory()) await walk(p);
+					else if (ent.name === "index.html") htmlFiles.push(p);
+				}
+			};
+			// 扫不到产物时按"红"处理（0 个文件 → 下面那条断言自然不成立），不能把整轮炸掉
+			await walk(path.resolve("dist")).catch(() => {});
+			let fragmentAnchors = 0;
+			let bareHashAnchors = 0;
+			let uncovered = 0;
+			const uncoveredSample = [];
+			for (const file of htmlFiles) {
+				const html = await fs.readFile(file, "utf8");
+				const rel = path.relative(path.resolve("dist"), path.dirname(file)).split(path.sep).join("/");
+				const route = rel === "" || rel === "." ? "/" : `/${rel}/`;
+				// ⚠️ 只认 `<a>`：`<use href="#icon">` 这类不是锚点，Swup 的 `linkSelector` 也不看它们
+				for (const m of html.matchAll(/<a\b[^>]*?\shref="([^"]*)"/g)) {
+					const href = m[1];
+					if (href === "#") {
+						bareHashAnchors++;
+						continue;
+					}
+					if (href.startsWith("#")) {
+						fragmentAnchors++;
+						continue;
+					}
+					if (!href.includes("#")) continue;
+					let u;
+					try {
+						u = new URL(href, `http://x${route}`);
+					} catch {
+						continue;
+					}
+					if (u.pathname === route) {
+						uncovered++;
+						if (uncoveredSample.length < 8) uncoveredSample.push(`${route} → ${href}`);
+					}
+				}
+			}
+			record(
+				"R-NAV-08",
+				"全站同文档锚点都是 `#frag` 形态（`a[href^=\"#\"]:not([href=\"#\"])` 这条全局规则覆盖得住）",
+				htmlFiles.length > 100 && fragmentAnchors >= 10000 && uncovered === 0,
+				`扫 ${htmlFiles.length} 个 index.html：页内锚点 ${fragmentAnchors} 个（含 data-no-swup 的 8 个）｜裸 \`#\` 占位 ${bareHashAnchors} 个｜**选择器覆盖不到的同页锚点 ${uncovered} 个**${uncoveredSample.length ? `：${uncoveredSample.join("；")}` : ""}`,
+			);
+		}
+
+		// ② R-NAV-08：侧栏目录项（TOCManager 那条路）——hash + 历史 + 后退回原位 + 不重渲染
+		// ⚠️ 每一段都**先回首页再进目标页**（两趟换文档的整页加载）：
+		//    `history.length` 是"历史栈里的条目总数"，**后退之后再点锚点是在栈中间插一格、
+		//    会截断原来后面的条目 → 长度反而不变**（本轮第一次跑就是这么假红的，实测
+		//    history.length 31 → 31 而 hash 明明写进去了）。先换一次文档，当前位置才是栈尾。
+		//    顺带把"判据之间的隐式依赖"掐掉（Task 3 §1.5.2 的教训）。
+		const freshPost = async () => {
+			await goto(`${BASE}/`);
+			await goto(`${BASE}${SAMPLE_POST}`);
+			await arm();
+		};
+		await freshPost();
+		// 前置条件也**算一条断言**：锚点/目录项数不够时，下面几条会因为"点了个不存在的东西"而变红，
+		// 但那时原因藏在细节里；这条把"页面本身得先有货"顶到最前面（取不到就是红，不是跳过）。
+		// ⚠️ `hashAnchors` 与 `ignoreSelectorMatches` 必须**同一个作用域**里数（全文档）：
+		//    第一次跑把前者限制在 `.custom-md` 里、后者是全文档 → 13 vs 52 假红。
+		const anchorInv = await evalIn(`(() => {
+			const all = [...document.querySelectorAll("a[href]")];
+			return {
+				headingAnchors: document.querySelectorAll(".custom-md a.anchor[href^='#']").length,
+				tocItems: document.querySelectorAll("#sidebar-toc-content a[href^='#']").length,
+				hashAnchors: all.filter((a) => (a.getAttribute("href") || "").startsWith("#")).length,
+				ignoreSelectorMatches: all.filter((a) => a.matches('a[href^="#"]:not([href="#"])')).length,
+				bareHashAnchors: all.filter((a) => a.getAttribute("href") === "#").length,
+			};
+		})()`);
+		record(
+			"R-NAV-08",
+			`长文章页 ${SAMPLE_POST} 上目录项 / 标题锚点都够多，且页内锚点**全部**落在这条新规则里（后面几条不空过）`,
+			anchorInv?.headingAnchors >= 5 &&
+				anchorInv?.tocItems >= 5 &&
+				anchorInv?.hashAnchors >= 20 &&
+				anchorInv?.hashAnchors === anchorInv?.ignoreSelectorMatches &&
+				anchorInv?.bareHashAnchors === 0,
+			`标题锚点 ${anchorInv?.headingAnchors} 个 ｜ 侧栏目录项 ${anchorInv?.tocItems} 个 ｜ 全文档页内锚点 ${anchorInv?.hashAnchors} 个，被新 \`ignore\` 选择器命中 ${anchorInv?.ignoreSelectorMatches} 个（必须相等）｜ 裸 \`#\` 占位 ${anchorInv?.bareHashAnchors} 个（本页应为 0）`,
+		);
+
+		const tocAnchor = await anchorInfo("#sidebar-toc-content a[href^='#']");
+		const beforeToc = await observe(tocAnchor?.id);
+		const tocClick = await clickSel("#sidebar-toc-content a[href^='#']");
+		await waitFor("location.hash.length > 1", 3000);
+		await waitScrollStable(5000);
+		const afterToc = await observe(tocAnchor?.id);
+		await back();
+		const backToc = await observe(tocAnchor?.id);
+		record(
+			"R-NAV-08",
+			"点侧栏目录项：写 hash + **写历史记录**（`history.length` +1）+ 滚到该标题",
+			tocClick === "ok" &&
+				tocAnchor?.targetExists === true &&
+				afterToc?.hashIsTarget === true &&
+				afterToc?.histLen === beforeToc?.histLen + 1 &&
+				afterToc?.headingTop !== null &&
+				afterToc.headingTop >= 30 &&
+				afterToc.headingTop <= 160,
+			`点 ${tocAnchor?.href}（目标 ${tocAnchor?.id}，存在=${tocAnchor?.targetExists}）｜点击返回=${tocClick} ｜ hash=${afterToc?.hash}（命中目标=${afterToc?.hashIsTarget}）｜ history.length ${beforeToc?.histLen} → ${afterToc?.histLen}（新条目 state.source=${afterToc?.histStateSource}）｜ 标题距视口顶 ${afterToc?.headingTop}px（\`scroll-margin-top: 5.5rem\` = 88px）`,
+		);
+		record(
+			"R-NAV-08",
+			"点目录项后按「后退」：留在本页 + 回到无 hash + **不重渲染整页**",
+			backToc?.pathname === beforeToc?.pathname &&
+				backToc?.hash === "" &&
+				backToc?.contextAlive === true &&
+				backToc?.sameContainer === true &&
+				backToc?.sameFirstChild === true &&
+				backToc?.visits === 0,
+			`后退后落在 ${backToc?.pathname}${backToc?.hash} ｜ JS 上下文仍在=${backToc?.contextAlive} ｜ 容器还是同一个=${backToc?.sameContainer}、首个子节点还是同一个=${backToc?.sameFirstChild} ｜ 全程 Swup visit 次数=${backToc?.visits}（0 = 没重跑 visit、没重渲染）`,
+		);
+
+		// ③ R-NAV-08：正文标题锚点（`rehype-autolink-headings` 的 `a.anchor`）——全站 16 518 个锚点里的大头
+		await freshPost();
+		const headAnchor = await anchorInfo(".custom-md a.anchor[href^='#']");
+		const beforeHead = await observe(headAnchor?.id);
+		const headClick = await clickSel(".custom-md a.anchor[href^='#']");
+		await waitFor("location.hash.length > 1", 3000);
+		await waitScrollStable(5000);
+		const afterHead = await observe(headAnchor?.id);
+		await back();
+		const backHead = await observe(headAnchor?.id);
+		record(
+			"R-NAV-08",
+			"点正文标题锚点：写 hash + 写历史记录 + 滚到该标题",
+			headClick === "ok" &&
+				headAnchor?.targetExists === true &&
+				afterHead?.hashIsTarget === true &&
+				afterHead?.histLen === beforeHead?.histLen + 1 &&
+				afterHead?.headingTop !== null &&
+				afterHead.headingTop >= 30 &&
+				afterHead.headingTop <= 160,
+			`点 ${headAnchor?.href}（目标 ${headAnchor?.id}，存在=${headAnchor?.targetExists}）｜点击返回=${headClick} ｜ hash=${afterHead?.hash}（命中目标=${afterHead?.hashIsTarget}）｜ history.length ${beforeHead?.histLen} → ${afterHead?.histLen} ｜ 标题距视口顶 ${afterHead?.headingTop}px`,
+		);
+		record(
+			"R-NAV-08",
+			"点标题锚点后按「后退」：留在本页 + 回到无 hash + 不重渲染整页",
+			backHead?.pathname === beforeHead?.pathname &&
+				backHead?.hash === "" &&
+				backHead?.contextAlive === true &&
+				backHead?.sameContainer === true &&
+				backHead?.sameFirstChild === true &&
+				backHead?.visits === 0,
+			`后退后落在 ${backHead?.pathname}${backHead?.hash} ｜ JS 上下文仍在=${backHead?.contextAlive} ｜ 容器同一=${backHead?.sameContainer}、首个子节点同一=${backHead?.sameFirstChild} ｜ Swup visit 次数=${backHead?.visits}`,
+		);
+
+		// ④ R-NAV-08：路线页那 8 个 `data-no-swup` 锚点（R-PATH-01 的先例）也仍须"进历史 + 后退不重渲染"——
+		//    这条与 R-PATH-01 的 ⑤⑥ 不重复：那边只判"hash 生效 / 后退回到路线页"，
+		//    判不出"历史条目有没有真的多一条"和"有没有被重渲染"（那两件事正是 B-16 的病）。
+		await goto(`${BASE}/`);
+		await goto(`${BASE}/roadmap/`);
+		await arm();
+		const rmAnchor = await anchorInfo("#roadmap-index a[href^='#']");
+		const beforeRm = await observe(rmAnchor?.id);
+		const rmClick = await clickSel("#roadmap-index a[href^='#']");
+		await waitFor("location.hash.length > 1", 3000);
+		await waitScrollStable(5000);
+		const afterRm = await observe(rmAnchor?.id);
+		await back();
+		const backRm = await observe(rmAnchor?.id);
+		record(
+			"R-NAV-08",
+			"路线页 8 个 `data-no-swup` 锚点仍进历史，后退仍留在本页且不重渲染",
+			rmClick === "ok" &&
+				rmAnchor?.targetExists === true &&
+				afterRm?.hashIsTarget === true &&
+				afterRm?.histLen === beforeRm?.histLen + 1 &&
+				backRm?.pathname === "/roadmap/" &&
+				backRm?.hash === "" &&
+				backRm?.sameFirstChild === true &&
+				backRm?.visits === 0,
+			`点 ${rmAnchor?.href} ｜ history.length ${beforeRm?.histLen} → ${afterRm?.histLen} ｜ 后退后落在 ${backRm?.pathname}${backRm?.hash} ｜ 首个子节点同一=${backRm?.sameFirstChild} ｜ Swup visit 次数=${backRm?.visits}`,
+		);
+
+		// ⑤ R-NAV-08：全程**没有整页导航**（插桩对象还在 = 还是同一个 JS 上下文；换文档它必然消失）
+		await freshPost();
+		const armNav = await evalIn("window.__b16ui ? { docId: window.__b16ui.docId } : null");
+		const navAnchor = await anchorInfo("#sidebar-toc-content a[href^='#']");
+		await clickSel("#sidebar-toc-content a[href^='#']");
+		await waitFor("location.hash.length > 1", 3000);
+		await back();
+		const kept = await evalIn(`(() => {
+			const cur = document.querySelector("#swup-container");
+			return {
+				contextAlive: !!window.__b16ui && window.__b16ui.docId === ${JSON.stringify(armNav?.docId ?? "MISSING")},
+				visits: window.__b16ui ? window.__b16ui.visits : null,
+				hash: location.hash,
+				pathname: location.pathname,
+				firstChild: cur && cur.firstElementChild ? cur.firstElementChild.tagName : null,
+			};
+		})()`);
+		record(
+			"R-NAV-08",
+			"锚点点击 + 后退全程没有整页导航（JS 上下文未重建，Swup visit 也未跑）",
+			kept?.contextAlive === true && kept?.visits === 0 && kept?.pathname === SAMPLE_POST && kept?.hash === "" && !!navAnchor?.targetExists,
+			`插桩 docId 是否还在=${kept?.contextAlive}（换文档后 \`window.__b16ui\` 会消失）｜Swup visit 次数=${kept?.visits} ｜ 落点 ${kept?.pathname}${kept?.hash} ｜ 目标 ${navAnchor?.id}`,
+		);
+
+		// ⑥ R-NAV-08：裸 `href="#"` 占位链接**不许**被变成原生 `#` 跳转（B-16 的修复边界）。
+		//    这就是 `:not([href="#"])` 那半个选择器存在的理由，也是 `Profile.astro` 里
+		//    「`<a rel="me" href="#" data-encoded-email=… onclick=return false>`」那类邮箱按钮的同一形态
+		//    （本仓当前配置下 Profile 没有 mailto 链接，所以只能拿同形态的占位链接当场验）。
+		//    ⚠️ 实测（reports/_b16-probe2.log §Q3）：把 `[href="#"]` 也纳入豁免后，点它会
+		//    URL 尾巴多一个 `#`（`location.href.endsWith("#")`）、`history.length` **+1**（多一条垃圾历史）。
+		//    用 `el.click()` 而不是真鼠标：这些占位链接带 `pointer-events: none`（真鼠标根本点不到，
+		//    那样的断言会"结构上不可能红"）。
+		await goto(`${BASE}${SAMPLE_POST}`);
+		await goto(`${BASE}/`);
+		await arm();
+		const beforeBare = await observe();
+		const bareClick = await clickSel('a[href="#"]');
+		await sleep(700);
+		const afterBare = await observe();
+		record(
+			"R-NAV-08",
+			"裸 `href=\"#\"` 占位链接没有被变成原生 `#` 跳转（邮箱按钮同形态）",
+			bareClick === "ok" &&
+				afterBare?.hrefEndsWithBareHash === false &&
+				afterBare?.histLen === beforeBare?.histLen &&
+				afterBare?.histStateSource === "swup",
+			`点击返回=${bareClick} ｜ URL 尾巴多出 \`#\`=${afterBare?.hrefEndsWithBareHash}（必须 false）｜ history.length ${beforeBare?.histLen} → ${afterBare?.histLen}（必须不变）｜ 条目 state.source=${afterBare?.histStateSource}（仍是 Swup 写的 = 仍由 Swup 拦下）`,
+		);
+
+		// ⑦ R-NAV-08：390px 移动宽度 —— 悬浮目录里点一条也要进历史、后退不重渲染，
+		//    并且浮层**不许**被这次点击误关（原生锚点导航会派发 popstate，而 FloatingTOC 原先
+		//    对任何 popstate 都 `closeTOC()`；现在按它既有的 `tocInternalNavigation` 意图排除了内部导航）。
+		await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+		await goto(`${BASE}${SAMPLE_POST}`);
+		await arm();
+		const floatAnchor = await anchorInfo("#floating-toc-content a[href^='#']");
+		const openPanel = await evalIn(`(() => {
+			const btn = document.getElementById("floating-toc-btn");
+			const panel = document.getElementById("floating-toc-panel");
+			if (!btn || !panel) return { missing: true };
+			if (panel.classList.contains("hide")) btn.click();
+			return { open: !panel.classList.contains("hide"), btnHidden: btn.classList.contains("hide") };
+		})()`);
+		await sleep(200);
+		const beforeFloat = await observe(floatAnchor?.id);
+		const floatClick = await clickSel("#floating-toc-content a[href^='#']");
+		await waitFor("location.hash.length > 1", 3000);
+		await waitScrollStable(5000);
+		const afterFloat = await observe(floatAnchor?.id);
+		const panelAfter = await evalIn(`(() => { const p = document.getElementById("floating-toc-panel"); return p ? { hidden: p.classList.contains("hide") } : { missing: true }; })()`);
+		await back();
+		const backFloat = await observe(floatAnchor?.id);
+		record(
+			"R-NAV-08",
+			"390px 悬浮目录：锚点仍写历史、浮层不被误关、后退留在本页且不重渲染",
+			openPanel?.open === true &&
+				floatClick === "ok" &&
+				floatAnchor?.targetExists === true &&
+				afterFloat?.hashIsTarget === true &&
+				afterFloat?.histLen === beforeFloat?.histLen + 1 &&
+				panelAfter?.hidden === false &&
+				backFloat?.pathname === SAMPLE_POST &&
+				backFloat?.hash === "" &&
+				backFloat?.sameFirstChild === true &&
+				backFloat?.visits === 0,
+			`浮层打开=${openPanel?.open}（按钮自身隐藏=${openPanel?.btnHidden}）｜点 ${floatAnchor?.href} ｜ history.length ${beforeFloat?.histLen} → ${afterFloat?.histLen} ｜ 点完浮层被关=${panelAfter?.hidden}（必须 false）｜ 后退后 ${backFloat?.pathname}${backFloat?.hash}，首个子节点同一=${backFloat?.sameFirstChild}，visit 次数=${backFloat?.visits}`,
+		);
+		await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+		await goto(`${BASE}/`);
+	}
+
 	// ── 报告口径自检（不碰浏览器，纯记账逻辑）────────────────────────────
 	// 为什么要这一条：P5 复核点名「R-AGT-08 多次 SKIP 却计成 ✅」，而那个 bug 的成因是
 	// `record()` 的第 5 个参数（`skipped`）**被签名静默丢掉** —— 光靠"跑一遍真链路看报告"

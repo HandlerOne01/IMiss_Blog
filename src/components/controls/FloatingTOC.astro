@@ -185,6 +185,28 @@ const hideSidebarOnPostPage =
     btn?.classList.remove("toggled");
   }
 
+  /**
+   * 这次导航事件是不是"用户刚在目录里点了页内锚点"造成的？
+   *
+   * ⚠️ B-16：页内锚点改走浏览器原生导航后，**点目录会同时触发 popstate 与 hashchange**
+   * （同文档 fragment 导航按规范派发这两个事件；修复前 Swup 用 `replaceState` 把点击吞了，
+   * 所以那时一个都不触发）。两条"关浮层"逻辑因此都会醒来 —— 而它们的既有意图是
+   * 「TOC 内部导航不算离开页面」（见下面 hashchange 那条注释）。
+   *
+   * ⚠️ 光看 `tocInternalNavigation` 这个**共享**布尔量不够：`SidebarTOC.astro` 的
+   * hashchange 监听器也**无条件**把它清成 `false`，而它比本文件的监听器先注册、先跑 ——
+   * 实测调用栈（reports/_b16-probe3.json）就是本文件 hashchange 里的 `closeTOC()`
+   * （`at e (...FloatingTOC...js:1:564) at ...:1:1133`），且那一刻 flag 已被清成 false。
+   * 所以这里再打一个**带时间戳**的标记：两个事件谁先跑、谁把共享 flag 清掉，都认。
+   */
+  const TOC_INTERNAL_NAV_MS = 1500;
+  function isTocInternalNav() {
+    return (
+      window.tocInternalNavigation === true ||
+      Date.now() - (window.tocInternalNavAt ?? 0) < TOC_INTERNAL_NAV_MS
+    );
+  }
+
   // 设置自动关闭功能
   function setupAutoClose() {
     // 防止 Swup 切页重跑脚本时重复注册监听器
@@ -193,7 +215,10 @@ const hideSidebarOnPostPage =
     // 监听页面卸载和隐藏
     window.addEventListener("beforeunload", closeTOC);
     window.addEventListener("pagehide", closeTOC);
-    window.addEventListener("popstate", closeTOC);
+    // ⚠️ B-16：见 isTocInternalNav() 的说明 —— 点目录触发的 popstate 不算"离开页面"。
+    window.addEventListener("popstate", () => {
+      if (!isTocInternalNav()) closeTOC();
+    });
     
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) closeTOC();
@@ -205,7 +230,7 @@ const hideSidebarOnPostPage =
 
     // 监听 hashchange（排除TOC内部导航）
     window.addEventListener("hashchange", () => {
-      if (!window.tocInternalNavigation) {
+      if (!isTocInternalNav()) {
         closeTOC();
       }
       window.tocInternalNavigation = false;
@@ -220,7 +245,7 @@ const hideSidebarOnPostPage =
       const href = link.getAttribute("href");
       const isExternalLink = href && !href.startsWith("#") && !href.startsWith("javascript:");
       
-      if (isExternalLink && !window.tocInternalNavigation) {
+      if (isExternalLink && !isTocInternalNav()) {
         const tocPanel = document.getElementById("floating-toc-panel");
         if (!tocPanel || !tocPanel.contains(link)) {
           closeTOC();
@@ -315,6 +340,9 @@ const hideSidebarOnPostPage =
           const anchor = target?.closest('a[href^="#"]');
           if (anchor) {
             window.tocInternalNavigation = true;
+            // B-16：与共享 flag 并列打一个时间戳（见 isTocInternalNav() 的说明）——
+            // 共享 flag 会被 SidebarTOC 的 hashchange 提前清掉，时间戳不会。
+            window.tocInternalNavAt = Date.now();
           }
         }, { capture: true });
       }

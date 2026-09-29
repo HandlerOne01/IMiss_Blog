@@ -47,7 +47,10 @@ const hours = roadmapHours(roadmap.lines);
 					但**不写历史记录**（`history.length` 不变）→ 用户按一次后退会直接离开路线页而不是回到页顶；
 					而且换页动画没落定的那 ~600ms 里点它会**被整个吞掉**（既不进 URL 也不滚）。
 					交给浏览器后：进 URL、进历史、smooth 滚动一起回来，转场期间点也不会丢。
-					同类意图见 `astro.config.mjs` 里 swup 的 `skipPopStateHandling` 注释「让浏览器原生处理」。
+					⚠️ B-16 已把这条规则推广到全站（`astro.config.mjs` 里 swup 的
+					`ignore: ['a[href^="#"]:not([href="#"])']`），所以这 8 个属性现在是**冗余但保留**：
+					它们仍被 `ignoreVisit` 优先识别（`el.closest('[data-no-swup]')`），
+					也仍被 `verify-ui.mjs` 的 R-PATH-01 断言钉着；留着当"这条路径必须原生"的显式标记。
 				*/}
 				{roadmap.lines.map((line) => <a href={`#line-${line.id}`} data-no-swup>{line.name}</a>)}
 			</nav>

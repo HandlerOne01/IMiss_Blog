@@ -141,12 +141,41 @@ export default defineConfig({
 			updateBodyClass: false,
 			globalInstance: true,
 			// 滚动相关配置优化
+			// ⚠️ `resolveUrl` / `animateHistoryBrowsing` 与 `skipPopStateHandling` 一样**传不进 Swup 实例**
+			//    （见下面 B-16 那段），只是这两个的值恰好与 Swup 4.9.2 的默认值相同，才没有可观察的差异。
 			resolveUrl: (url) => url,
 			animateHistoryBrowsing: false,
-			skipPopStateHandling: (event) => {
-				// 跳过锚点链接的处理，让浏览器原生处理
-				return event.state?.url?.includes("#");
-			},
+			// ── B-16：页内锚点交给**浏览器原生**处理 ────────────────────────────
+			// 症状（修复前，真机实测 reports/_b16-probe.json）：点 TOC / 标题锚点后 URL 确实带上
+			// `#hash`、也确实滚到位，但 `history.length` **不变** → 按一次「后退」直接离开该页
+			// （文章页退到上一份文档），读者回不到原来的位置。
+			// 根因：Swup 4.9.2 `handleLinkClick()` 对"同页锚点"走的是它自己的 `link:anchor` 分支，
+			// 里面对 URL 调的是 `updateHistoryRecord()` = **`history.replaceState()`**（不是 push），
+			// 所以永远不产生历史记录。这一条在 `astro.config.mjs` 里改不了（没有对应选项），
+			// 必须让 Swup **整个别管**这类点击 —— 用 @swup/astro 支持的 `ignore` 入口。
+			// 豁免后（同一个探针的 Q1/Q2 段，用运行时补 `data-no-swup` 模拟）：hash + 历史记录 +
+			// `scroll-margin-top: 5.5rem` 定位 + `history.scrollRestoration` 原样还原全部回来，
+			// 且后退/前进时 Swup 的 `visit:start` 计数**保持 0**（不重渲染整页）。
+			// ⚠️ `:not([href="#"])` 不能省：裸 `#` 占位链接（Profile 的邮箱按钮、禁用分页）被豁免后
+			//    会变成原生 `#` 跳转（URL 尾巴多个 `#`、白多一条历史记录，实测见探针 Q3）。
+			// ⚠️ 数组**只许放一个元素**：@swup/astro 的 `deserialise()` reviver 会把"长度 2 且第 2 项是字符串"
+			//    的数组当成 `[:regex:, …]` / `[:function:, …]` 标记拆掉 —— 实测 `['a','b']` 反序列化后
+			//    只剩字符串 `"b"`（豁免静默失效）。要加第二条规则请用**函数**形式。
+			// ⚠️ 选择器只能匹配元素、不能按 URL 匹配（`ignoreVisit` 里的字符串以 `/` 开头才是 URL 前缀）：
+			//    这样 `swup.navigate("/posts/x/#h")`（站内搜索跳锚点）不会被误判成"要豁免"而退化成整页跳转。
+			ignore: ['a[href^="#"]:not([href="#"])'],
+			// ⚠️ 这里**原来**写着 `skipPopStateHandling: (e) => e.state?.url?.includes("#")`，
+			//    注释是「跳过锚点链接的处理，让浏览器原生处理」—— 实测**它从来没生效过**：
+			//    @swup/astro 1.8.0 的 `buildInitScript()` 只把 ignoreVisit / animationSelector /
+			//    containers / cache / native / plugins 传给 `new Swup()`，其余同名选项全部丢弃
+			//    （构建产物 `dist/_astro/page.*.js` 里 `skipPopStateHandling` 出现 **0** 次）。
+			//    而且它的判据本身也是反的：它测的是**目标条目**的 state，同文档后退时目标条目
+			//    没有 hash，于是返回 false → 真生效的话反而会把同文档后退交给 Swup 去重渲染。
+			//    现在**不需要**它：锚点走原生后，前进/后退是同文档遍历，popstate 的目标条目
+			//    state 为 `null` → Swup 默认的 `skipPopStateHandling`（`state?.source !== "swup"`）
+			//    直接跳过；即使目标条目是 Swup 写的（`source: "swup"`），core 的 `handlePopState()`
+			//    也会因为 `getCurrentUrl()`（**不含 hash**）等于 `this.location.url` 而提前 return。
+			//    两条路径都不产生 visit（实测 visits 计数 0，见 reports/_b16-report.md）。
 		}),
 		icon({
 			include: {

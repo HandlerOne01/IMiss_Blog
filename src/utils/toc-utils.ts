@@ -16,6 +16,12 @@ export interface TOCConfig {
 	contentId: string;
 	indicatorId: string;
 	maxLevel?: number;
+	/**
+	 * @deprecated B-16 起不再生效（保留字段只为不动三处调用点）。
+	 * 原先用于 JS 手动滚动时的导航栏补偿量；现在锚点走浏览器原生导航，
+	 * 补偿量由 CSS 负责（`src/styles/markdown.css` 给 `.custom-md [id]` 的
+	 * `scroll-margin-top: 5.5rem`），JS 侧再减一次反而会偏。
+	 */
 	scrollOffset?: number;
 }
 
@@ -26,13 +32,11 @@ export class TOCManager {
 	private scrollTimeout: number | null = null;
 	private contentId: string;
 	private indicatorId: string;
-	private scrollOffset: number;
 
 	constructor(config: TOCConfig) {
 		this.contentId = config.contentId;
 		this.indicatorId = config.indicatorId;
 		this.maxLevel = config.maxLevel || 3;
-		this.scrollOffset = config.scrollOffset || 80;
 	}
 
 	/**
@@ -295,30 +299,6 @@ export class TOCManager {
 	}
 
 	/**
-	 * 处理点击事件
-	 */
-	public handleClick(event: Event): void {
-		event.preventDefault();
-		const target = event.currentTarget as HTMLAnchorElement;
-		const id = decodeURIComponent(
-			target.getAttribute("href")?.substring(1) || "",
-		);
-		const targetElement = document.getElementById(id);
-
-		if (targetElement) {
-			const targetTop =
-				targetElement.getBoundingClientRect().top +
-				window.pageYOffset -
-				this.scrollOffset;
-
-			window.scrollTo({
-				top: targetTop,
-				behavior: "smooth",
-			});
-		}
-	}
-
-	/**
 	 * 设置IntersectionObserver
 	 */
 	public setupObserver(): void {
@@ -346,12 +326,25 @@ export class TOCManager {
 	}
 
 	/**
-	 * 绑定点击事件
+	 * ⚠️ **B-16：这里原先绑的点击处理器已删除 —— 目录里的页内锚点必须由浏览器原生处理。**
+	 * 旧处理器是 `preventDefault()` + 手动 `window.scrollTo({behavior:"smooth"})`，
+	 * 它一次做坏两件事：① URL 里**连 hash 都不写**（看到的 hash 是 Swup 拦下点击后用
+	 * `replaceState` 补写的）；② 更不产生历史记录 —— 点完目录按一次「后退」直接离开本页。
+	 *
+	 * 交给浏览器后一次做齐四件事：写 `location.hash`、**写历史记录**（后退才回得来）、
+	 * 按 `scroll-margin-top` 定位（`src/styles/markdown.css` 给 `.custom-md [id]` 定的 5.5rem，
+	 * 与原来写死的 `scrollOffset: 80` 基本一致）、按 `history.scrollRestoration` 还原位置。
+	 * `html` 上的 `scroll-behavior: smooth` 仍在，所以平滑滚动没有丢。
+	 *
+	 * 实测证据（reports/_b16-probe2.log）：给 TOC 条目补 `data-no-swup`（≡ 修复后的 `ignore`）
+	 * 后，旧处理器下 `location.hash` 仍为空、`history.length` 不变（§Q1）；删掉它之后
+	 * hash + 新历史条目 + 退回到原位、且 Swup 一次 visit 都没跑（§Q2）。
+	 *
+	 * 保留这个方法（空实现）只是为了让 `attach()` / `render()` 的调用点保持原样 ——
+	 * 将来若要在这里加逻辑，**不许**取消默认行为。
 	 */
 	public bindClickEvents(): void {
-		this.tocItems.forEach((item) => {
-			item.addEventListener("click", this.handleClick.bind(this));
-		});
+		// 故意留空：点击交给浏览器原生处理（见上面 B-16 说明）。
 	}
 
 	/**

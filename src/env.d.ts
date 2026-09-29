@@ -27,6 +27,9 @@ declare global {
 		};
 		toggleFloatingTOC: () => void;
 		tocInternalNavigation: boolean;
+		/** B-16：最近一次"TOC 内部导航"的时间戳（毫秒）；共享的 `tocInternalNavigation` 会被多个
+		 * 监听器提前清掉，popstate/hashchange 谁先跑都认这个时间戳，见 FloatingTOC.astro。 */
+		tocInternalNavAt?: number;
 		ImmersiveReading: {
 			btn: HTMLElement | null;
 			tocBtn: HTMLElement | null;
