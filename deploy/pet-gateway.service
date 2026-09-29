@@ -1,0 +1,24 @@
+# 桌宠 Agent 网关（P5-5）—— Linux 常驻单元（可选）
+# 装法：sudo cp deploy/pet-gateway.service /etc/systemd/system/ && sudo systemctl enable --now pet-gateway
+# ⚠️ WorkingDirectory 要改成**站点仓库的真实路径**；User 用非 root。
+# ⚠️ PET_ALLOWED_ORIGINS 必须含线上域名（否则浏览器带 Origin 的 POST 一律 403）。
+[Unit]
+Description=IMiss Blog pet Agent gateway (zero-dep Node reverse proxy)
+After=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/imiss-blog
+ExecStart=/usr/bin/node server/pet-gateway.mjs
+Environment=PET_GATEWAY_PORT=8787
+Environment=PET_GATEWAY_UPSTREAM=http://127.0.0.1:2024
+Environment=PET_ALLOWED_ORIGINS=https://imiss.example.com,http://localhost:4321,http://localhost:4323
+Environment=PET_GATEWAY_TRUST_PROXY=1
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

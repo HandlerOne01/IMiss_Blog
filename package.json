@@ -27,6 +27,7 @@
     "verify:docs": "node scripts/verify-docs.mjs",
     "verify:posts": "node scripts/verify-posts.mjs",
     "verify:agent": "node scripts/verify-agent.mjs",
+    "verify:gateway": "node scripts/verify-gateway.mjs",
     "verify:agent:robust": "node scripts/verify-agent-robust.mjs",
     "make:logo": "node scripts/make-logo.mjs"
   },
