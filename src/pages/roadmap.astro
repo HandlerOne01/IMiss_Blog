@@ -9,6 +9,8 @@ import PathLine from "@components/pages/roadmap/PathLine.astro";
 import MainGridLayout from "@layouts/MainGridLayout.astro";
 import { type PostLite, resolveRoadmap, roadmapHours } from "@utils/roadmap-utils";
 import { roadmapConfig } from "@/config";
+import I18nKey from "@/i18n/i18nKey";
+import { i18n } from "@/i18n/translation";
 import "@/styles/pages/roadmap.css";
 
 const entries = await getCollection("posts", ({ data }) => !data.draft);
@@ -21,7 +23,13 @@ for (const entry of entries) {
 		category,
 		// I3：上屏的是**分类显示名**（面包屑 / `/categories/` 用的就是它），
 		// 目录名 `category` 只用来定位文章。
-		categoryLabel: entry.data.category || category,
+		// v1.52（P2R-9②）：frontmatter 的 `category` 为空时**不许退回目录名** —— 目录名是内部实现，
+		// 而且同一个目录名会被当成"分类显示名"上屏，与站内其它地方对不上。沿用站点既有约定
+		// `i18n(I18nKey.uncategorized)`：`PostMeta.astro` 的 `category || i18n(I18nKey.uncategorized)`、
+		// `content-utils.ts` 的分类聚合（空分类计入 `uncategorized` 桶）都是这一套；zh_CN 渲染成「未分类」。
+		// ⚠️ 站内 133 篇 frontmatter `category` 当前**全为非空**，所以这条兜底在正常路径上取不到
+		//（改前/改后 `dist/roadmap/index.html` 逐字节相同）。
+		categoryLabel: entry.data.category || i18n(I18nKey.uncategorized),
 		slug: rest.join("/"),
 		title: entry.data.title,
 		minutes: Math.max(1, Number(remarkPluginFrontmatter.minutes ?? 1)),
