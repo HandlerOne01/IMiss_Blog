@@ -12,6 +12,7 @@ Use `pnpm`; the `preinstall` script enforces it.
 - `pnpm check`: run Astro diagnostics.
 - `pnpm type-check`: run TypeScript with `--noEmit`.
 - `pnpm format` / `pnpm lint`: `biome … --write ./src ./scripts` — **do not run in this project**: it rewrites regexes inside the CDP template literals in `scripts/verify-ui.mjs` and reformats unrelated files (trap T75). Format only the files you touched: `npx biome check <files>`.
+- Never write files **or commit messages** through PowerShell text output (`Set-Content` / `Out-File` / `echo … >`): it adds a UTF-8 BOM, and this project has already been bitten twice (once across the three docs, once with **4 commit subjects starting with U+FEFF**, fixed via `git filter-branch --msg-filter`). Write files with the editor/Node, and commit with `git commit -F <file>` or `-m` — never a PowerShell pipeline. Same root cause as T75's neighbours, logged as trap **T58**.
 - `pnpm build`: generate icons, LQIPs, the Astro build, font subsets, and Pagefind search output in `dist`.
 - `pnpm preview`: preview the production build locally.
 - `pnpm new-post`: scaffold a new content post.

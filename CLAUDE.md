@@ -79,6 +79,7 @@ Defined in `src/content.config.ts`:
 - ⛔ **本项目不要跑 `pnpm lint` / `pnpm format`**：它们是 `biome check|format --write ./src ./scripts`（**不是只针对 `./src`** —— 这句旧话与 `package.json` 不符，已按陷阱 T75 更正），会改写 `scripts/verify-ui.mjs` 里 CDP 模板字符串中的正则（`/rgba?\(([^)]+)\)/` → `/rgba?(([^)]+))/`，语义已变）并顺带重排十几个无关文件。要保格式只对**动过的文件**跑 `npx biome check <files>`；`scripts/` 里仍有历史 Biome 报告，没人打算清
 - `scripts/subset-font.d.ts` is a hand-written ambient declaration for the untyped `subset-font` package
 - Commit convention: **Conventional Commits** (`feat:`, `fix:`, `chore:`, etc.)
+- ⛔ **写文件与写提交信息都不要走 PowerShell 的文本输出**（`Set-Content` / `Out-File` / `echo … >`）：它会加 UTF-8 BOM，本项目**已经踩过两次**（一次是三份文档整批，一次是**4 个提交的主题行首字符是 U+FEFF**，父级用 `git filter-branch --msg-filter` 才修掉）。文件用编辑器/Node 写；提交信息用 `git commit -F <文件>` 或 `-m`，别用管道拼字符串。与 T75 同一节，登记为陷阱 **T58**
 
 ## Build Pipeline
 
