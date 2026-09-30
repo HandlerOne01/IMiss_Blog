@@ -169,8 +169,16 @@ const COLLECT = `(() => {
     const label = r.querySelector(".mobile-menu-item-label");
     const children = [...r.querySelectorAll(".mobile-submenu .mobile-menu-item-label")].map((s) => txt(s));
     // M5（终审）：光有 name / children 分不出"单链接"和"手风琴"——顶层单链接是 <a data-nav-href>，
-    // 带子项的顶层项是 <button data-mobile-dropdown-trigger>（没有 href）。收藏这两点，
+    // 带子项的顶层项本体是 <button data-mobile-dropdown-trigger>。收藏这两点，
     // R-NAV-02 才能验"移动抽屉第 3 格是可点的单链接、不展开"这个**与桌面面不同的面**。
+    // ⚠️ v1.52（P2R-9③）更正：这里原来写的是"带子项的顶层项是 <button …>（没有 href）"—— 后半句**是错的**，
+    //    它暗示折叠父项的 href 会是 null。下面那行用的是**后代查询** r.querySelector("a[data-nav-href]")
+    //    （不是 :scope > a[…]），而展开父项的子项各自也是 <a data-nav-href>（在它自己的 .mobile-submenu
+    //    里，见 src/components/layout/NavMenuPanel.astro）→ 折叠父项这一格取到的**不是 null，而是它第一个
+    //    子项的 href**；只有单链接项取到的才是自己的 href。
+    //    判据因此**不看 href 判空**，而是看 expandable === false（[data-mobile-dropdown-trigger] 的有无）
+    //    来区分这两种顶层项 —— 断言见 R-NAV-02（mThird?.expandable === false && mThird?.href === "/roadmap/"，
+    //    它读的第 3 格本来就是单链接，href 不会串到子项上）。**本行以下判据一字未动。**
     const link = r.querySelector("a[data-nav-href]");
     return {
       name: txt(label),
