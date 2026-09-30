@@ -22,6 +22,8 @@
  *  10. 配置事实：`displaySettingsConfig.enable` ↔ 文档说法
  *      （原 10b `rankConfig.dataStatus` 与 10c"4 组数据是否漏了二游那第 5 份"两条随排行模块一并删除，见 P2R-8）
  *  11. 文件编码：受版本控制的文本文件不带 UTF-8 BOM（PowerShell 会偷偷加）
+ *      **v1.56 起按内容判文本**（读前 8KB，含 NUL 即跳过），不再用扩展名白名单 ——
+ *      白名单漏掉了 `.sh/.ps1/.conf/.service/.toml/.xml/.svg/.env` 与全部无扩展名文件
  *
  * 用法：`pnpm verify:docs`（先跑过 `pnpm verify:ui` 才有最新的 reports 日志做基准；
  * 没有基准日志时**第 2 项判 FAIL**（v1.41 起：那条"跳过比对"的 INFO 让闸门静默失效过，见 T77），其余检查照做）。
@@ -401,27 +403,75 @@ const allDocs = { "prd.md": prd, "ARCH.md": arch, "PROJECT_STATUS.md": status, [
 // ── 11. 受版本控制的文本文件不带 UTF-8 BOM ────────────────
 // 为什么要查：PowerShell 的 `Set-Content -Encoding UTF8` 在某些版本下会加 BOM，
 // 混进源码/文档后 `git diff` 里只表现为首行一个不可见字符，很难发现（本轮真发生过）。
+//
+// ⚠️ v1.56 判据变更：**从"扩展名白名单"改成"按内容判文本"**。
+// 旧口径逐字是 `/\.(ts|tsx|js|mjs|astro|svelte|css|json|md|yml|yaml|txt|styl)$/i`，
+// 于是 `.sh/.ps1/.conf/.service/.toml/.xml/.svg/.env` 与**无扩展名**文件
+// （`LICENSE` / `.gitignore` / `.gitattributes` / `.npmrc` / `.gitkeep`）**全都不在扫描面内** ——
+// v1.55 实测给 `deploy/publish.ps1` 加 BOM 后本门**仍 15/15 全绿**（陷阱 T86 的"路径上没有机器闸门"）。
+// 白名单是**开放集合**（永远能再冒出一种没登记的扩展名），所以改成**封闭判据**：
+//   `git ls-files` 全量 → 逐个读前 8KB → **含 NUL 字节即视为二进制跳过**（与 `reports/_p48-census.mjs`
+//   同一口径）→ 其余一律必须无 BOM。实测本仓库 734 个受版本控制文件里 568 个判为文本、166 个判为二进制
+//   （全部是 png/jpg/woff2/webp/otf，**没有一个二进制以 EF BB BF 开头**，故此判据不会误报）。
+// 两条"不许静默"的规矩（同 T77 的病因）：
+//   ① 某个文件读不出来 → **判红**并把文件与 errno 打进详情，不 `continue` 放过；
+//   ② `git ls-files` 本身跑不起来 → **判红**（原来是记一条 `pass=true` 的 INFO，等于闸门静默失效）。
 {
-	let hits = [];
+	const PROBE = 8192; // 只读前 8KB：够判 NUL，也不去全量读大文件
+	const bomHits = [];
+	const readErrors = [];
+	let tracked = null;
 	try {
-		const tracked = execFileSync("git", ["ls-files"], { encoding: "utf8" }).split("\n").filter(Boolean);
-		const isText = /\.(ts|tsx|js|mjs|astro|svelte|css|json|md|yml|yaml|txt|styl)$/i;
+		tracked = execFileSync("git", ["ls-files", "-z"], {
+			encoding: "utf8",
+			maxBuffer: 64 * 1024 * 1024,
+		})
+			.split("\0")
+			.filter(Boolean)
+			.filter((f) => !f.startsWith(".git/"));
+	} catch (err) {
+		record(
+			"文件编码",
+			"受版本控制的文本文件不带 UTF-8 BOM",
+			false,
+			`git ls-files 跑不起来，本项无法执行（不静默放过）：${err.message}`,
+		);
+	}
+	if (tracked) {
+		let textFiles = 0;
+		let binaryFiles = 0;
 		for (const f of tracked) {
-			if (!isText.test(f)) continue;
 			let buf;
 			try {
-				buf = await fs.readFile(path.resolve(root, f));
-			} catch {
+				const fd = await fs.open(path.resolve(root, f), "r");
+				try {
+					const b = Buffer.allocUnsafe(PROBE);
+					const { bytesRead } = await fd.read(b, 0, PROBE, 0);
+					buf = b.subarray(0, bytesRead);
+				} finally {
+					await fd.close();
+				}
+			} catch (err) {
+				readErrors.push(`${f}(${err.code ?? err.message})`);
 				continue;
 			}
-			if (buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) hits.push(f);
+			if (buf.includes(0)) {
+				binaryFiles++; // 二进制：跳过（NUL 口径）
+				continue;
+			}
+			textFiles++;
+			if (buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) bomHits.push(f);
 		}
-	} catch (err) {
-		hits = [];
-		record("INFO", "读不到 git 文件列表，跳过 BOM 检查", true, err.message);
-	}
-	if (hits.length || hits.length === 0) {
-		record("文件编码", "受版本控制的文本文件不带 UTF-8 BOM", hits.length === 0, hits.join(",") || "干净");
+		const parts = [`扫描 ${tracked.length} 个受版本控制文件（文本 ${textFiles} / 二进制跳过 ${binaryFiles}）`];
+		if (bomHits.length) parts.push(`命中 BOM ${bomHits.length} 个：${bomHits.join(",")}`);
+		else parts.push("命中 BOM 0 个");
+		if (readErrors.length) parts.push(`读失败 ${readErrors.length} 个（判红，不静默跳过）：${readErrors.join(",")}`);
+		record(
+			"文件编码",
+			"受版本控制的文本文件不带 UTF-8 BOM（按内容判文本，含无扩展名文件）",
+			bomHits.length === 0 && readErrors.length === 0,
+			parts.join("；"),
+		);
 	}
 }
 
