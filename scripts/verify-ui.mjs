@@ -778,15 +778,17 @@ async function main() {
 	//    —— 不让"跳过一大批"变成"静默扫了个空"。反向保险也钉住了：**可读文本文件数为 0
 	//    直接判红**（否则 dist 一旦全是二进制，这条会伪装成绿，同类问题见 T77）。
 	//
-	// ⚠️ **唯一排除：`about/index.html`**。`src/content/spec/about.md` 现在整页是模板作者的
-	//    自我介绍（作者实名 / 上游主题名 / 上游仓库地址 / 上游演示站域名，逐字见该文件），
-	//    而它是本轮**硬约束禁止修改**的文件：`src/pages/about.astro:15-17` 在内容缺失时直接
-	//    `throw new Error("About page content not found")`，删了构建就断，而替换文字还在
-	//    发起人手上（阻塞项：等发起人自己的关于页文字）。
-	//    所以排除面**有且只有这一页**（且只排除它的**内容**，不排除文件名/路径——
-	//    `about/index.html` 这个路径本来也不含上游字样），下面第一条断言的**通过文案里也写着**
-	//    "唯一排除 about/index.html"，并另记一条 INFO 把"这页仍不干净"摆在明面上
-	//    —— 它不会被算成绿，也不会因为"看不见"而被忘掉。
+	// ✅ **v1.51：例外已彻底删除 —— 这条断言现在对产物全集"零例外"**。
+	//    v1.47~v1.50 期间这里有过一个**唯一排除**：`about/index.html`。那时
+	//    `src/content/spec/about.md` 整页是模板作者的自我介绍（作者实名 / 上游主题名 /
+	//    上游仓库地址 / 上游演示站域名），而它是那几轮的**硬约束禁止修改**的文件
+	//    （`src/pages/about.astro:15-17` 在内容缺失时直接 `throw new Error("About page content not found")`，
+	//    删了构建就断，替换文字一直在发起人手上）—— 所以当时只豁免这一页的**内容**
+	//    （不豁免文件名/路径），并另记一条 `INFO(待办)` 把"这页仍不干净"摆在明面上。
+	//    v1.51 发起人批准并落地了**中立版关于页**（无上游字样、无 `::github{}` 指令、无身份信息）
+	//    → 下面四条断言里的 `isAbout` / `ABOUT_HTML` / `ABOUT_REL` 分支与那条 `INFO(待办)`
+	//    **一并删除**；通过文案也从"唯一排除 about/index.html"改成"全产物零例外"。
+	//    ⚠️ 这条断言仍然是**可失败的**：v1.51 用注入实测过（往 about.md 里写回一个上游字样 → 判红）。
 	const IDENTITY_NEEDLES = [
 		// ⚠️ 本表（含下面 `UPSTREAM_CI` 常量）是**判据本体**：这些字面量必须原样存在，
 		//    否则判据会静默失效。它们也是全仓库源码层里**唯一**保留上游字面量的地方
@@ -868,12 +870,8 @@ async function main() {
 			.replace(/<style[\s\S]*?<\/style>/gi, " ")
 			.replace(/<!--[\s\S]*?-->/g, " ");
 
-	// ⚠️ **唯一例外**（长注释见上）：`ABOUT_HTML` 这个名字保持不变，v1.49 起由它推导出
-	// 产物清单里用的相对路径 `ABOUT_REL`（`about/index.html`）。下一轮发起人写好关于页文字后，
-	// 把这两行连同 `isAbout` 分支一起删掉即可 —— **例外只豁免这一页的内容**，
-	// 它的文件名/路径照样参与扫描。
-	const ABOUT_HTML = path.join("dist", "about", "index.html");
-	const ABOUT_REL = path.relative("dist", ABOUT_HTML).split(path.sep).join("/");
+	// v1.51：`ABOUT_HTML` / `ABOUT_REL` / `isAbout` 例外**已删除**（长注释见上）——
+	// 产物清单里的每一个文件都参与全部四层判定，没有任何豁免。
 	const distHtmlFiles = await listDistHtml();
 	const distAllFiles = await listDistAll();
 	if (isDevServer) {
@@ -887,14 +885,12 @@ async function main() {
 		const visibleLeakFiles = [];
 		const nameLeakFiles = [];
 		const feedLeakFiles = [];
-		const aboutNotes = new Set();
 		let scanned = 0;
 		let binarySkipped = 0;
 		let unreadable = 0;
 		for (const { abs, rel } of distAllFiles) {
-			const isAbout = rel === ABOUT_REL;
 			// ② 文件名 / 路径本身（二进制文件也照查 —— "名字里带"是最容易被漏掉的存活方式）
-			if (UPSTREAM_CI.test(rel) && !isAbout) nameLeakFiles.push(rel);
+			if (UPSTREAM_CI.test(rel)) nameLeakFiles.push(rel);
 			// 内容扫描：含 NUL 字节即视为二进制 → 跳过内容，只留上面的文件名判定
 			let buf;
 			try {
@@ -911,19 +907,13 @@ async function main() {
 			const text = buf.toString("utf8");
 			// ① 产物全集内容：大小写不敏感的上游字样
 			const ci = text.match(UPSTREAM_CI);
-			if (ci) {
-				if (isAbout) aboutNotes.add(ci[0]);
-				else leakedFiles.push(`${rel} → ${ci[0]}`);
-			}
+			if (ci) leakedFiles.push(`${rel} → ${ci[0]}`);
 			// ③ 品牌 / 身份 / 凭据串（大小写敏感；用 IDENTITY_NEEDLES 表，含"不含上游主题名"的那些）
 			const hits = IDENTITY_NEEDLES.filter(([n]) => text.includes(n));
-			if (hits.length) {
-				if (isAbout) for (const [n] of hits) aboutNotes.add(n);
-				else identityLeakFiles.push(`${rel} → ${hits.map(([n]) => n).join("+")}`);
-			}
+			if (hits.length) identityLeakFiles.push(`${rel} → ${hits.map(([n]) => n).join("+")}`);
 			if (rel.endsWith(".html")) {
 				// ④ 可见文本（剥 script/style/HTML 注释）
-				if (UPSTREAM_CI.test(visibleTextOf(text)) && !isAbout) visibleLeakFiles.push(rel);
+				if (UPSTREAM_CI.test(visibleTextOf(text))) visibleLeakFiles.push(rel);
 				// R-ID-06：订阅残渣
 				const feedHits = FEED_LEAK_NEEDLES.filter(([n]) => text.includes(n));
 				if (feedHits.length) feedLeakFiles.push(`${rel} → ${feedHits.map(([n]) => n).join("+")}`);
@@ -935,28 +925,27 @@ async function main() {
 			`产物 ${distAllFiles.length} 个文件全查（含文件名/路径）；其中内容可读 ${scanned} 个，` +
 			`按"含 NUL 字节即视为二进制"跳过内容扫描 ${binarySkipped} 个（其文件名/路径仍查）` +
 			`${unreadable ? `，读失败 ${unreadable} 个` : ""}`;
-		const aboutNote = aboutNotes.size ? `仍含：${[...aboutNotes].join("；")}` : "";
 		record(
 			"R-ID-05/R-NAV-06",
-			`上游身份零残留（产物全集 ${distAllFiles.length} 个文件逐个扫，含文件名/路径；唯一排除 about/index.html）`,
+			`上游身份零残留（产物全集 ${distAllFiles.length} 个文件逐个扫，含文件名/路径；全产物零例外）`,
 			leakedFiles.length === 0 && scanned > 0,
-			`${scanNote}。命中的非 about 产物：${fmt(leakedFiles)}${scanned > 0 ? "" : "；⚠️ 可读文本文件数为 0 → 判据空过，判红"}`,
+			`${scanNote}。命中的产物：${fmt(leakedFiles)}${scanned > 0 ? "" : "；⚠️ 可读文本文件数为 0 → 判据空过，判红"}`,
 		);
 		record(
 			"R-ID-05",
-			`产物文件名/路径不含上游字样（${distAllFiles.length} 个路径全查；唯一排除 about/index.html）`,
+			`产物文件名/路径不含上游字样（${distAllFiles.length} 个路径全查；全产物零例外）`,
 			nameLeakFiles.length === 0,
 			fmt(nameLeakFiles),
 		);
 		record(
 			"R-ID-05",
-			`产物全集里没有上游品牌/身份/凭据串（大小写敏感 ${IDENTITY_NEEDLES.length} 个判据；唯一排除 about/index.html）`,
+			`产物全集里没有上游品牌/身份/凭据串（大小写敏感 ${IDENTITY_NEEDLES.length} 个判据；全产物零例外）`,
 			identityLeakFiles.length === 0,
 			fmt(identityLeakFiles),
 		);
 		record(
 			"R-ID-05",
-			`可见文本（剥 script/style/注释）里没有上游品牌/身份字样（${distHtmlFiles.length} 个 HTML；唯一排除 about/index.html）`,
+			`可见文本（剥 script/style/注释）里没有上游品牌/身份字样（${distHtmlFiles.length} 个 HTML；全产物零例外）`,
 			visibleLeakFiles.length === 0,
 			fmt(visibleLeakFiles),
 		);
@@ -966,16 +955,174 @@ async function main() {
 			feedLeakFiles.length === 0,
 			fmt(feedLeakFiles),
 		);
-		// 这条是 INFO（不计入通过/失败）：把"排除面还没做完"摆在明面上。
-		// 发起人把 about.md 换成自己的文字之后，它会变成"0 命中"，那时就该把 ABOUT_REL 例外删掉。
-		record(
-			"INFO(待办)",
-			"about 页仍整页是上游作者自我介绍（等发起人自己的文字；硬约束本轮禁改）",
-			true,
-			aboutNote
-				? `${aboutNote} —— 这是唯一被排除的产物（只豁免内容，其文件名/路径仍参与扫描）`
-				: "about 页已经不含上游身份了 → 请把本文件里的 ABOUT_REL 例外删掉",
-		);
+	}
+
+	// ── P4-8（v1.51）：搜索索引里也搜不到上游字样（补上最后一个盲区）────────────
+	// **为什么光扫产物不够**：`dist/pagefind/**` 有 184 个**压缩过的索引分片**，上面的
+	// "产物全集"扫描按"含 NUL 字节即视为二进制"把它们的内容整个跳过了（分片是二进制压缩体），
+	// 而关于页是带 `data-pagefind-body` 被索引的 —— 也就是说**上游作者的名字可能就躺在索引里**
+	// 而没有任何断言证明它不在。分片是给 pagefind 自己读的，肉眼和正则都翻不出来，
+	// 唯一可靠的判法是**问搜索本身**：拿站点实际加载的那份 pagefind 去搜。
+	//
+	// ⚠️ **踩到的第一版坑（v1.51 实测，必须写下来）：`count === 0` 这个判据本身不成立。**
+	//    第一版就写成"搜 `cuteleaf` / `Firefly` 结果数 = 0"，跑出来 **cuteleaf 3 条 / Firefly 3 条**
+	//    —— 看着像残留，其实是 **pagefind 的 zh-cn 分词器把拉丁词切成 CJK 二元组**：
+	//    `Firefly` → `fi`/`ir`/`re`/`ef`/`fl`/`ly`，于是命中了正文里的 shell `fi`、`Wi-Fi`、
+	//    `sleep 2`；`cuteleaf` → 同理命中 `CutForSearch`。实测那 3 条结果的 `data().content`
+	//    **没有一条**真的含有这两个词（探针：`reports/_p48-search-probe2.mjs`）。
+	//    所以判据改成**两条腿**，缺一不可：
+	//      ① **精确查询**（pagefind 的引号短语语法 `"cuteleaf"`）—— 它不吃二元组噪声，改动前后
+	//         实测 `"cuteleaf"` / `"Firefly"` / `"夏叶"` 都是 **0**，而 `"指针"` 仍是 **73**；
+	//      ② **逐条查正文**（把普通查询返回的每条结果的 `content`/`excerpt`/`meta` 拼起来，
+	//         看有没有**真的**含这个词 —— 普通查询召回更宽，正好当"宁可多查"的那条腿）。
+	//    搜索框那条 UI 路径用的是普通查询（`Search.svelte` 就是这么调的），所以负控在 UI 侧
+	//    不能断言"面板里 0 个结果链接"（`cuteleaf` 会渲染 3 条噪声），而要断言
+	//    **面板显示出来的文字里不含这个词**。
+	//
+	// 判据 = 一条正控 + 三条负控，**正控不是装饰，是防假绿的关键**：
+	//   ① **正控**：搜一个必然有结果的词（`指针` —— 站内 C/C++ 主线的高频词，实测 73 条），
+	//      断言 **> 0**；同时用真实 Chrome 往 `#search-input-desktop` 里打字，断言站点自己的
+	//      搜索面板真的渲染出结果链接。⚠️ 没有这条，下面三条负控就是空话：`Navbar.astro` 的
+	//      加载失败分支会把 `window.pagefind` 换成 `{ search: () => Promise.resolve({ results: [] }) }`
+	//      的空壳 —— 搜索整个坏掉时三条负控会**全部通过**（"搜不到"只是因为搜索坏了）。
+	//   ② **负控**：`夏叶` / `cuteleaf` / `Firefly` 各断言 **精确查询 0 条 + 逐条正文里也没有 +
+	//      面板文字里也不含**。换关于页之前实测：这三个词的**精确查询**各能搜到 **1** 条 ——
+	//      正是 `/about/` 那一页（作者实名 / 上游主题名 / 上游仓库地址全在里面）。
+	//      所以这条断言在换页前必红，不是空跑；v1.51 另用注入实测过它**真的会红**（两次）。
+	//   ⚠️ 搜索是异步的（300ms debounce + 索引查询）→ 面板要**轮询等结果落定**再读，不能读一帧就下结论。
+	{
+		const SEARCH_POSITIVE = "指针"; // 正控：站内必然有结果的词
+		const SEARCH_FORBIDDEN = ["夏叶", "cuteleaf", "Firefly"]; // 负控：上游身份字样
+		/**
+		 * 用站点**实际加载**的 pagefind 搜一个词，返回三个数：
+		 * `plainCount`（普通查询条数 —— 含二元组噪声，只用于"逐条查正文"那条腿）、
+		 * `exactCount`（引号精确查询条数 —— 负控的主判据）、
+		 * `needleHits`（普通查询结果里**正文真的含这个词**的条数）。
+		 */
+		const probeViaPagefind = async (term) => {
+			const exactQuery = `"${term}"`;
+			try {
+				const { result } = await cdp.send("Runtime.evaluate", {
+					expression: `(async () => {
+						try {
+							if (typeof window.__loadPagefind === "function") await window.__loadPagefind();
+							if (!window.pagefind || typeof window.pagefind.search !== "function")
+								return { error: "window.pagefind 不可用（pagefind.js 没加载成功）" };
+							const needle = ${JSON.stringify(term)}.toLowerCase();
+							const scan = async (q) => {
+								const res = await window.pagefind.search(q);
+								const data = await Promise.all(res.results.map((x) => x.data()));
+								return { count: res.results.length, data };
+							};
+							const plain = await scan(${JSON.stringify(term)});
+							const exact = await scan(${JSON.stringify(exactQuery)});
+							const hits = plain.data
+								.filter((d) => {
+									const hay = (((d && d.content) || "") + " " + ((d && d.excerpt) || "") + " " +
+										JSON.stringify((d && d.meta) || {})).toLowerCase();
+									return hay.includes(needle);
+								})
+								.map((d) => ((d.meta && d.meta.title) || d.url || "?").slice(0, 40));
+							return {
+								plainCount: plain.count,
+								exactCount: exact.count,
+								needleHitCount: hits.length,
+								needleHits: hits.slice(0, 3),
+							};
+						} catch (e) {
+							return { error: String((e && e.message) || e) };
+						}
+					})()`,
+					awaitPromise: true,
+					returnByValue: true,
+				});
+				return result?.value ?? { error: "Runtime.evaluate 没有返回值" };
+			} catch (e) {
+				return { error: `CDP 调用失败：${e.message}` };
+			}
+		};
+		/** 真实打字：把词打进站点搜索框，等面板落定后读它渲染了什么（含"面板文字里有没有这个词"） */
+		const searchViaUi = async (term) => {
+			try {
+				const { result } = await cdp.send("Runtime.evaluate", {
+					expression: `(async () => {
+						const input = document.getElementById("search-input-desktop");
+						if (!input) return { error: "找不到 #search-input-desktop" };
+						const panel = document.getElementById("search-panel");
+						input.focus();
+						input.value = ${JSON.stringify(term)};
+						input.dispatchEvent(new Event("input", { bubbles: true }));
+						// 至少等 2500ms：既等完 debounce + 查询，也保证读到的是**这次**查询的结果
+						// （面板里可能还挂着上一个词的渲染结果 —— 读早了就会把旧结果当成新结果）
+						const t0 = Date.now();
+						let links = 0;
+						let text = "";
+						while (Date.now() - t0 < 9000) {
+							await new Promise((r) => setTimeout(r, 150));
+							links = panel ? panel.querySelectorAll("a[href]").length : 0;
+							text = panel ? panel.textContent.replace(/\\s+/g, " ").trim() : "";
+							if (links > 0) break;
+							if (Date.now() - t0 >= 2500 && /找不到相关结果/.test(text)) break;
+						}
+						return {
+							links,
+							text: text.slice(0, 100),
+							needleInPanel: text.toLowerCase().includes(${JSON.stringify(term)}.toLowerCase()),
+						};
+					})()`,
+					awaitPromise: true,
+					returnByValue: true,
+				});
+				return result?.value ?? { error: "Runtime.evaluate 没有返回值" };
+			} catch (e) {
+				return { error: `CDP 调用失败：${e.message}` };
+			}
+		};
+
+		if (isDevServer) {
+			record(
+				"INFO(dev)",
+				"搜索索引零残留扫描已跳过",
+				true,
+				"dev 下 pagefind 不可用（`Search.svelte` 走 `import.meta.env.DEV` 的假结果分支），不对着 dev 断言搜索；请用 pnpm preview",
+			);
+		} else {
+			// 先把页面导到站上：搜的是站点**实际加载**的 pagefind（`/pagefind/pagefind.js`）
+			const searchLoaded = cdp.once("Page.loadEventFired", 15000).catch(() => null);
+			await cdp.send("Page.navigate", { url: `${BASE}/` });
+			await searchLoaded;
+			await sleep(600); // 等 Svelte 岛 hydrate（搜索框的 bind:value 要挂上才吃得住 input 事件）
+
+			const positive = await probeViaPagefind(SEARCH_POSITIVE);
+			const positiveUi = await searchViaUi(SEARCH_POSITIVE);
+			const positiveCount = typeof positive.plainCount === "number" ? positive.plainCount : -1;
+			const positiveLinks = typeof positiveUi.links === "number" ? positiveUi.links : -1;
+			record(
+				"R-ID-05",
+				`站内搜索确实在工作（正控「${SEARCH_POSITIVE}」必须搜得到）`,
+				positiveCount > 0 && positiveLinks > 0,
+				`pagefind.search("${SEARCH_POSITIVE}") = ${positive.error ?? `${positiveCount} 条`}；` +
+					`搜索框打字后面板渲染 ${positiveUi.error ?? `${positiveLinks} 个结果链接`}` +
+					`（⚠️ 这一条是下面三条负控的"防假绿"前提：搜索坏了会先在这里红）`,
+			);
+			for (const term of SEARCH_FORBIDDEN) {
+				const api = await probeViaPagefind(term);
+				const ui = await searchViaUi(term);
+				const exactCount = typeof api.exactCount === "number" ? api.exactCount : -1;
+				const needleHitCount = typeof api.needleHitCount === "number" ? api.needleHitCount : -1;
+				const needleInPanel = ui.needleInPanel === true;
+				record(
+					"R-ID-05",
+					`上游字样在搜索索引里也搜不到：「${term}」（精确查询 0 条 + 逐条正文零命中 + 面板文字不含）`,
+					exactCount === 0 && needleHitCount === 0 && !needleInPanel,
+					api.error || ui.error
+						? `${api.error ?? ""} ${ui.error ?? ""}`
+						: `pagefind.search("${term}") 精确查询 = ${exactCount} 条、普通查询 ${api.plainCount} 条` +
+							`（其中正文真的含这个词的 ${needleHitCount} 条${needleHitCount ? `：${api.needleHits.join(" ｜ ")}` : ""}）；` +
+							`搜索面板：${ui.links} 个结果链接、面板文字含该词 = ${needleInPanel} ｜ ${ui.text || "(空)"}`,
+				);
+			}
+		}
 	}
 	// 文章页不该有打赏按钮（R-NAV-06 的第三项）
 	const postHtml = await (await fetch(`${BASE}${SAMPLE_POST}`)).text();
