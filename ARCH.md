@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.51 |
+| 文档版本 | v1.52 |
 | 最后更新 | 2026-09-30 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | 上游模板基线 v6.16.8（站点信息里中性显示为「博客版本 v6.16.8」），Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -371,7 +371,7 @@ export interface RoadmapLine {
 - **`/roadmap/` 单页**（不拆 8 个子页：拆了导航要挂 8 个子项、手机上会爆，而路线本身是"一条从头读到尾的路"）。结构：
   - 页顶：一行**站点数字**（构建期实算，见 §5.6）+ **8 个锚点索引**
   - 主体：8 个 `h2`（线）→ 线的一句话说明 + 难度档 + `N 篇 · 约 M 小时` → `h3`（阶段）→ 篇目轻量行
-- **轻量行**：`标题 · 分类显示名 · 约 N 分钟`（**没有封面、没有 note**）。⚠️ 分类那一格显示的是**文章 frontmatter 的 `category`**（`C/C++` / `Linux 网络` / `八股文` / `AI 应用` …，与面包屑 / `/categories/` / 归档同一套叫法），**不是** `src/content/posts/` 下的目录名（`cpp` / `linux-net` / `interview`）—— 目录名只是定位键（`roadmapConfig` 的 `category` 字段用来查文章，`resolveRoadmap` 另把 `entry.data.category` 作为 `categoryLabel` 带出来），属实现细节，不该出现在访客眼前（终审 I3：这是设计轮的疏漏，落地按显示名渲染）。一页 133 行**不许拉图**（否则首屏体积爆），这条写成断言（§5.7 #8）。
+- **轻量行**：`标题 · 分类显示名 · 约 N 分钟`（**没有封面、没有 note**）。⚠️ 分类那一格显示的是**文章 frontmatter 的 `category`**（`C/C++` / `Linux 网络` / `八股文` / `AI 应用` …，与面包屑 / `/categories/` / 归档同一套叫法），**不是** `src/content/posts/` 下的目录名（`cpp` / `linux-net` / `interview`）—— 目录名只是定位键（`roadmapConfig` 的 `category` 字段用来查文章，`resolveRoadmap` 另把 `entry.data.category` 作为 `categoryLabel` 带出来），属实现细节，不该出现在访客眼前（终审 I3：这是设计轮的疏漏，落地按显示名渲染）。**v1.52（P2R-9②）补**：frontmatter 的 `category` 为空时**不退回目录名**，改用站点既有约定 `i18n(I18nKey.uncategorized)`（zh_CN 渲染「未分类」；与 `PostMeta.astro` 的 `category || i18n(I18nKey.uncategorized)`、`content-utils.ts` 的分类聚合是同一套）—— 站内 133 篇 frontmatter `category` **无一为空**，所以改前/改后 `dist/roadmap/index.html` 逐字节相同。一页 133 行**不许拉图**（否则首屏体积爆），这条写成断言（§5.7 #8）。
 - **纯静态**：不用 Svelte island、不写 localStorage、不依赖任何运行期 JS。
 - **导航**：顶层第 3 格（原「排行」，固定位置在「文章」与「我的」之间）= **「学习路线」→ `/roadmap/`，不带子项**；「文章」下拉（归档 / 分类 / 标签 / 系列）**一根手指都不动**。
 - **旧地址 `/rank/`、`/rank/jp/`、`/rank/cn/`、`/rank/game/` 直接删，不做 301**（站点尚未上线、没有外部链接指向它；上线后若确需再补）。
