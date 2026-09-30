@@ -1,0 +1,92 @@
+# ============================================================================
+# deploy/langgraph.service —— 桌宠 Agent 的**后端**（LangGraph Server）常驻单元
+# ----------------------------------------------------------------------------
+# 这个单元起的是**另一个仓库** `agent_-for_-blog` 里的服务：
+#   · 本仓库**不复制**它的代码、**不改**它的任何文件（R-AGT-06）；
+#   · 这里只负责"把它作为系统服务拉起来"这一件事。
+# 端口 2024 与 `deploy/pet-gateway.service` 的 `PET_GATEWAY_UPSTREAM` 默认值对应。
+#
+# ⚠️⚠️ **本文件从未在真机上验证过**（发起人还没买服务器，B-01）。它是照
+#      "Debian/Ubuntu + systemd + 后端仓库在 /srv/agent_-for_-blog + venv 在 .venv" 写的。
+#      **上线时必须按你的实际安装方式改下面 4 行**（都标了 `★ 改这里`）：
+#        ① WorkingDirectory   → 后端仓库的真实路径
+#        ② ExecStart          → venv 里 langgraph 的真实路径（或换成 `uv run langgraph dev`）
+#        ③ User / Group       → 跑服务的非 root 账号
+#        ④ EnvironmentFile    → 放 DEEPSEEK_API_KEY / LANGSMITH_API_KEY 的 .env 的真实路径
+#
+# ── 装法 ────────────────────────────────────────────────────────────────────
+#   sudo cp deploy/langgraph.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now langgraph        # 先起后端
+#   sudo systemctl enable --now pet-gateway      # 再起网关（网关先起也行，见下方启动顺序）
+#   systemctl status langgraph --no-pager
+#   journalctl -u langgraph -f                   # 跟日志
+#
+# ── 健康检查（三条，从"进程活着"到"接口真的通"）──────────────────────────────
+#   systemctl is-active langgraph                                  # active
+#   curl -fsS http://127.0.0.1:2024/ok                             # {"ok":true}
+#   curl -fsS http://127.0.0.1:8787/__gw/health                    # 网关生效配置（非密）
+#   ⛔ 别拿 `GET /api/agent/ok` 当"网关起来了"的判据 —— 那个探的是**上游**（ARCH §8.7）
+#
+# ── 两种生产形态，本仓库只提供这一种 ─────────────────────────────────────────
+#   A. `langgraph up`（官方推荐的生产形态：Docker + Postgres + Redis，自带持久化）
+#      → 需要后端仓库里已有 docker-compose 与 langgraph.json 的 `dockerfile` 配置；
+#        **属于另一个仓库的交付物**，本仓库不生成、也不假设它长什么样。
+#        若走这条：**不要装本 unit**，改用 `systemctl` 管理一个 compose 服务，或直接用
+#        `docker compose up -d`（那就把"常驻"交给 Docker 的 restart: unless-stopped）。
+#   B. 直接跑服务（本 unit 的形态，= 生产机上跑 `langgraph dev`）
+#      → 优点：零 Docker、和开发机行为一致、一行命令能起；
+#        代价：**内存态**（进程重启后线程/checkpoint 全丢，§8.9.7 #4 已登记），
+#             且 `langgraph dev` 官方定位是"仅在受信任环境使用"。
+#      ⚠️ 安全边界靠外部补齐：**必须绑 127.0.0.1**（下面的 --host），
+#        公网入口只能经过 `pet-gateway`（来源白名单 / 限流 / 体积 / 长度四道闸门）。
+# ============================================================================
+[Unit]
+Description=IMiss Blog pet Agent backend (LangGraph Server, 127.0.0.1:2024)
+Documentation=https://github.com/langchain-ai/langgraph
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# ★ 改这里 ③：非 root 账号（与 pet-gateway 用同一个也行；这个账号要对后端仓库有读权限）
+User=agent
+Group=agent
+
+# ★ 改这里 ①：后端仓库的真实路径（`agent_-for-blog` 的 clone 目录）
+WorkingDirectory=/srv/agent_-for-blog
+
+# ★ 改这里 ④：密钥与开关（DEEPSEEK_API_KEY、LANGSMITH_API_KEY、LANGSMITH_TRACING 等）
+#     ⚠️ 文件要 chmod 600 且属主是上面的 User；**不要**把 .env 放进 web root。
+#     ⚠️ 若后端自己会在 WorkingDirectory 下读 `.env`，这一行可以删掉（别读两遍）。
+EnvironmentFile=-/srv/agent_-for-blog/.env
+# 生产口径：只监听回环地址（外网一律走 Nginx → pet-gateway → 这里）
+Environment=LANGGRAPH_HOST=127.0.0.1
+Environment=LANGGRAPH_PORT=2024
+Environment=PYTHONUNBUFFERED=1
+
+# 起之前先确认 venv 与 langgraph 可执行文件在 —— 失败信息比"退出码 127"好排查得多
+ExecStartPre=/bin/sh -c 'test -x /srv/agent_-for-blog/.venv/bin/langgraph || { echo "缺少 .venv/bin/langgraph：请先按后端仓库 README 建 venv 并安装依赖（pnpm 那条不适用于这里）"; exit 1; }'
+
+# ★ 改这里 ②：启动命令。
+#   · venv 里的可执行文件（本 unit 的默认形态）
+ExecStart=/srv/agent_-for-blog/.venv/bin/langgraph dev --host 127.0.0.1 --port 2024 --no-browser
+#   · 若后端用 uv 管理依赖，等价写法：
+# ExecStart=/usr/bin/env uv run --directory /srv/agent_-for-blog langgraph dev --host 127.0.0.1 --port 2024 --no-browser
+
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+KillSignal=SIGINT
+
+# 与 pet-gateway.service 保持一致的收紧项
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/srv/agent_-for-blog
+# 内存上限：按机器实际情况调；撞到上限时 systemd 会重启它（= 线程记忆清空，见 ARCH §8.9.7 #4）
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target
