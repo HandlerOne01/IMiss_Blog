@@ -5,7 +5,8 @@
 > **项目状态**：开发中。阶段、进度、下一步与阻塞项一律以 [`PROJECT_STATUS.md`](./PROJECT_STATUS.md) 为准。
 > **需求与设计**：[`prd.md`](./prd.md)（需求编号 R-xxx）、[`ARCH.md`](./ARCH.md)（改动落点与子系统设计）。
 
-本站基于开源主题 **Firefly v6.16.8** 二次开发（Astro 7 + Svelte 5，静态输出）。
+本站基于一个开源 Astro 博客模板（**上游基线 v6.16.8**）二次开发（Astro 7 + Svelte 5，静态输出），统一主题名「爱弥斯 / IMiss」（见 `prd.md` R-ID-01）。
+**上游出处与许可**：`LICENSE`（MIT，保留原作者版权声明）与 `README.upstream.zh.md` / `README.en.md`——上游主题名与作者名只在这几处出现，源码与产物里一律用中性称呼。
 上游完整文档保留为 [`README.upstream.zh.md`](./README.upstream.zh.md)（中文）与 [`README.en.md`](./README.en.md)（English），本文件只描述**本站自己的**约定。
 
 ---
@@ -289,14 +290,14 @@ pnpm build                       # → dist/
 
 首次部署后需要回填站点信息组件与 `siteConfig.site_url`（真实域名），否则 sitemap / RSS / OG 仍是占位值。
 
-## 与上游 Firefly 的关系
+## 与上游模板的关系
 
-- 本站 = Firefly v6.16.8 + 本站改动。改动集中在 `src/config/*` 与**新增文件**，核心组件只做最小编辑（便于将来跟随上游升级）。
+- 本站 = 上游基线 v6.16.8 + 本站改动。改动集中在 `src/config/*` 与**新增文件**，核心组件只做最小编辑（便于将来跟随上游升级）。
 - 上游升级步骤：拉取上游新版 → 用 `git diff` 核对 `src/components`、`src/utils`、`scripts` 的冲突 → 保留本站的 `src/config/*`、`src/content/*`、`public/*` 与新增组件。
 - 首页横幅文字、导航、页面开关等差异都在配置层，升级时不需要改代码。
 
 ## 许可与致谢
 
-- 主题：[Firefly](https://github.com/CuteLeaf/Firefly)（MIT），基于 [Fuwari](https://github.com/saicaca/fuwari)。
+- 主题：上游模板（MIT，仓库地址见 `LICENSE` 与 `README.upstream.zh.md`），它基于 [Fuwari](https://github.com/saicaca/fuwari)。
 - 桌宠像素素材：[aemeath-mini-codex-pet](https://github.com/cuNuo/aemeath-mini-codex-pet)（MIT），其像素小人来源 [lzy-buaa-jdi/ameath](https://gitee.com/lzy-buaa-jdi/ameath)（MIT）。
 - 免责声明：本站为非官方粉丝项目；爱弥斯、《鸣潮》及相关官方视觉设定归其权利方（库洛游戏）所有。

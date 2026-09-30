@@ -42,7 +42,7 @@ const EXPECT_BANNER_POSITION = "50% 35%";
 // ⚠️ v1.41（P2R）：第 3 格由「排行」下拉换成「学习路线」单链接（R-PATH-01）——
 //    原来的 EXPECT_RANK_CHILDREN 常量与它的用法已随排行模块整体删除（Task 4 / R-PATH-06）。
 // P4-8（v1.47）：第 5 格「链接」整组删除 —— 它只有两条对上游主题的署名外链
-// （Firefly 主题 / Firefly 文档），发起人要求站上不留 Firefly 字样。
+// （上游主题 / 上游文档站两条署名外链），发起人要求站上不留任何上游字样。
 // `nav-menu-utils.ts:19-21` 在 children 过滤后为 0 时 `return null`，整组自然消失。
 const EXPECT_TOP_NAV = ["主页", "文章", "学习路线", "我的", "留言"];
 const EXPECT_MY_CHILDREN = [
@@ -55,7 +55,7 @@ const EXPECT_MY_CHILDREN = [
 	{ name: "关于我", href: "/about/" },
 ];
 const EXPECT_ABSENT_LABELS = ["社交", "友链", "哔哩哔哩", "番组计划", "打赏", "关于"];
-// P4-8：上游示例文章（`posts/firefly.md`、`guide/*` 等 29 个文件）已按发起人要求删除，
+// P4-8：上游示例文章（主题介绍篇 + `guide/*` 等 29 个文件）已按发起人要求删除，
 // 所有"文章页"断言改用迁移进来的真实文章（否则断言会指向一个已经不存在的路由）
 const SAMPLE_POST = "/posts/linux-net/http-xieyi/";
 const EXPECT_HUE = "345";
@@ -749,26 +749,26 @@ async function main() {
 	// ── P4-8（v1.47 → v1.49）：上游身份零残留 —— 扫描面从 `dist/**/*.html` 扩到**产物全集** ──
 	// 这条断言的前身是 P1 的"上游信息泄漏扫描"（只 fetch `/`、`/about/`、`/guestbook/`、文章页
 	// 四条路由）。**抽样漏得太多了**：v1.47 实测旧产物 171 个 HTML 里有 **166** 个含上游字样
-	// —— 导航「链接」组、页脚 `Powered by … Firefly`、侧栏「站点信息」两处硬编码版本行，
+	// —— 导航「链接」组、页脚 `Powered by … <上游主题名>`、侧栏「站点信息」两处硬编码版本行，
 	// 这些在每一页都出现，而 4 条路由抽样恰好只覆盖了同一批面，看不出规模 → 改成
 	// 磁盘遍历 `dist/**/*.html` 全量扫，命中即红。
 	//
 	// ⚠️ **v1.49 又发现它还是窄了**：`*.html` 只是产物的 165/799。实测漏掉的是
 	//    `dist/assets/css/twikoo-custom.css` 第 4 行那条上游署名
-	//    （`Firefly 主题专用：https://github.com/CuteLeaf/Firefly`）—— 它不进 HTML、
+	//    （一行上游署名，原文见 `git show 1e5ea99:public/assets/css/twikoo-custom.css`）—— 它不进 HTML、
 	//    页面上也看不见（`commentConfig.type` 是 `none`，这条 CSS 根本没人加载），
 	//    就这么**随产物发布了一整轮**。**只扫 HTML = 只看"页面上有没有"，漏掉"发布出去了什么"。**
 	//    从本轮起扫描面 = **产物全集**：HTML / CSS / JS / JSON / sitemap / llms.txt / pagefind /
-	//    robots / 字体子集清单…… 外加 **文件名与路径本身**（防 `firefly-*.png` 这类
+	//    robots / 字体子集清单…… 外加 **文件名与路径本身**（防 `<上游主题名>-*.png` 这类
 	//    "内容干净、只有名字里带"的存活方式）。同因同源，登记在 ARCH §14.3 **T85**。
 	//
 	// 判据分四层（一层比一层严）：
-	//   ① **产物全集的内容**（大小写不敏感）：`firefly|cuteleaf|夏夜流萤|夏叶|xiaye@msn.com|
-	//      cuteleaf.cn|ko-fi.com/cuteleaf|ifdian.net/a/cuteleaf` 命中即红。
+	//   ① **产物全集的内容**（大小写不敏感）：8 条上游品牌/身份正则（**逐字只写在下面
+	//      的 `UPSTREAM_CI` 常量里**，本文件是它的唯一出处；写法与理由见该常量上方的注释块）命中即红。
 	//   ② **文件名 / 路径本身**（同一组判据）：命中即红，单独记一条以便归因。
-	//   ③ **品牌/身份/凭据串**（大小写敏感，含"不含 firefly"的那些）：base64 邮箱形态、
+	//   ③ **品牌/身份/凭据串**（大小写敏感；下面 `IDENTITY_NEEDLES` 表，含"不含上游主题名"的那些）：base64 邮箱形态、
 	//      Bilibili/Bangumi/VNDB 的 UID、上游横幅标题与副标题诗 —— 出现即红。
-	//   ④ **可见文本**（剥掉 `<script>`/`<style>`/HTML 注释之后，仅 HTML）：任何 firefly/cuteleaf
+	//   ④ **可见文本**（剥掉 `<script>`/`<style>`/HTML 注释之后，仅 HTML）：任何上游品牌/身份字样
 	//      都算红。这一层是"访客真能看到什么"，也挡住"把敏感字样塞进 HTML 注释"这种绕法
 	//      —— 那正是 v1.47 自己踩过的坑（Astro 把模板 HTML 注释原样打进产物，见 T85）。
 	//
@@ -778,8 +778,8 @@ async function main() {
 	//    —— 不让"跳过一大批"变成"静默扫了个空"。反向保险也钉住了：**可读文本文件数为 0
 	//    直接判红**（否则 dist 一旦全是二进制，这条会伪装成绿，同类问题见 T77）。
 	//
-	// ⚠️ **唯一排除：`about/index.html`**。`src/content/spec/about.md` 现在整页是上游作者的
-	//    自我介绍（`夏叶` / `Firefly` / `github.com/CuteLeaf/Firefly` / `firefly.cuteleaf.cn`），
+	// ⚠️ **唯一排除：`about/index.html`**。`src/content/spec/about.md` 现在整页是模板作者的
+	//    自我介绍（作者实名 / 上游主题名 / 上游仓库地址 / 上游演示站域名，逐字见该文件），
 	//    而它是本轮**硬约束禁止修改**的文件：`src/pages/about.astro:15-17` 在内容缺失时直接
 	//    `throw new Error("About page content not found")`，删了构建就断，而替换文字还在
 	//    发起人手上（阻塞项：等发起人自己的关于页文字）。
@@ -788,6 +788,9 @@ async function main() {
 	//    "唯一排除 about/index.html"，并另记一条 INFO 把"这页仍不干净"摆在明面上
 	//    —— 它不会被算成绿，也不会因为"看不见"而被忘掉。
 	const IDENTITY_NEEDLES = [
+		// ⚠️ 本表（含下面 `UPSTREAM_CI` 常量）是**判据本体**：这些字面量必须原样存在，
+		//    否则判据会静默失效。它们也是全仓库源码层里**唯一**保留上游字面量的地方
+		//    （见本次提交信息与 reports/_p48-src-cleanup-report.md 的「功能性例外」一节）。
 		["Firefly", "上游主题名（品牌字样）"],
 		["CuteLeaf", "上游作者 GitHub 名（驼峰）"],
 		["Cuteleaf", "上游作者 GitHub 名"],
@@ -805,11 +808,11 @@ async function main() {
 		["u358128", "上游 VNDB userId"],
 	];
 	// ⚠️ **v1.49：这里的"内部标识符白名单"已删除**。v1.47 曾放行 3 个本站客户端 JS 全局名
-	// （`window.__fireflyMusic` / `window.__fireflyLayoutTransitionGuard` / `window.fireflyCachedSubtitle`）
+	// （`window.__<旧前缀>Music` / `window.__<旧前缀>LayoutTransitionGuard` / `window.<旧前缀>CachedSubtitle`）
 	// —— 那是"品牌字样"与"内部变量名"之间的折中。本轮把这几个名字连同另外几处一起
 	// **改成中性前缀 `imiss`**：`__imissMusic` / `__imissLayoutTransitionGuard` / `__imissLayoutInit` /
 	// `imissCachedSubtitle` / 自定义事件 `imiss:page:loaded` / CSS 关键帧 `imiss-waves-slide-up`，
-	// 组件 barrel `firefly-mdx.ts` → `imiss-mdx.ts`，`package.json` 的 `name` → `imiss-blog`。
+	// 组件 barrel `<旧前缀>-mdx.ts` → `imiss-mdx.ts`，`package.json` 的 `name` → `imiss-blog`。
 	// 于是**白名单不再需要**：这条判据现在是"零例外"，任何大小写变体出现即红。
 	// （改名映射表见 PROJECT_STATUS.md v1.49 变更行 与 ARCH §14.3 T85。）
 	const UPSTREAM_CI =
@@ -912,7 +915,7 @@ async function main() {
 				if (isAbout) aboutNotes.add(ci[0]);
 				else leakedFiles.push(`${rel} → ${ci[0]}`);
 			}
-			// ③ 品牌 / 身份 / 凭据串（大小写敏感；含"不含 firefly"的那些）
+			// ③ 品牌 / 身份 / 凭据串（大小写敏感；用 IDENTITY_NEEDLES 表，含"不含上游主题名"的那些）
 			const hits = IDENTITY_NEEDLES.filter(([n]) => text.includes(n));
 			if (hits.length) {
 				if (isAbout) for (const [n] of hits) aboutNotes.add(n);
@@ -953,7 +956,7 @@ async function main() {
 		);
 		record(
 			"R-ID-05",
-			`可见文本（剥 script/style/注释）里没有 firefly/cuteleaf（${distHtmlFiles.length} 个 HTML；唯一排除 about/index.html）`,
+			`可见文本（剥 script/style/注释）里没有上游品牌/身份字样（${distHtmlFiles.length} 个 HTML；唯一排除 about/index.html）`,
 			visibleLeakFiles.length === 0,
 			fmt(visibleLeakFiles),
 		);
@@ -6746,7 +6749,7 @@ async function main() {
 			await sleep(900);
 		};
 		// 会被删掉的上游条目名（A1：2 个项目 + 2 个相册）。写死在这里当"反面清单"。
-		const REMOVED_ENTRY_NAMES = ["Firefly 主题模版", "示例项目", "可爱流萤", "加密相册示例"];
+		const REMOVED_ENTRY_NAMES = ["Firefly 主题模版", "示例项目", "可爱流萤", "加密相册示例"]; // ← 前两项是 A1 里被删的上游条目名（反面清单要逐字匹配产物，字面量必须原样）
 		/**
 		 * 判断空态文案是不是落在**可见的**容器里。
 		 * ⚠️ 第一版这里是"取文案前 260 个字符，看里面有没有 card-base 和 hidden"——**假红了两条**：
@@ -6855,7 +6858,7 @@ async function main() {
 			);
 			record(
 				"R-NAV-01~04",
-				"导航里没有上游署名项（Firefly 主题 / Firefly 文档）",
+				"导航里没有上游署名项（上游主题 / 上游文档站两条外链）",
 				!home.allLabels.some((l) => /firefly|cuteleaf|夏夜流萤/i.test(String(l))),
 				JSON.stringify(home.allLabels.filter((l) => /firefly|cuteleaf|夏夜流萤/i.test(String(l)))),
 			);
@@ -6877,7 +6880,7 @@ async function main() {
 			);
 		}
 
-		// ⑤ 侧栏「站点信息」：两处硬编码的 Firefly 版本行都没了，但版本号还在（不留空格子）
+		// ⑤ 侧栏「站点信息」：两处硬编码的上游主题版本行都没了，但版本号还在（不留空格子）
 		{
 			const html = await (await fetch(`${BASE}/`)).text();
 			const i = html.indexOf("站点信息");
@@ -6888,7 +6891,7 @@ async function main() {
 			// 而不是把整行删掉导致只剩构建平台/许可两项。
 			record(
 				"R-ID-05",
-				"侧栏「站点信息」不含 Firefly 字样（中性版本行仍在，未留空格子）",
+				"侧栏「站点信息」不含上游字样（中性版本行仍在，未留空格子）",
 				panel.length > 0 && !hasUpstream && hasVersion,
 				`面板长度=${panel.length}，含上游字样=${hasUpstream}，中性版本号 v6.16.8 仍在=${hasVersion}`,
 			);

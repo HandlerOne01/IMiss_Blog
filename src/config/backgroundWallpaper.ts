@@ -67,7 +67,7 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 		// 支持远程视频URL，本地视频请放在 public/assets/videos/ 目录下
 		//
 		// ⚠️ IMiss Blog（R-BG-02，P3 落地）：视频还没做，先**注释掉 playerUrl**。
-		//    原来的值是上游作者的远程视频（bed.twoleaf.cn/…_firefly.mp4），本站不该依赖它：
+		//    原来的值是模板作者的远程视频（第三方 CDN 上的 `…_<上游主题名>.mp4`），本站不该依赖它：
 		//    ① 那是别人的资源；② 访客会白下十几 MB；③ 有 playerUrl 但 playerEnable 关着时，
 		//    导航栏会留下一个点了没反应的播放按钮（见 ARCH.md §6.1 第 5 条）。
 		//    视频产出后填 "/assets/videos/imiss-hero.mp4"，并把 playerEnable 改回 true。
@@ -84,7 +84,7 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 			// 是否启用主页横幅文字
 			enable: true,
 			// 主页横幅主标题
-			// ⚠️ 占位文案（R-BG-03 / 阻塞项 B-10）：先把上游的 "Lovely firefly!" 换成本站名，
+			// ⚠️ 占位文案（R-BG-03 / 阻塞项 B-10）：先把模板默认标题换成本站名，
 			//    正式文案等发起人确认后再改（改这一行即可）
 			title: "IMiss Blog",
 			// 主页横幅主标题字体大小
@@ -112,11 +112,11 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 			// 首页横幅标题下方的链接图标（可选，支持 showName 显示文字）
 			// 图标支持 Iconify 格式：fa7-brands:github、fa7-solid:envelope、mdi:rss 等
 			//
-			// ⚠️ IMiss Blog：这里原来有 4 条，全是上游作者的信息，已按 R-NAV-06 / R-ID-05 清理——
-			//    · "GitHub"→ github.com/CuteLeaf/Firefly（主题作者的仓库）
-			//    · "Email" → mailto:xiaye@msn.com（主题作者的邮箱，会被 rehype-email-protection 写成
+			// ⚠️ IMiss Blog：这里原来有 4 条，全是模板作者的信息，已按 R-NAV-06 / R-ID-05 清理——
+			//    · "GitHub"→ 模板作者的仓库链接
+			//    · "Email" → `mailto:` 模板作者的邮箱（会被 rehype-email-protection 写成
 			//      base64 的 data-encoded-email 挂到**每一个页面**上）
-			//    · "Sponsor" → blog.cuteleaf.cn/sponsor/（**打赏入口**，R-NAV-06 要求彻底移除）
+			//    · "Sponsor" → 模板作者站点上的 **打赏入口**（R-NAV-06 要求彻底移除）
 			//    清理后只留了 RSS / Atom，但 R-ID-06 又要求把订阅也去掉，所以现在是空数组 + linksEnable: false。
 			//    将来要加自己的链接（B-02 / B-10）：往数组里加，并把 linksEnable 改回 true。
 			links: [],

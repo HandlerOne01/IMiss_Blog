@@ -29,7 +29,7 @@ try {
 	const pkg = JSON.parse(
 		readFileSync(new URL("../../../package.json", import.meta.url), "utf-8"),
 	);
-	// P4-8（v1.47）：兜底字符串原来是 "Firefly unknown"，若 package.json 读不到就会把上游品牌名渲染出来。
+	// P4-8（v1.47）：兜底字符串原来是 "<上游主题名> unknown"，若 package.json 读不到就会把上游品牌名渲染出来。
 	// 改成中性 "unknown"，把这个潜在泄漏面一并关掉（当前 package.json 有 version，走不到这里）。
 	blogVersion = pkg.version || "unknown";
 } catch {}
@@ -113,8 +113,8 @@ const mainItems = [
 		value: ph(buildPlatform),
 	},
 	{
-		// P4-8（v1.47）：原来这里是 `value: \`Firefly v${blogVersion}\`` + `href: github.com/CuteLeaf/Firefly`
-		// （硬编码的上游主题名与上游仓库链接）。发起人要求站上不留 Firefly 字样 → 去掉链接与品牌名，
+		// P4-8（v1.47）：原来这里是 `value: \`<上游主题名> v${blogVersion}\`` + `href: <上游仓库地址>`
+		// （硬编码的上游主题名与上游仓库链接）。发起人要求站上不留上游字样 → 去掉链接与品牌名，
 		// 只保留中性的版本号；label 用的是 i18n 的 siteInfoBlogVersion（中文「博客版本」），本身干净。
 		// 选择"改中性"而不是"删整行"：这一行属于 mainItems（常显列表），删掉会让侧栏「站点信息」少一格、
 		// 与下方 Grid 布局的行数对不齐；版本号本身是本站事实，保留比删除更有用。
@@ -148,9 +148,9 @@ const detailItems: {
 		value: ph(siteDomain),
 		fullWidth: true,
 	},
-	// P4-8（v1.47）：这里原来还有一格 `{ label: "Firefly", value: \`v${blogVersion}\` }`
+	// P4-8（v1.47）：这里原来还有一格 `{ label: "<上游主题名>", value: \`v${blogVersion}\` }`
 	// （硬编码 label，展开「构建信息」面板里显示主题版本）。上面 mainItems 的那一格中性化之后
-	// 已经在显示同一个版本号，这一格会变成**完全重复**的一项，故整行删除 —— 这样既没有 Firefly 字样，
+	// 已经在显示同一个版本号，这一格会变成**完全重复**的一项，故整行删除 —— 这样既没有上游字样，
 	// 也不会出现两行一模一样的 "v6.16.8"，侧栏不留空格子（detailItems 是流式 Flex 布局，少一项自动收拢）。
 	{
 		icon: "material-symbols:rocket-launch-outline",

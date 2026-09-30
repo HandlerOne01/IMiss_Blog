@@ -17,8 +17,8 @@ export const galleryConfig: GalleryConfig = {
 		// 每添加一个数组项就相当于添加了一个相册，记得在 public/gallery/ 目录下创建对应的子目录并放入图片
 		//
 		// P4-8（v1.47）：上游的两个示例相册已按发起人批准删除 ——
-		//   · firefly-2026「可爱流萤」（上游《崩坏：星穹铁道》示例，配 public/gallery/firefly-2026/）
-		//   · encrypted-test「加密相册示例」（密码 123456 明文写在 desc 里，配 public/gallery/encrypted-test/）
+		//   · 上游示例相册「可爱流萤」（《崩坏：星穹铁道》主题示例，配 `public/gallery/` 下的同名目录）
+		//   · 「加密相册示例」（密码 123456 明文写在 desc 里，配 `public/gallery/` 下的同名目录）
 		// 配置项与 public/gallery/ 下的目录**必须成对增删**：只删目录会留下一个「0 张照片」的空相册，
 		// 只删配置会留下孤儿文件与孤儿路由。当前 albums 为空 → /gallery/ 渲染 I18nKey.galleryNoAlbums 空态。
 	],

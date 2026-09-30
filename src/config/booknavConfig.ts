@@ -68,7 +68,7 @@ export const booknavConfig: BooknavGroup[] = [
 		],
 	},
 	// P4-8（v1.47）：上游的「项目」组（id: opensource）整组删除 —— 它只有一张
-	// 「Firefly → github.com/CuteLeaf/Firefly」卡片。卡片删掉后组内 items 为 0，
+	// 「上游主题仓库 → 仓库地址」卡片。卡片删掉后组内 items 为 0，
 	// 而 `getEnabledBooknavGroups()`（src/utils/booknav-utils.ts:78）会把空组过滤掉，
 	// 留着只是一段永远不渲染的死配置，故整组移除。发起人以后要放自己的开源项目，
 	// 照下面的组格式加回来即可。
@@ -121,6 +121,6 @@ export const booknavConfig: BooknavGroup[] = [
 		],
 	},
 	// P4-8（v1.47）：上游的「资源」组（id: resources）整组删除 —— 它只有两张卡片
-	// （「Firefly Docs」与「夏夜流萤」，都指向上游作者站点），删完同样 items 为 0。
+	// （上游主题文档站与模板作者的个人站，都指向模板作者的站点），删完同样 items 为 0。
 	// 理由与上面的 opensource 组相同；发起人要放自己的文档/阅读站点时按组格式加回来。
 ];

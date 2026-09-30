@@ -2,16 +2,16 @@ import type { CommentConfig } from "../types/commentConfig";
 
 // ── P4-8（v1.49）：五处上游演示端点全部清空 ─────────────────────────────────
 // 发起人 2026-09-29 决定：**不指向任何上游仓库 / 上游演示服务**。上游模板把这几个值
-// 直接提交在配置里，它们全是"主题作者的演示地址"或"主题作者的仓库"：
-//   · `twikoo.envId: "https://twikoo.vercel.app"` —— 上游演示后端
-//   · `waline.serverURL: "https://waline.vercel.app"` —— 上游演示后端
+// 直接提交在配置里，它们全是"模板作者的演示地址"或"模板作者的仓库"：
+//   · `twikoo.envId: "https://twikoo.vercel.app"` —— 模板作者的演示后端
+//   · `waline.serverURL: "https://waline.vercel.app"` —— 模板作者的演示后端
 //   · `artalk.server: "https://artalk.example.com/"` —— 占位域名（example.com）
-//   · `giscus.repo: "CuteLeaf/Firefly"` + `repoId` + `categoryId` —— **主题作者的仓库**：
+//   · `giscus.repo: "<模板作者的仓库>"` + `repoId` + `categoryId` —— **模板作者的仓库**：
 //     `type: "none"` 时这几个值不生效，但**哪天把 type 切成 `"giscus"`，访客的评论就会
-//     发到主题作者的仓库去**（这是本轮真正要拆的雷，不只是"字样好看不好看"）
-//   · `disqus.shortname: "firefly"` —— 上游主题名，不再是本站身份
+//     发到模板作者的仓库去**（这是本轮真正要拆的雷，不只是"字样好看不好看"）
+//   · `disqus.shortname` —— 模板作者的示例值，不再是本站身份
 // 现状 `type: "none"`，所以清空**不影响任何已渲染页面**；将来启用某个系统时，
-// 必须自己填：**giscus 必须填自己的 repo / repoId / categoryId**（不再回填上游仓库）。
+// 必须自己填：**giscus 必须填自己的 repo / repoId / categoryId**（不再回填模板作者的仓库）。
 // 保留未动的是"与上游身份无关"的通用值：twikoo/waline 的公共 CDN 地址、waline 的
 // 公共 emoji 包、giscus 的 GitHub 默认分类名 `General`（不是上游标识；你的仓库若用
 // 别的分类名，改成自己的）。
@@ -72,9 +72,9 @@ export const commentConfig: CommentConfig = {
 	//giscus评论系统配置
 	giscus: {
 		// 设置 Giscus 评论系统仓库
-		// ⚠️ 原值 `"CuteLeaf/Firefly"` 是**主题作者的仓库**（v1.49 清空，发起人 2026-09-29 决定）。
-		//    切到 `type: "giscus"` 之前**必须填自己的 repo / repoId / categoryId**，
-		//    否则访客评论会发到上游作者的仓库去。
+		// ⚠️ 原值（模板作者自己的仓库）已在 v1.49 清空，发起人 2026-09-29 决定。
+		//    切到 `type: "giscus"` 之前**必须填自己的 repo / repoId / categoryId**。
+		//    ⚠️ 绝不要填成模板作者的仓库 —— 那会把访客评论发到别人仓库。
 		repo: "",
 		// 设置 Giscus 评论系统仓库ID
 		repoId: "",
@@ -101,7 +101,7 @@ export const commentConfig: CommentConfig = {
 	//disqus评论系统配置
 	disqus: {
 		// 获取 Disqus 评论系统
-		// ⚠️ 原值 `"firefly"`（上游主题名）已清空（v1.49）；启用 disqus 前必须填自己的 shortname
+		// ⚠️ 原值（模板作者的示例 shortname）已清空（v1.49）；启用 disqus 前必须填自己的 shortname
 		shortname: "",
 	},
 };

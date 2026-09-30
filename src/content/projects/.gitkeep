@@ -1,4 +1,4 @@
-# P4-8（v1.47）：上游示例项目（`firefly.md`、`example-project.md`）与 `images/firefly.avif`
+# P4-8（v1.47）：上游两个示例项目文件与其配图 `images/<上游示例封面>.avif`
 # 已全部删除，这个目录因此变空。git 不跟踪空目录，而 `src/content.config.ts:109` 用
 # `glob({ pattern: "**/*.{md,mdx}", base: "./src/content/projects" })` 显式声明了这个 base。
 # 本文件只为占住目录，让"集合为空"这件事是**显式的**：

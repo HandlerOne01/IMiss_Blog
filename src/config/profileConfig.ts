@@ -25,7 +25,7 @@ export const profileConfig: ProfileConfig = {
 	// `pnpm add @iconify-json/<icon-set-name>`
 	// showName: true 时显示图标和名称，false 时只显示图标
 	//
-	// IMiss Blog：上游示例里的 GitHub（CuteLeaf）与邮箱（xiaye@msn.com）是主题作者的信息，
+	// IMiss Blog：上游示例里的 GitHub 用户名与邮箱都是**模板作者**的信息，
 	// 已删除；RSS/Atom 两个订阅入口也随 R-ID-06 一起删掉。所以现在是**空数组**——
 	// `Profile.astro` 对 length 为 0 的情况不渲染整行，布局不会塌。
 	// 要加自己的社交链接（等 B-02 提供）往下面数组里加即可，支持多个。

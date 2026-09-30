@@ -9,7 +9,7 @@
 - `pages/dynamic/DynamicItem.astro`：动态条目的服务端渲染组件。
 - `pages/dynamic/DynamicItemTemplate.astro`：动态条目的客户端渲染模板。
 
-Firefly 项目中所有可复用组件的集中管理。组件按照功能和职责进行分类，提供清晰的架构和易于维护的代码组织。
+本站（IMiss Blog）所有可复用组件的集中管理。组件按照功能和职责进行分类，提供清晰的架构和易于维护的代码组织。
 
 ## 📁 目录结构
 

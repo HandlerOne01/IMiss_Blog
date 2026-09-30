@@ -75,7 +75,7 @@ export const siteConfig: SiteConfig = {
 	// 主题色
 	themeColor: {
 		// 主题色的默认色相，范围从 0 到 360。例如：红色：0，青色：200，蓝绿色：250，粉色：345
-		// IMiss Blog：345 = 爱弥斯粉（原值 165 是 Firefly 的青绿），见 prd.md R-ID-02
+		// IMiss Blog：345 = 爱弥斯粉（原值 165 是模板默认的青绿），见 prd.md R-ID-02
 		hue: 345,
 		// 默认模式："light" 亮色，"dark" 暗色，"system" 跟随系统
 		defaultMode: "system",
@@ -351,7 +351,7 @@ export const siteConfig: SiteConfig = {
 	// ── MyAnimeList配置（IMiss Blog：页面改名为「番剧」，功能不变）──────────────────────────────────
 	mal: {
 		// MyAnimeList 用户名（列表需为公开状态，私密列表无法读取）
-		// IMiss Blog：原值 "cuteleaf" 是上游作者的示例值，已清空（R-ID-05）。
+		// IMiss Blog：原值是模板作者的示例用户名，已清空（R-ID-05）。
 		// username 与 clientId 任一为空，构建期就不会发起任何请求（页面显示"未配置"卡片）
 		username: "",
 		// MyAnimeList Client ID，在 https://myanimelist.net/apiconfig 注册免费应用后获取
