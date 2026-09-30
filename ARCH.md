@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.53 |
+| 文档版本 | v1.54 |
 | 最后更新 | 2026-09-30 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | 上游模板基线 v6.16.8（站点信息里中性显示为「博客版本 v6.16.8」），Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -103,7 +103,7 @@ imiss_-blog/                      ← 工作区根（= 站点仓库）
 │  ├─ verify-posts.mjs            ← 【P4 已落地】内容校验（阻断式，见 §9.4）
 │  └─ export-agent-data.mjs       ← 【设计未落地】给 Agent 导出索引（v1.41 核对：脚本不存在，见 §2 的说明）
 ├─ server/pet-gateway.mjs         ← 【v1.45 / P5-5 新增】桌宠 Agent 网关：零依赖 Node 同源反代（:8787）
-├─ deploy/                        ← 【v1.45 新增】`nginx.conf`（/api/agent/ 反代，只有 Agent 那一段）+ `README.md`（起法与构建变量）+ `pet-gateway.service`（可选 systemd）
+├─ deploy/                        ← 【v1.45 新增 / v1.54 扩成"上线操作单"】`nginx.conf`（/api/agent/ 反代，只有 Agent 那一段）+ `nginx-site.conf`（【v1.54】完整站点的 server{}：80 跳转 + 443 静态 + 缓存/压缩/安全头/真 404，含 `include` 上面那段）+ `publish.ps1`（【v1.54】Windows→Linux 发布脚本）+ `langgraph.service`（【v1.54】后端 systemd unit）+ `pet-gateway.service`（可选 systemd）+ `README.md`（【v1.54】从零到上线的操作单）
 ├─ reports/                       ← 【新增，.gitignore 已忽略】脚本产出：reports/screenshots/*.png、reports/import-report.json、reports/image-mapping-*.json、reports/verify-gateway.log
 ├─ src/assets/fonts/*.woff2       ← 【P0 已落地】本地字体（11 个，约 205KB）
 ├─ src/assets/images/pet/         ← 【P1 已落地】桌宠图集（P3 会用它做桌宠，Logo 也从这里裁）
@@ -790,8 +790,11 @@ agent/                              # ⚠️ 设计稿（本仓库实际只有�
 ```
 server/pet-gateway.mjs             # 零依赖 Node 反代：白名单 / 来源 / 限流 / 长度 / 体积 / 单轮上限 / SSE 直通
 scripts/verify-gateway.mjs         # 51 项断言（自带 stub 上游 + 真后端一段）→ pnpm verify:gateway
-deploy/nginx.conf                  # /api/agent/ → 127.0.0.1:8787（只有 Agent 那一段）
-deploy/README.md                   # 起法 / 环境变量 / 构建期 PUBLIC_AGENT_BASE_URL
+deploy/nginx.conf                  # /api/agent/ → 127.0.0.1:8787（只有 Agent 那一段；v1.54 起含 gzip off）
+deploy/nginx-site.conf             # 【v1.54】完整 server{}：静态段 + 真 404 + 缓存/压缩/安全头 + include 上面那段
+deploy/langgraph.service           # 【v1.54】后端（另一仓库的服务）systemd unit 模板
+deploy/publish.ps1                 # 【v1.54】发布脚本（构建 → 打包 → 上传 → 原子替换 → 计数校验 → 回滚备份）
+deploy/README.md                   # 起法 / 环境变量 / 构建期 PUBLIC_AGENT_BASE_URL / 上线操作单
 deploy/pet-gateway.service         # 可选：systemd 常驻单元
 ```
 
@@ -1597,31 +1600,53 @@ dosc/blog/**/*.md（只读）
 
 ### 12.2 `deploy/nginx.conf` 要点
 
+> **v1.54（P6 上线预工）改口**：本节原来那份 `server{}` 是**示意稿**（只能看、不能装，且与 `deploy/nginx.conf`
+> 的取值已经开始不一致 —— 例如它写着 `expires 1y` 而实现用 `add_header`、它没有 `gzip off`）。
+> 现在**完整正文在 `deploy/nginx-site.conf`**（可直接 `cp` 到 `/etc/nginx/conf.d/` 后 `nginx -t`），
+> 本节改成**要点摘录 + 与实现的对照**，不再维护第二份可安装的 `server{}`。
+> ⚠️ **它从未在真机上跑过 `nginx -t`**（开发机没有 Nginx，B-01 未解除）—— 这点写在 `deploy/README.md` 开头。
+
 ```nginx
-server {
-  listen 443 ssl;
-  http2 on;
-  server_name imiss.example.com;          # 域名待提供
-  root /var/www/imiss-blog/dist;
-  index index.html;
+# 正文：deploy/nginx-site.conf（4 个占位符：__DOMAIN__ / __CERT_PATH__ / __WEB_ROOT__ / __SNIPPET_PATH__）
+server {                                  # ① 80 端口：只做 301 跳转 + 放行 /.well-known/acme-challenge/
+  listen 80; server_name __DOMAIN__ www.__DOMAIN__;
+  location / { return 301 https://$host$request_uri; }
+}
+server {                                  # ② 443 端口：真正的站点
+  listen 443 ssl http2;                   #    旧写法；nginx ≥ 1.25.1 会提示换成 `http2 on;`（不影响功能）
+  server_name __DOMAIN__ www.__DOMAIN__;
+  ssl_certificate __CERT_PATH__/fullchain.pem;
+  ssl_certificate_key __CERT_PATH__/privkey.pem;
+  root __WEB_ROOT__;  index index.html;  charset utf-8;  autoindex off;  server_tokens off;
 
-  gzip on;
-  gzip_types text/css application/javascript application/json image/svg+xml;
+  # 安全头最小集（每个自定义 location 里都重复一遍 —— nginx 的 add_header 是「就近覆盖」）
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+  add_header X-Frame-Options "SAMEORIGIN" always;
+  add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
+  add_header Cache-Control "no-cache" always;      # HTML 不缓存（回源校验，命中 304）
+  # ⚠️ 不加 HSTS（发出去撤不回）、不加 CSP（内联脚本 + Pagefind wasm 会白屏）—— 理由与"以后怎么加"都写在文件里
 
-  # Astro 产物带内容哈希，可长缓存
-  location /_astro/ { expires 1y; add_header Cache-Control "public, immutable"; }
-  location /assets/ { expires 30d; add_header Cache-Control "public"; add_header Accept-Ranges bytes; }
+  gzip on; gzip_comp_level 6; gzip_min_length 1024; gzip_vary on;
+  gzip_types text/plain text/css text/xml application/javascript application/json
+             application/xml image/svg+xml application/manifest+json application/wasm;
+  # ⚠️ 不启用 brotli：需要 ngx_brotli 模块（发行版默认没编进去），写了会 nginx -t 直接报错
 
-  # trailingSlash: always → 每个路由都是目录 + index.html，不需要 SPA 回退
-  location / { try_files $uri $uri/index.html =404; }
+  location /_astro/  { add_header Cache-Control "public, max-age=31536000, immutable" always; }  # 带内容哈希
+  location /assets/  { add_header Cache-Control "public, max-age=2592000" always; }              # 无哈希 → 30 天
+  location /images/  { add_header Cache-Control "public, max-age=604800" always; }               # 文章配图 7 天
+  location /og/      { add_header Cache-Control "public, max-age=604800" always; }               # OG 卡片 7 天
+  location /pagefind/{ add_header Cache-Control "no-cache" always; }                             # 搜索索引：每次构建都变
+  location /api/     { add_header Cache-Control "public, max-age=300, must-revalidate" always; } # 构建期导出的 json
+  location ~ ^/(sitemap.*\.xml|robots\.txt|llms\.txt)$ { add_header Cache-Control "public, max-age=3600" always; }
 
-  # 自定义 404 页：Astro 把 src/pages/404.astro 输出成 dist/404.html
-  error_page 404 /404.html;
-  location = /404.html { internal; }
+  error_page 404 /404.html;                # dist/404.html 实测存在（单文件，239 421 字节）
+  location = /404.html { internal; add_header Cache-Control "no-store" always; }
 
   # 已关闭的页面给「真 404」
-  # 静态输出下 Astro 只会生成一个 HTTP 200 + meta refresh + noindex 的跳转存根（见 §14.3 T17），
-  # 这里直接掐掉，让线上返回真正的 404 状态码（并落到上面的 404 页）
+  # 静态输出下 Astro 仍然产出 200 + meta refresh + noindex 的跳转存根（见 §14.3 T17），
+  # 实测 **/bilibili/ 与 /bangumi/ 的存根文件还在产物里**，必须靠这几行掐掉；
+  # /friends/ 与 /sponsor/ 的产物文件已随 v1.47 删除（这两行是保险）。
   location = /friends/  { return 404; }
   location = /bilibili/ { return 404; }
   location = /bangumi/  { return 404; }
@@ -1630,38 +1655,82 @@ server {
   location = /404/      { return 404; }
 
   # ⚠️ 原「/rank/ → 301 /rank/jp/」的 location 已随排行模块删除（v1.41 / R-PATH-06）：
-  #    `/rank/`、`/rank/jp/`、`/rank/cn/`、`/rank/game/` 四个地址**一律不做 301**，由上面的 `=404` 规则
-  #    返回真 404（verify:ui 的 R-PATH-06 用 `redirect: "manual"` 按 404 断言 —— 这里再加任何跳转都会让它红）。
+  #    `/rank/`、`/rank/jp/`、`/rank/cn/`、`/rank/game/` 四个地址**一律不做 301**，产物里也没有它们，
+  #    由下面通用的 `try_files … =404` 返回真 404（verify:ui 的 R-PATH-06 用 `redirect: "manual"`
+  #    按 404 断言 —— 这里再加任何跳转都会让它红）。
+
+  # 隐藏文件 / 目录（.env / .git / 备份）一律不可访问（acme-challenge 除外）
+  location ~ /\.(?!well-known/) { return 404; }
 
   location /api/agent/ {
-    # ★ Agent 那一段的**唯一正文**在 deploy/nginx.conf（v1.45 / P5-5 落地）——改一处就够，别在这里再维护一份
-    #   它做四件事：转到网关 8787（不是 2024！）、关缓冲与缓存、300 秒读/写超时、body 8k
-    include /etc/nginx/snippets/pet-gateway.conf;   # = deploy/nginx.conf，摘掉注释头就是这个片段
+    # ★ Agent 那一段的**唯一正文**在 deploy/nginx.conf（v1.45 / P5-5 落地；v1.54 补 `gzip off;`）
+    #   它做五件事：转到网关 8787（不是 2024！）、关 proxy 缓冲与缓存、关 gzip、300 秒读/写超时、body 8k
+    include __SNIPPET_PATH__;   # = deploy/nginx.conf，摘掉注释头就是这个片段
   }
+
+  # trailingSlash: always → 每个路由都是目录 + index.html，不需要 SPA 回退
+  # ⚠️ 顺序是 `$uri` → `$uri/index.html` → `=404`：`$uri/` 若排在前面，没有 index.html 的目录
+  #    会退化成 **403 目录禁止**而不是 404；写成 `… /index.html` 回退则会把所有 404 变成首页 200。
+  location / { try_files $uri $uri/index.html =404; }
 }
 ```
 
 > **为什么这里不照抄一遍 `location`**：`deploy/nginx.conf` 已经成为该段落的**唯一真相源**（P5-5 之前 ARCH 里这份 `server{}` 是唯一的文字，
-> 而 `deploy/nginx.conf` 这个文件当时**根本不存在** —— 文件与文档各说各话的典型）。现在两处的关系是"这一节管**整个 server{}**（静态 + 关页 + 404），
-> `deploy/nginx.conf` 管 **Agent 那一段**"，前者 `include` 后者。要点对照表：
+> 而 `deploy/nginx.conf` 这个文件当时**根本不存在** —— 文件与文档各说各话的典型）。v1.54 起两处的关系是
+> "`deploy/nginx-site.conf` 管**整个 server{}**（80 跳转 + 443 静态 + 关页 + 404 + 缓存/压缩/安全头），
+> `deploy/nginx.conf` 管 **Agent 那一段**"，前者 `include` 后者（路径由 `__SNIPPET_PATH__` 决定）。
+> ⚠️ 本节代码块是**要点摘录**，正文以 `deploy/nginx-site.conf` 为准（照抄两份必然漂移）。要点对照表：
 
 | 要点 | 取值 | 为什么 |
 | --- | --- | --- |
 | `proxy_pass` 目标 | `http://127.0.0.1:8787/api/agent/` | **8787 是网关**（P5-5）；直连 2024 就绕过了所有闸门。**尾部斜杠要留**（路径原样透传，网关自己剥前缀） |
 | `proxy_buffering off` + `proxy_cache off` | 必开 | SSE 被攒着不发 = 前端一个字都看不到（`verify:gateway` 的「不缓冲」那条就是钉它） |
+| **`gzip off`**（v1.54 新增） | 必开 | **第二个独立的缓冲源**：完整配置里全局 `gzip on;`，而 gzip 过滤器要攒够 `gzip_min_length` 或一次 flush 才吐数据 —— 对 SSE 同样是"字卡在 Nginx 里"。`proxy_buffering off` 管不了它 |
 | `proxy_read_timeout` / `proxy_send_timeout` | `300s` | 与前端 300 秒硬上限、网关 `PET_GATEWAY_ROUND_TIMEOUT_MS` 三处对齐（§8.10） |
 | `proxy_http_version 1.1` + `proxy_set_header Connection ""` | 必开 | HTTP/1.0 会把流式连接变成短连接 |
 | `chunked_transfer_encoding on` | 开 | 流式响应没有 `content-length`，靠 chunked |
-| `X-Forwarded-For` / `X-Forwarded-Proto` / `Host` | 必开 | 网关侧要 **`PET_GATEWAY_TRUST_PROXY=1`** 才认 XFF（否则访客可伪造，见 §8.5） |
+| `X-Forwarded-For` / `X-Forwarded-Proto` / `Host` | 必开 | 网关侧要 **`PET_GATEWAY_TRUST_PROXY=1`** 才认 XFF（否则访客可伪造，见 §8.5）；反代后面**不开**则全站访客共用 `127.0.0.1` 一个限流桶（20 次/分） |
 | `client_max_body_size 8k` | 与网关 8192 对齐 | 超了 Nginx 先回 413，不让大包进到网关 |
+| Agent 段不写任何 `add_header` | 故意 | 网关自己对每个响应下了 `Cache-Control: no-store` / `no-cache, no-transform`；再叠一层会变成**两个 `Cache-Control` 头**，语义不可预期 |
 
 ### 12.3 发布流程
 
 ```powershell
-pnpm verify:posts          # 1) 内容校验不过就停
-pnpm build                 # 2) 产出 dist/
-# 3) 上传 dist/ 到服务器（rsync / scp / git 拉取后构建）
-# 4) Nginx 无需 reload（纯静态覆盖）；改了 nginx.conf 才需要 nginx -t && systemctl reload nginx
+pnpm verify:posts                              # 1) 内容校验不过就停
+$env:PUBLIC_AGENT_BASE_URL = "/api/agent"      # 2) 构建期变量（同源反代）
+pnpm build                                     # 3) 产出 dist/
+./deploy/publish.ps1 -Server blog@<host> -WebRoot /var/www/imiss-blog/dist -DryRun   # 4) 先空跑看要执行什么
+./deploy/publish.ps1 -Server blog@<host> -WebRoot /var/www/imiss-blog/dist          # 5) 真发
+# 6) Nginx 无需 reload（纯静态覆盖）；改了 nginx 配置才需要 nginx -t && systemctl reload nginx
+```
+
+`deploy/publish.ps1`（v1.54 / P6 预工）做的十件事与它的安全闸门：
+
+| 步骤 | 做什么 | 失败时怎么排查 |
+| --- | --- | --- |
+| ⓪ 参数闸门 | `-WebRoot` 为空 / 为 `/` / 为 `/etc` 等系统目录 / 不在白名单前缀（默认 `/var/www`,`/srv`,`/home`,`/data`,`/opt`）/ 含 `..` → **直接拒绝，一行命令都不执行** | 报错行会直接给出建议的 `-WebRootPrefixes` 值 |
+| ① 连通性 | `ssh … true`（`BatchMode=yes`，**只认密钥登录**，密码交互会立刻失败而不是挂住） | 先手工 `ssh -i <key> user@host true` |
+| ② 构建 | `pnpm build`（`-SkipBuild` 跳过）；**失败立即中止，绝不上传半成品** | 看 pnpm 输出；`pnpm build` 全程不需要外网（R-DEP-04） |
+| ③ 本地清点 | 文件数 / 总字节；并检查哨兵文件 `index.html` 与 `404.html` 在不在（不在就拒绝发布） | 本地 `dist/` 不完整 → 重新构建 |
+| ④ 打包 | `tar -czf` 在 **`dist/` 里**打相对路径（Windows 自带 bsdtar ↔ Linux GNU tar 互认，实测往返 sha256 一致） | `tar` 不存在（老系统）→ 装 `bsdtar` 或用 WSL |
+| ⑤ 上传 | `scp` 到 `/var/www/.imiss-publish/<时间戳>/`（**临时目录，不碰线上**） | 磁盘满 / 权限不足 |
+| ⑥ 差异比对 | 远端 `sha256sum` 清单 vs 本地 `Get-FileHash` → 新增/修改、未变、远端多余（待删）三份名单 | 远端清单读不到（首次部署）→ 视为"全部新增" |
+| ⑦ 生效 | 解包到临时目录 → 校验 `index.html` → 旧目录改名成 `<WebRoot>.releases/<时间戳>` → `cp -a` 落位 | 解包后缺 `index.html` 会在**改动线上目录之前**中止 |
+| ⑧ 删除多余文件 | **逐条**校验路径（前缀白名单 + 无 `..`/引号/反斜杠），条数 > 200 要显式 `-AllowMassDelete` | 报错会列出前几条可疑路径 |
+| ⑨ 校验 | 打印远端文件数 / 总字节 / 顶层目录 / 哨兵文件；与本地不一致会告警 | 差异常见于"上次残留孤儿文件" |
+| ⑩ 回滚备份 | 保留最近 `-KeepReleases`（默认 2）份 `<WebRoot>.releases/<时间戳>/`；回滚命令见 `deploy/README.md` §3 | — |
+
+> ⚠️ `-SkipBuild` 会**自动降级为整包覆盖**并且**不删除远端任何文件**（本地 `dist/` 不保证是刚构建的完整产物，
+> 拿它当基准算"远端多余"风险太大 —— 宁可不删，也不能误删）。
+> ⚠️ **整条发布链路没有真机验证过**（没有服务器）：只验了 PowerShell 语法解析（0 error）、`-DryRun` 空跑、
+> 安全闸门的 6 个拒绝用例、以及 tar 往返一致性。**第一次务必带 `-DryRun` 走一遍**。
+
+**rsync 等价命令**（Linux/macOS 开发机以后要发同一台服务器时用这条；Windows 侧没有 rsync）：
+
+```bash
+rsync -az --delete --info=stats2 --exclude '.deploy-tmp/' -e "ssh -p 22" \
+      dist/ blog@<host>:/var/www/imiss-blog/dist/
+# ⚠️ `dist/` 结尾的斜杠不能省；`--delete` 会删掉目标目录里所有不在 dist/ 里的东西
 ```
 
 **服务器上的依赖安装**（只有首次/依赖变更时需要）：
@@ -1679,6 +1748,26 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 2. 站点信息组件的 `placeholder` 关掉 → 显示真实构建信息。
 3. 社交分享自检：把首页与一篇文章链接丢进任意 OG 调试工具，标题/摘要/图正确。
 4. `dist/sitemap-*.xml` 里不应出现 `/friends/`、`/bilibili/`、`/bangumi/`、`/sponsor/`。
+
+**上线当天的冒烟清单**（v1.54 补；完整命令与期望输出在 `deploy/README.md` §2 第 8 步）：
+
+| 检查 | 命令要点 | 期望 |
+| --- | --- | --- |
+| 首页 | `curl -sSI https://<域名>/` | `HTTP/2 200` |
+| HTTP→HTTPS | `curl -sSI http://<域名>/` | `301` |
+| 目录式路由 | `…/roadmap/` | `200` |
+| 已删除的旧地址 | `…/rank/`、`…/rank/jp/` | `404`（**不是** 301） |
+| 已关闭页面 | `…/bilibili/`、`…/friends/` | `404`（掐掉 noindex 存根） |
+| 网关 | `…/__gw/health` | `200` JSON（生效的 `PET_*`，非密） |
+| 上游（= 三段全通） | `…/api/agent/ok` | `200` `{"ok":true}` |
+| **SSE 不缓冲** | 带时间戳跑一次 `runs/stream`，看首块时刻 | 首块在 **0.x~2 秒内**到达、块与块有时间差；**卡到最后一次性输出 = 有层在缓冲** |
+| 压缩 | `curl -sSI -H 'Accept-Encoding: gzip' …/_astro/<css>` | `content-encoding: gzip`；而 `/api/agent/` **绝不能**是 gzip |
+| 缓存头 | `…/_astro/<js>` / 首页 | `max-age=31536000, immutable` / `no-cache` |
+| 搜索 | 浏览器搜一个只在文章里出现的词 | 有结果（`/pagefind/pagefind.js` 返回 200） |
+| 无上游字样 | 抓首页正文喂给 `grep -ci '<上游主题名>'` | `0` |
+
+> ⚠️ **以上全部没有真机验证过**（B-01 未解除：没有域名、没有服务器、开发机没装 Nginx）。
+> 本轮（v1.54 / P6 预工）交付的是"参数化成品 + 操作单"，**未交付**的是这些命令的真实输出。
 
 ---
 
