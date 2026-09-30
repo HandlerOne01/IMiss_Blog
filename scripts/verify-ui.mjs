@@ -746,27 +746,46 @@ async function main() {
 		record("INFO(待建)", `本阶段尚未实现的路由：${route}`, true, `HTTP ${res.status}（建好后挪进 ALLOWED_ROUTES 断言 200）`);
 	}
 
-	// ── P4-8（v1.47）：上游身份零残留 —— 从"4 条路由抽样"升级成"全站产物逐个扫" ──────
+	// ── P4-8（v1.47 → v1.49）：上游身份零残留 —— 扫描面从 `dist/**/*.html` 扩到**产物全集** ──
 	// 这条断言的前身是 P1 的"上游信息泄漏扫描"（只 fetch `/`、`/about/`、`/guestbook/`、文章页
 	// 四条路由）。**抽样漏得太多了**：v1.47 实测旧产物 171 个 HTML 里有 **166** 个含上游字样
 	// —— 导航「链接」组、页脚 `Powered by … Firefly`、侧栏「站点信息」两处硬编码版本行，
-	// 这些在每一页都出现，而 4 条路由抽样恰好只覆盖了同一批面，看不出规模。现在改为
+	// 这些在每一页都出现，而 4 条路由抽样恰好只覆盖了同一批面，看不出规模 → 改成
 	// 磁盘遍历 `dist/**/*.html` 全量扫，命中即红。
 	//
-	// 判据分三层（一层比一层严）：
-	//   ① **品牌/身份串**（大小写敏感）：出现即红。
-	//   ② **大小写不敏感的 `firefly` / `cuteleaf`**：只允许下面 3 个已登记的内部 JS 全局名，
-	//      其余任何大小写变体出现即红 —— 这样 "Firefly 主题"、"firefly docs" 之类都跑不掉。
-	//   ③ **可见文本**（剥掉 `<script>`/`<style>`/HTML 注释之后）：任何 firefly/cuteleaf 都算红。
-	//      这一层是"访客真能看到什么"的判据，也顺手挡住"把敏感字样塞进 HTML 注释"这种绕法
-	//      —— 那正是本轮自己踩过的坑（见下面 FOOTER 那段注释）。
+	// ⚠️ **v1.49 又发现它还是窄了**：`*.html` 只是产物的 165/799。实测漏掉的是
+	//    `dist/assets/css/twikoo-custom.css` 第 4 行那条上游署名
+	//    （`Firefly 主题专用：https://github.com/CuteLeaf/Firefly`）—— 它不进 HTML、
+	//    页面上也看不见（`commentConfig.type` 是 `none`，这条 CSS 根本没人加载），
+	//    就这么**随产物发布了一整轮**。**只扫 HTML = 只看"页面上有没有"，漏掉"发布出去了什么"。**
+	//    从本轮起扫描面 = **产物全集**：HTML / CSS / JS / JSON / sitemap / llms.txt / pagefind /
+	//    robots / 字体子集清单…… 外加 **文件名与路径本身**（防 `firefly-*.png` 这类
+	//    "内容干净、只有名字里带"的存活方式）。同因同源，登记在 ARCH §14.3 **T85**。
+	//
+	// 判据分四层（一层比一层严）：
+	//   ① **产物全集的内容**（大小写不敏感）：`firefly|cuteleaf|夏夜流萤|夏叶|xiaye@msn.com|
+	//      cuteleaf.cn|ko-fi.com/cuteleaf|ifdian.net/a/cuteleaf` 命中即红。
+	//   ② **文件名 / 路径本身**（同一组判据）：命中即红，单独记一条以便归因。
+	//   ③ **品牌/身份/凭据串**（大小写敏感，含"不含 firefly"的那些）：base64 邮箱形态、
+	//      Bilibili/Bangumi/VNDB 的 UID、上游横幅标题与副标题诗 —— 出现即红。
+	//   ④ **可见文本**（剥掉 `<script>`/`<style>`/HTML 注释之后，仅 HTML）：任何 firefly/cuteleaf
+	//      都算红。这一层是"访客真能看到什么"，也挡住"把敏感字样塞进 HTML 注释"这种绕法
+	//      —— 那正是 v1.47 自己踩过的坑（Astro 把模板 HTML 注释原样打进产物，见 T85）。
+	//
+	// 🔎 **二进制文件怎么判**：读整个文件，**含 NUL 字节（0x00）即视为二进制**，跳过其
+	//    **内容**扫描，但**文件名/路径照查**（第 ② 层对全集生效）。产物里约 547 个二进制
+	//    （png/webp/avif/woff2/ico…）走这条分支，跳过数**写进下面第一条断言的 detail 里**
+	//    —— 不让"跳过一大批"变成"静默扫了个空"。反向保险也钉住了：**可读文本文件数为 0
+	//    直接判红**（否则 dist 一旦全是二进制，这条会伪装成绿，同类问题见 T77）。
 	//
 	// ⚠️ **唯一排除：`about/index.html`**。`src/content/spec/about.md` 现在整页是上游作者的
 	//    自我介绍（`夏叶` / `Firefly` / `github.com/CuteLeaf/Firefly` / `firefly.cuteleaf.cn`），
 	//    而它是本轮**硬约束禁止修改**的文件：`src/pages/about.astro:15-17` 在内容缺失时直接
 	//    `throw new Error("About page content not found")`，删了构建就断，而替换文字还在
 	//    发起人手上（阻塞项：等发起人自己的关于页文字）。
-	//    所以排除面**有且只有这一页**，且下面单独记一条 INFO 把"这页仍不干净"摆在明面上
+	//    所以排除面**有且只有这一页**（且只排除它的**内容**，不排除文件名/路径——
+	//    `about/index.html` 这个路径本来也不含上游字样），下面第一条断言的**通过文案里也写着**
+	//    "唯一排除 about/index.html"，并另记一条 INFO 把"这页仍不干净"摆在明面上
 	//    —— 它不会被算成绿，也不会因为"看不见"而被忘掉。
 	const IDENTITY_NEEDLES = [
 		["Firefly", "上游主题名（品牌字样）"],
@@ -785,17 +804,16 @@ async function main() {
 		["1143164", "上游 Bangumi userId"],
 		["u358128", "上游 VNDB userId"],
 	];
-	// 合法内部标识符白名单 —— **只有这 3 个**。理由是：它们全是本站客户端 JS 的**全局变量名**
-	// （由 `Layout.astro` / `MusicManager.astro` / `BannerHomeTextOverlay.astro` 读写），
-	// 既不是品牌字样、也永远不会出现在可见文本里；改名要同时动 3~4 个文件的一致性，
-	// 与发起人"站上不留 Firefly 字样"（指的是可见的上游品牌 / 署名）不是一回事。
-	// 实测：v1.47 全量扫 165 个 HTML，去掉这 3 个记号之后，大小写不敏感的
-	// `firefly` / `cuteleaf` 在非 about 页面里**一个都不剩**（写死在这里，多一个都会红）。
-	const INTERNAL_FIREFLY_TOKENS = [
-		"window.__fireflyMusic",
-		"window.__fireflyLayoutTransitionGuard",
-		"window.fireflyCachedSubtitle",
-	];
+	// ⚠️ **v1.49：这里的"内部标识符白名单"已删除**。v1.47 曾放行 3 个本站客户端 JS 全局名
+	// （`window.__fireflyMusic` / `window.__fireflyLayoutTransitionGuard` / `window.fireflyCachedSubtitle`）
+	// —— 那是"品牌字样"与"内部变量名"之间的折中。本轮把这几个名字连同另外几处一起
+	// **改成中性前缀 `imiss`**：`__imissMusic` / `__imissLayoutTransitionGuard` / `__imissLayoutInit` /
+	// `imissCachedSubtitle` / 自定义事件 `imiss:page:loaded` / CSS 关键帧 `imiss-waves-slide-up`，
+	// 组件 barrel `firefly-mdx.ts` → `imiss-mdx.ts`，`package.json` 的 `name` → `imiss-blog`。
+	// 于是**白名单不再需要**：这条判据现在是"零例外"，任何大小写变体出现即红。
+	// （改名映射表见 PROJECT_STATUS.md v1.49 变更行 与 ARCH §14.3 T85。）
+	const UPSTREAM_CI =
+		/firefly|cuteleaf|夏夜流萤|夏叶|xiaye@msn\.com|cuteleaf\.cn|ko-fi\.com\/cuteleaf|ifdian\.net\/a\/cuteleaf/i;
 	// R-ID-06：订阅功能移除后，这些不该再出现在任何页面里
 	const FEED_LEAK_NEEDLES = [
 		["application/rss+xml", "head 里的 RSS alternate 链接"],
@@ -820,6 +838,26 @@ async function main() {
 		}
 		return out;
 	};
+	/**
+	 * v1.49：递归列出 dist 下**全部产物文件**（不再只挑 `.html`）。
+	 * 返回 `{ abs, rel }`：`abs` 用来读文件，`rel`（posix 风格、相对 dist）用来判
+	 * **文件名/路径本身**是否含上游字样。
+	 */
+	const listDistAll = async (dir = "dist", rel = "", out = []) => {
+		let entries;
+		try {
+			entries = await fs.readdir(dir, { withFileTypes: true });
+		} catch {
+			return out;
+		}
+		for (const e of entries) {
+			const p = path.join(dir, e.name);
+			const r = rel ? `${rel}/${e.name}` : e.name;
+			if (e.isDirectory()) await listDistAll(p, r, out);
+			else out.push({ abs: p, rel: r });
+		}
+		return out;
+	};
 	// 剥掉 script / style / HTML 注释 → 剩下的才是"访客能看见的文本"
 	const visibleTextOf = (html) =>
 		html
@@ -827,64 +865,95 @@ async function main() {
 			.replace(/<style[\s\S]*?<\/style>/gi, " ")
 			.replace(/<!--[\s\S]*?-->/g, " ");
 
+	// ⚠️ **唯一例外**（长注释见上）：`ABOUT_HTML` 这个名字保持不变，v1.49 起由它推导出
+	// 产物清单里用的相对路径 `ABOUT_REL`（`about/index.html`）。下一轮发起人写好关于页文字后，
+	// 把这两行连同 `isAbout` 分支一起删掉即可 —— **例外只豁免这一页的内容**，
+	// 它的文件名/路径照样参与扫描。
 	const ABOUT_HTML = path.join("dist", "about", "index.html");
+	const ABOUT_REL = path.relative("dist", ABOUT_HTML).split(path.sep).join("/");
 	const distHtmlFiles = await listDistHtml();
+	const distAllFiles = await listDistAll();
 	if (isDevServer) {
 		record("INFO(dev)", "上游身份零残留扫描已跳过", true, "读的是磁盘 dist/，dev 下可能是旧产物；请用 pnpm preview");
-	} else if (distHtmlFiles.length === 0) {
+	} else if (distAllFiles.length === 0) {
 		// "扫不到文件"绝不能算通过 —— 否则 dist 缺失时这条会伪装成绿（T77 同类）
-		record("R-ID-05/R-NAV-06", "上游身份零残留（全站产物）", false, "dist 下没找到任何 HTML：先跑 pnpm build");
+		record("R-ID-05/R-NAV-06", "上游身份零残留（产物全集）", false, "dist 下没找到任何文件：先跑 pnpm build");
 	} else {
 		const leakedFiles = [];
-		const removedOnlyFiles = [];
+		const identityLeakFiles = [];
 		const visibleLeakFiles = [];
+		const nameLeakFiles = [];
 		const feedLeakFiles = [];
-		let aboutNote = "";
-		for (const f of distHtmlFiles) {
-			const html = await fs.readFile(f, "utf8");
-			const isAbout = path.normalize(f) === path.normalize(ABOUT_HTML);
-			// ① 品牌 / 身份串
-			const hits = IDENTITY_NEEDLES.filter(([n]) => html.includes(n));
+		const aboutNotes = new Set();
+		let scanned = 0;
+		let binarySkipped = 0;
+		let unreadable = 0;
+		for (const { abs, rel } of distAllFiles) {
+			const isAbout = rel === ABOUT_REL;
+			// ② 文件名 / 路径本身（二进制文件也照查 —— "名字里带"是最容易被漏掉的存活方式）
+			if (UPSTREAM_CI.test(rel) && !isAbout) nameLeakFiles.push(rel);
+			// 内容扫描：含 NUL 字节即视为二进制 → 跳过内容，只留上面的文件名判定
+			let buf;
+			try {
+				buf = await fs.readFile(abs);
+			} catch {
+				unreadable++;
+				continue;
+			}
+			if (buf.includes(0)) {
+				binarySkipped++;
+				continue;
+			}
+			scanned++;
+			const text = buf.toString("utf8");
+			// ① 产物全集内容：大小写不敏感的上游字样
+			const ci = text.match(UPSTREAM_CI);
+			if (ci) {
+				if (isAbout) aboutNotes.add(ci[0]);
+				else leakedFiles.push(`${rel} → ${ci[0]}`);
+			}
+			// ③ 品牌 / 身份 / 凭据串（大小写敏感；含"不含 firefly"的那些）
+			const hits = IDENTITY_NEEDLES.filter(([n]) => text.includes(n));
 			if (hits.length) {
-				if (isAbout) {
-					aboutNote = hits.map(([n, why]) => `${why}（${n}）`).join("；");
-				} else {
-					leakedFiles.push(`${f} → ${hits.map(([n]) => n).join("+")}`);
-				}
+				if (isAbout) for (const [n] of hits) aboutNotes.add(n);
+				else identityLeakFiles.push(`${rel} → ${hits.map(([n]) => n).join("+")}`);
 			}
-			// ② 大小写不敏感的 firefly / cuteleaf（去掉白名单记号后必须为空）
-			let stripped = html;
-			for (const tok of INTERNAL_FIREFLY_TOKENS) stripped = stripped.split(tok).join("");
-			if (/firefly|cuteleaf/i.test(stripped)) {
-				if (!isAbout) {
-					const m = stripped.match(/[A-Za-z0-9_$@./:\-]*firefly[A-Za-z0-9_$@./:\-]*/i) || stripped.match(/[A-Za-z0-9_$@./:\-]*cuteleaf[A-Za-z0-9_$@./:\-]*/i);
-					removedOnlyFiles.push(`${f} → ${m ? m[0] : "?"}`);
-				}
+			if (rel.endsWith(".html")) {
+				// ④ 可见文本（剥 script/style/HTML 注释）
+				if (UPSTREAM_CI.test(visibleTextOf(text)) && !isAbout) visibleLeakFiles.push(rel);
+				// R-ID-06：订阅残渣
+				const feedHits = FEED_LEAK_NEEDLES.filter(([n]) => text.includes(n));
+				if (feedHits.length) feedLeakFiles.push(`${rel} → ${feedHits.map(([n]) => n).join("+")}`);
 			}
-			// ③ 可见文本
-			if (/firefly|cuteleaf/i.test(visibleTextOf(html)) && !isAbout) {
-				visibleLeakFiles.push(f);
-			}
-			// R-ID-06：订阅残渣
-			const feedHits = FEED_LEAK_NEEDLES.filter(([n]) => html.includes(n));
-			if (feedHits.length) feedLeakFiles.push(`${f} → ${feedHits.map(([n]) => n).join("+")}`);
 		}
 		const fmt = (arr) => (arr.length ? `${arr.length} 个：${arr.slice(0, 5).join(" ｜ ")}${arr.length > 5 ? " …" : ""}` : "干净");
+		// 扫描面 / 二进制判定写进**通过文案**：既报"扫了多少"，也报"跳过了多少、按什么判的"
+		const scanNote =
+			`产物 ${distAllFiles.length} 个文件全查（含文件名/路径）；其中内容可读 ${scanned} 个，` +
+			`按"含 NUL 字节即视为二进制"跳过内容扫描 ${binarySkipped} 个（其文件名/路径仍查）` +
+			`${unreadable ? `，读失败 ${unreadable} 个` : ""}`;
+		const aboutNote = aboutNotes.size ? `仍含：${[...aboutNotes].join("；")}` : "";
 		record(
 			"R-ID-05/R-NAV-06",
-			`上游身份零残留（全站 ${distHtmlFiles.length} 个 HTML 逐个扫，唯一排除 about）`,
-			leakedFiles.length === 0,
-			fmt(leakedFiles),
+			`上游身份零残留（产物全集 ${distAllFiles.length} 个文件逐个扫，含文件名/路径；唯一排除 about/index.html）`,
+			leakedFiles.length === 0 && scanned > 0,
+			`${scanNote}。命中的非 about 产物：${fmt(leakedFiles)}${scanned > 0 ? "" : "；⚠️ 可读文本文件数为 0 → 判据空过，判红"}`,
 		);
 		record(
 			"R-ID-05",
-			"大小写不敏感的 firefly/cuteleaf 只剩 3 个已登记的内部 JS 全局名",
-			removedOnlyFiles.length === 0,
-			fmt(removedOnlyFiles),
+			`产物文件名/路径不含上游字样（${distAllFiles.length} 个路径全查；唯一排除 about/index.html）`,
+			nameLeakFiles.length === 0,
+			fmt(nameLeakFiles),
 		);
 		record(
 			"R-ID-05",
-			"可见文本（剥 script/style/注释）里没有 firefly/cuteleaf",
+			`产物全集里没有上游品牌/身份/凭据串（大小写敏感 ${IDENTITY_NEEDLES.length} 个判据；唯一排除 about/index.html）`,
+			identityLeakFiles.length === 0,
+			fmt(identityLeakFiles),
+		);
+		record(
+			"R-ID-05",
+			`可见文本（剥 script/style/注释）里没有 firefly/cuteleaf（${distHtmlFiles.length} 个 HTML；唯一排除 about/index.html）`,
 			visibleLeakFiles.length === 0,
 			fmt(visibleLeakFiles),
 		);
@@ -895,14 +964,14 @@ async function main() {
 			fmt(feedLeakFiles),
 		);
 		// 这条是 INFO（不计入通过/失败）：把"排除面还没做完"摆在明面上。
-		// 发起人把 about.md 换成自己的文字之后，它会变成"0 命中"，那时就该把 ABOUT_HTML 例外删掉。
+		// 发起人把 about.md 换成自己的文字之后，它会变成"0 命中"，那时就该把 ABOUT_REL 例外删掉。
 		record(
 			"INFO(待办)",
 			"about 页仍整页是上游作者自我介绍（等发起人自己的文字；硬约束本轮禁改）",
 			true,
 			aboutNote
-				? `仍含：${aboutNote} —— 这是唯一被排除的页面`
-				: "about 页已经不含上游身份了 → 请把本文件里的 ABOUT_HTML 例外删掉",
+				? `${aboutNote} —— 这是唯一被排除的产物（只豁免内容，其文件名/路径仍参与扫描）`
+				: "about 页已经不含上游身份了 → 请把本文件里的 ABOUT_REL 例外删掉",
 		);
 	}
 	// 文章页不该有打赏按钮（R-NAV-06 的第三项）
