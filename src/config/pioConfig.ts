@@ -8,14 +8,17 @@ export const spineModelConfig: SpineModelConfig = {
 	// Spine模型配置
 	model: {
 		// Spine模型文件路径
-		// ⚠️ P4-8（v1.47）：`public/pio/**`（约 15 MiB 的上游看板娘素材）已按发起人批准整体删除，
-		//    所以下面这个路径**现在指向一个不存在的文件**。这是刻意的、当前安全的：
+		// ⚠️ P4-8（v1.47 删素材 / v1.50 清掉旧路径）：`public/pio/**`（约 15 MiB 的上游看板娘
+		//    素材）已按发起人批准整体删除。这里原来写的是上游那份模型的真实路径
+		//    （`/pio/models/spine/<上游模型目录>/1310.json`），是个**指向已删除文件的死路径** ——
+		//    它看起来完全能用，谁照着它去找素材只会白跑一趟，所以 v1.50 换成一个明确写着
+		//    "占位"的名字。当前状态是刻意的、安全的：
 		//      · `enable: false`（见上方）→ 没有任何消费者会去 fetch 这个路径；
 		//      · `scripts/prune-pio-assets.ts` 本来就会在构建后把 `dist/pio` 整个删掉，
 		//        即"就算素材还在，产物里也没有它"。
-		//    保留这行是为了不改动类型契约与配置结构；**将来要重新启用 spine 看板娘时，
-		//    必须先把模型素材放回 public/pio/models/spine/… 再改这里**，别以为改个 enable 就能用。
-		path: "/pio/models/spine/firefly/1310.json",
+		//    **将来要重新启用 spine 看板娘**：必须先把模型素材放回 `public/pio/models/spine/<你的目录>/`
+		//    再把这行改指到那份素材（只把 `enable` 改成 `true` 是不够的 —— 会去 fetch 一个 404）。
+		path: "/pio/models/spine/_placeholder-not-shipped/1310.json",
 		// 模型缩放比例
 		scale: 1.0,
 		// X轴偏移

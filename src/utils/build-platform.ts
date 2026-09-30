@@ -5,8 +5,16 @@ type DetectBuildPlatformOptions = {
 	isDev?: boolean;
 	unknownBuildPlatform?: string;
 };
-//“FIREFLY_BUILD_PLATFORM”环境变量自定义命名构建平台
-const BUILD_PLATFORM_OVERRIDE_KEY = "FIREFLY_BUILD_PLATFORM";
+// 构建平台覆盖：用“IMISS_BUILD_PLATFORM”环境变量自定义构建平台名（本站当前名）。
+const BUILD_PLATFORM_OVERRIDE_KEY = "IMISS_BUILD_PLATFORM";
+// ⚠️ 向后兼容（P4-8，v1.50）：本变量在改名前的名字是 "FIREFLY_BUILD_PLATFORM"。
+//    部署平台（Vercel / Cloudflare Workers 控制台）里的环境变量是在**本仓库之外**
+//    设置的 —— 仓库里改个常量名，线上那份配置不会跟着改。若只认新名，凡是线上仍用
+//    旧名的部署都会**静默退回自动识别**（本函数后面的 ciName / EDGEONE_PROJECT_ID /
+//    ESA 分支），页面上的"构建平台"一栏会悄悄从自定义值变成 "Vercel"/"Unknown CI"，
+//    没有任何报错。所以这里保留旧名并排在**新名之后**：新名优先，旧名兜底。
+//    将来要摘掉旧名，前提是先确认所有部署环境都已改用 "IMISS_BUILD_PLATFORM"。
+const LEGACY_BUILD_PLATFORM_OVERRIDE_KEY = "FIREFLY_BUILD_PLATFORM";
 
 function hasNonEmptyEnv(
 	env: Record<string, string | undefined>,
@@ -14,6 +22,25 @@ function hasNonEmptyEnv(
 ): boolean {
 	const value = env[key];
 	return typeof value === "string" && value.trim() !== "";
+}
+
+/**
+ * 取覆盖值：**新名优先，旧名兜底**（两个都空则返回 undefined，继续走自动识别）。
+ * 用 `hasNonEmptyEnv` 而不是直接取 env[key]，是为了让"设了但为空串/纯空白"也走兜底 ——
+ * 线上常见「变量存在但值为空」，那种情况下应该继续尝试旧名，而不是当成"用户显式要求空平台名"。
+ */
+function resolveBuildPlatformOverride(
+	env: Record<string, string | undefined>,
+): string | undefined {
+	for (const key of [
+		BUILD_PLATFORM_OVERRIDE_KEY,
+		LEGACY_BUILD_PLATFORM_OVERRIDE_KEY,
+	]) {
+		if (hasNonEmptyEnv(env, key)) {
+			return env[key];
+		}
+	}
+	return undefined;
 }
 
 function envUrlHostEquals(
@@ -41,9 +68,10 @@ export function detectBuildPlatform({
 	isDev = false,
 	unknownBuildPlatform = "Unknown CI",
 }: DetectBuildPlatformOptions): string {
-	const overrideValue = env[BUILD_PLATFORM_OVERRIDE_KEY];
+	const overrideValue = resolveBuildPlatformOverride(env);
 	if (typeof overrideValue === "string" && overrideValue.trim() !== "") {
-		// 环境变量显式覆盖最优先，可以用“FIREFLY_BUILD_PLATFORM”环境变量自定义不同部署平台的名字（默认值为空，无定义，继续后续自动识别）
+		// 环境变量显式覆盖最优先，可以用“IMISS_BUILD_PLATFORM”环境变量自定义不同部署平台的名字
+		// （默认值为空，无定义，继续后续自动识别；旧名 "FIREFLY_BUILD_PLATFORM" 仍然兼容，见文件顶部注释）
 		return overrideValue.trim();
 	}
 	// ciName 自动识别
