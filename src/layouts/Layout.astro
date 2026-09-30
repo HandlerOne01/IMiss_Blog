@@ -455,8 +455,8 @@ const ogImageAlt = propsOgImageAlt ?? pageTitle;
 
       // 初始化期间禁用 content-panel/wrapper 过渡，避免加载时布局/变量变化产生内容移动动画；
       // load 后移除（仅首次设置，swup 切页重跑脚本时不再重复）。布局已由 CSS 接管，无需 rAF 校正
-      if (!window.__fireflyLayoutTransitionGuard) {
-        window.__fireflyLayoutTransitionGuard = true;
+      if (!window.__imissLayoutTransitionGuard) {
+        window.__imissLayoutTransitionGuard = true;
         document.documentElement.setAttribute("data-layout-init", "");
         const removeLayoutInit = () =>
           document.documentElement.removeAttribute("data-layout-init");
@@ -564,7 +564,7 @@ const ogImageAlt = propsOgImageAlt ?? pageTitle;
     <slot />
 
     <!-- 播放器视图脚本：必须在 <slot /> 之后（解析到它时所有 widget 的 DOM 要已存在），
-         且在 MusicManager 之后（swup 重跑按文档顺序，window.__fireflyMusic 得先就位） -->
+         且在 MusicManager 之后（swup 重跑按文档顺序，window.__imissMusic 得先就位） -->
     {(musicPlayerConfig.showInNavbar || musicPlayerConfig.showInSidebar !== false) && (
       <MusicPlayerView />
     )}

@@ -275,7 +275,7 @@ function registerSwupHooks(): void {
 		setTimeout(() => {
 			if (document.getElementById("tcomment")) {
 				// 触发自定义事件，通知评论系统页面已完全加载
-				const pageLoadedEvent = new CustomEvent("firefly:page:loaded", {
+				const pageLoadedEvent = new CustomEvent("imiss:page:loaded", {
 					detail: {
 						path: window.location.pathname,
 						timestamp: Date.now(),
@@ -283,7 +283,7 @@ function registerSwupHooks(): void {
 				});
 				document.dispatchEvent(pageLoadedEvent);
 				console.log(
-					"Layout: 触发 firefly:page:loaded 事件，路径:",
+					"Layout: 触发 imiss:page:loaded 事件，路径:",
 					window.location.pathname,
 				);
 			}

@@ -1,7 +1,7 @@
-// Firefly 专属 MDX 文章 UI 组件集合
+// 本站（IMiss Blog）专属 MDX 文章 UI 组件集合
 //
 // MDX 文章里一次 import 即可使用多个组件：
-//   import { TabGroup, Timeline, TimelineItem } from "@/components/firefly-mdx";
+//   import { TabGroup, Timeline, TimelineItem } from "@/components/imiss-mdx";
 //
 // 说明：
 // - 这里收录 .svelte（交互类）和 .astro（展示类）两种组件。Astro 组件能从这里

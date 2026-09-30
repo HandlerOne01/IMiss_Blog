@@ -1,4 +1,4 @@
-// 让 .ts barrel（如 firefly-mdx.ts）能 re-export `.astro` 组件。
+// 让 .ts barrel（如 imiss-mdx.ts）能 re-export `.astro` 组件。
 //
 // 背景：纯 tsc 不把 `.astro` 当源文件解析，`.ts` 里 `import ... from "./X.astro"`
 // 会报 "Cannot find module"。编辑器/`astro check` 走 @astrojs/ts-plugin，能拿到

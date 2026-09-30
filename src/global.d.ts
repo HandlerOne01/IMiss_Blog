@@ -25,7 +25,7 @@ declare global {
 		/** 按需加载 pagefind.js，由 Navbar.astro 的内联脚本挂载；幂等 */
 		__loadPagefind?: () => Promise<void>;
 		__pagefindLoading?: Promise<void>;
-		__fireflyMusic?: {
+		__imissMusic?: {
 			init: () => Promise<void>;
 			getState: () => {
 				playlist: Array<{
@@ -78,7 +78,7 @@ declare global {
 		/** 水波纹特效初始化守卫,确保只初始化一次(Swup 切页重跑脚本时复用) */
 		wavesInitialized?: boolean;
 		/** 布局初始化守卫,确保 Swup 切页重跑模块脚本时只执行一次 */
-		__fireflyLayoutInit?: boolean;
+		__imissLayoutInit?: boolean;
 		/** 打字机特效监听器守卫,确保只注册一次 */
 		__typewriterTextInit?: boolean;
 		/** 分类栏监听器守卫,确保只注册一次 */
