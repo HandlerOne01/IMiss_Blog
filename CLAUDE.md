@@ -80,6 +80,7 @@ Defined in `src/content.config.ts`:
 - `scripts/subset-font.d.ts` is a hand-written ambient declaration for the untyped `subset-font` package
 - Commit convention: **Conventional Commits** (`feat:`, `fix:`, `chore:`, etc.)
 - ⛔ **写文件与写提交信息都不要走 PowerShell 的文本输出**（`Set-Content` / `Out-File` / `echo … >`）：它会加 UTF-8 BOM，本项目**已经踩过两次**（一次是三份文档整批，一次是**4 个提交的主题行首字符是 U+FEFF**，父级用 `git filter-branch --msg-filter` 才修掉）。文件用编辑器/Node 写；提交信息用 `git commit -F <文件>` 或 `-m`，别用管道拼字符串。与 T75 同一节，登记为陷阱 **T58**
+- ⛔ **它的另一半（同一个"一边写、一边读"的病因）**：**Windows PowerShell 5.1 把无 BOM 的 `.ps1` 按系统 ANSI/GBK 读** —— 带中文注释的脚本会在**被调用时**成片语法崩，而用"先自己解码再 `ParseInput`"的方式检查却永远是 0 error（见陷阱 **T86**，`ARCH.md` §14.3）。**面向 Windows 交付的脚本优先用 Node**；非用 `.ps1` 不可时内容保持纯 ASCII。通用判据：**检查器必须和真实消费者走同一条读取路径**（"语法检查通过" ≠ "能跑"）
 
 ## Build Pipeline
 

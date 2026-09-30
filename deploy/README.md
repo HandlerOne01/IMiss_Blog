@@ -6,8 +6,8 @@
 > ## ⚠️ 先读这一段：这些东西**没有一样在真机上跑过**
 >
 > 发起人还没买域名/服务器（阻塞项 **B-01**），所以本目录里**每一个部署件都只经过离线验证**：
-> `nginx-site.conf` **没有跑过 `nginx -t`**（开发机没装 Nginx）、`publish.ps1` **没有连过任何服务器**
-> （只做了 PowerShell 语法解析 + `-DryRun` 空跑 + 安全闸门拒绝用例）、`langgraph.service` /
+> `nginx-site.conf` **没有跑过 `nginx -t`**（开发机没装 Nginx）、`publish.mjs` **没有连过任何服务器**
+> （只做了本机真实调用路径的空跑：`--help` / `--dry-run` / 安全闸门拒绝用例，见下表和 §6）、`langgraph.service` /
 > `pet-gateway.service` 两个 unit **没有 `systemctl` 装过**。
 > 每一项"上线时怎么验证它"写在下面的操作步骤里，也在 `reports/_p6-prep-report.md` 里有逐文件表格。
 > **上线当天的第一件事永远是 `sudo nginx -t`。**
@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | `nginx-site.conf` | **完整站点**的 `server{}`：80→443 跳转、443 站点段、静态缓存/压缩/安全头/真 404、`include` Agent 段。4 个 `__占位符__` 待填 | ❌ 没跑过 `nginx -t` |
 | `nginx.conf` | **只有** `location /api/agent/ { … }` 那一段（Agent 反代的**唯一正文**，被上面那个 `include` 引进去）。v1.54 起多了 `gzip off;` | ❌ 同上 |
-| `publish.ps1` | Windows → Linux 发布脚本（构建 → 打包 → 上传 → 原子替换 → 两端计数校验 → 回滚备份） | ❌ 只验了语法/`-DryRun`/安全闸门，没连过服务器 |
+| `publish.mjs` | Windows → Linux 发布脚本（**Node ESM / 零依赖**：构建 → 打包 → 上传 → 原子替换 → 两端计数校验 → 回滚备份）。⚠️ **v1.55 之前它是 `publish.ps1`，而且在本机根本跑不起来** —— 见下方 T86 | ❌ 没连过服务器；✅ 本机真实调用路径跑过 `--help` / `--dry-run` / 安全闸门拒绝用例 |
 | `pet-gateway.service` | 网关（`:8787`）的 systemd unit | ❌ 没 `systemctl` 装过 |
 | `langgraph.service` | 后端 LangGraph Server（`:2024`）的 systemd unit —— **属于另一个仓库的服务** | ❌ 同上 |
 
@@ -34,7 +34,7 @@
 | --- | --- | --- | --- | --- |
 | 1 | **域名**（站点根 URL） | `src/config/siteConfig.ts:53` 的 `site_url`（**源码常量，不是环境变量**，没有 `PUBLIC_SITE_URL` 这种东西） | `https://imiss.example.com` | sitemap / RSS / canonical / OG 卡片 / 分享二维码 / `robots.txt` 里的 Sitemap 行**全是占位域名 `imiss.example.com`**；分享出去扫到的二维码指向假地址。改完**必须重新构建**（§2 第 2 步） |
 | 2 | **域名**（Nginx `server_name`） | `deploy/nginx-site.conf` 里的 `__DOMAIN__`（**共 2 处**：80 段与 443 段，每处写成 `__DOMAIN__ www.__DOMAIN__`） | `imiss.example.com`（**只写域名，不带 `https://`**） | 请求落到默认 server 块 —— 轻则 404，重则**串站**（同一个 IP 上别的站被打开） |
-| 3 | **站点根目录** | `deploy/nginx-site.conf` 的 `__WEB_ROOT__`；同时是 `publish.ps1 -WebRoot` 的值 | `/var/www/imiss-blog/dist` | `root` 指不到产物 → **全站 404**；两个地方不一致 → 发布到 A 目录而 Nginx 读 B 目录（症状也是全站 404） |
+| 3 | **站点根目录** | `deploy/nginx-site.conf` 的 `__WEB_ROOT__`；同时是 `publish.mjs --web-root` 的值 | `/var/www/imiss-blog/dist` | `root` 指不到产物 → **全站 404**；两个地方不一致 → 发布到 A 目录而 Nginx 读 B 目录（症状也是全站 404） |
 | 4 | **证书目录** | `deploy/nginx-site.conf` 的 `__CERT_PATH__`（**2 行**：`ssl_certificate` 与 `ssl_certificate_key`） | `/etc/letsencrypt/live/imiss.example.com` | `nginx -t` **直接报错**、reload 失败（旧配置继续跑，新配置不生效）；证书路径写成单个 `.pem` 文件也会报错 |
 | 5 | **Agent 片段路径** | `deploy/nginx-site.conf` 的 `__SNIPPET_PATH__`（1 行 `include`） | `/etc/nginx/snippets/pet-gateway.conf` | `nginx -t` 报 `open() … failed`；或 Agent 全挂（`/api/agent/*` 落到静态 `try_files` → 404） |
 | 6 | **`PET_ALLOWED_ORIGINS`** | `deploy/pet-gateway.service` 的 `Environment=PET_ALLOWED_ORIGINS=…`（**也可以是你自己的 `/etc/default/pet-gateway`**） | `https://imiss.example.com,http://localhost:4321,http://localhost:4323` | **生产环境带 `Origin` 的写请求一律 403**（桌宠能加载、一说话就失败）。默认值只有 `localhost:4321/4323`。改完 `systemctl restart pet-gateway`（网关**启动时读一次**环境变量） |
@@ -110,15 +110,25 @@ sudo systemctl reload nginx
 
 ```powershell
 # 先空跑一遍，看清楚它要执行哪几条命令（不会连服务器、不会写任何东西）
-./deploy/publish.ps1 -Server blog@<服务器IP> -WebRoot /var/www/imiss-blog/dist -DryRun
+node deploy/publish.mjs --server blog@<服务器IP> --web-root /var/www/imiss-blog/dist --dry-run
 
 # 真发（增量：只传变化的文件；远端会留 2 份回滚备份）
-./deploy/publish.ps1 -Server blog@<服务器IP> -WebRoot /var/www/imiss-blog/dist
-# 需要整包重传时加 -FullUpload；已经构建好了不想再构建加 -SkipBuild
+node deploy/publish.mjs --server blog@<服务器IP> --web-root /var/www/imiss-blog/dist
+# 需要整包重传时加 --full-upload；已经构建好了不想再构建加 --skip-build
+# 全部参数：node deploy/publish.mjs --help
 ```
 
 它会打印本地/远端的**文件数与总字节**，两者应当一致（不一致会在最后一行 `⚠️` 提示）。
 纯静态覆盖**不需要 reload Nginx**；只有改了 Nginx 配置才需要。
+
+> ⚠️ **脚本形态在 v1.55 变过**：v1.54 交付的是 `deploy/publish.ps1`，而它在**本机真实调用路径**下
+> 直接语法崩（PowerShell 5.1 按系统 ANSI/GBK 读无 BOM 的 `.ps1`，中文注释把字节流顶错位 →
+> 40 条语法错误）。现已改写成 `deploy/publish.mjs`（Node ≥ 22，读源码一律 UTF-8），`.ps1` 已删除。
+> 完整取证与"为什么检查方式也会骗人"见 `ARCH.md` §14.3 **T86**。
+> 如果你手上还留着旧的 `publish.ps1` 命令行，把 `-Server X -WebRoot Y -DryRun` 依次换成
+> `--server X --web-root Y --dry-run` 即可（其余开关同名 kebab-case：`-SkipBuild` → `--skip-build`、
+> `-FullUpload` → `--full-upload`、`-KeyFile` → `--key-file`、`-Port` → `--port`、`-KeepReleases` → `--keep-releases`）。
+> 退出码：**0 = 成功 / 1 = 执行中失败 / 2 = 参数或安全闸门拒绝执行**。
 
 ### 第 7 步 · 两个 systemd unit
 
@@ -191,8 +201,8 @@ curl -sS https://<域名>/ | grep -ci '<上游主题名>'         # 期望：0
 
 ## 3. 回滚（改动出问题时的退路）
 
-**上一版在哪**：每次 `publish.ps1` 发布前，服务器上的旧目录会被改名成
-`<WebRoot>.releases/<时间戳>/`，默认**保留 2 份**（`-KeepReleases N` 可调，0 = 不留）。
+**上一版在哪**：每次 `publish.mjs` 发布前，服务器上的旧目录会被改名成
+`<WebRoot>.releases/<时间戳>/`，默认**保留 2 份**（`--keep-releases N` 可调，0 = 不留）。
 本次发布若解包后缺 `index.html`，脚本会**在改动线上目录之前**中止（线上不动）。
 
 ```bash
@@ -232,6 +242,7 @@ sudo systemctl stop pet-gateway        # 桌宠会退化成前端本地 mock（�
 | 5 | **证书过期 / `nginx -t` 报错** | 浏览器 `NET::ERR_CERT_DATE_INVALID`；或 `nginx -t` 直接红字（`cannot load certificate` / `unknown directive`） | `sudo certbot renew`（A 路线）→ `nginx -t` → `reload`；检查 `__CERT_PATH__` 是否指到 `live/<域名>/` 目录、是否漏了 `fullchain.pem`。`unknown directive "http2"` ＝ nginx < 1.25.1，把 `listen 443 ssl http2;` 换成 `listen 443 ssl;`；`unknown directive "brotli"` ＝ 没编 brotli 模块（本配置**没开** brotli，开了就删掉） |
 | 6 | **429 特别频繁** | 正常访问也频繁 `429 too_many_requests` | 反代后面**没开** `PET_GATEWAY_TRUST_PROXY=1` → 全站访客共用 `127.0.0.1` 那一个桶（清单第 7 项）。开了之后仍频繁，就调 `PET_GATEWAY_RATE_LIMIT`（默认 20 次/分/IP） |
 | 7 | **页面样式全丢 / 图片 404** | HTML 出来了但没有 CSS、图全是裂的 | 多半是 `__WEB_ROOT__` 指错（指到了 `dist` 的上一层或下一层）。`ls <WEB_ROOT>/_astro | head` 应有文件；也检查发布脚本报的"本地/远端计数不一致"警告 |
+| 8 | **旧笔记里的 `./deploy/publish.ps1 …` 一敲就报一串语法错**（报错行里的中文还是乱码，例如 `涓婁紶锛氬帇缂╁寘`） | `The '<' operator is reserved for future use` / `Missing file specification after redirection operator`，位置在 `:181` 附近 | **那是 v1.54 的旧脚本，v1.55 已删除** —— 不是你的参数写错了。原因：Windows PowerShell 5.1 按系统 ANSI/GBK 读**无 BOM** 的 `.ps1`，满篇中文注释把字节流顶错位（实测 52 个换行、41 个双引号被吞），`<<'EOF'` 因此落到字符串外被判成重定向 → 40 条语法错误。**改用 `node deploy/publish.mjs --server … --web-root …`**，参数名对照见 §2 第 6 步末尾那段；完整分析见 `ARCH.md` §14.3 **T86** |
 
 ---
 
@@ -249,14 +260,14 @@ sudo systemctl stop pet-gateway        # 桌宠会退化成前端本地 mock（�
 
 ## 6. 严禁事项（每一条都有真实代价）
 
-1. **不要把 `.env` / 密钥 / `.pem` 私钥上传进 web root**。`publish.ps1` 只发 `dist/`，
+1. **不要把 `.env` / 密钥 / `.pem` 私钥上传进 web root**。`publish.mjs` 只发 `dist/`，
    而 `dist/` 里不存在这些文件；手工 `scp` 时尤其注意。**第二道闸**是 `nginx-site.conf` 里那条
    `location ~ /\.(?!well-known/) { return 404; }`（`.env`、`.git` 一律不可访问）—— 但别指望它兜底。
 2. **不要 `chmod -R 777`**。静态目录的标准权限：目录 `755`、文件 `644`、属主"发布账号"、组 `www-data`。
    777 意味着同机任何账号都能改你的页面（挂马）。
 3. **不要把 `reports/`、`src/`、`node_modules/`、`deploy/` 放进 web root**。线上只需要 `dist/` 的内容；
    放源码等于把"哪篇文章引用了哪些图、有哪些待办、有哪些坑"全部公开。
-4. **不要在 web root 里手工改文件**。下次发布时 `publish.ps1` 会把它当"远端多余文件"删掉
+4. **不要在 web root 里手工改文件**。下次发布时 `publish.mjs` 会把它当"远端多余文件"删掉
    （在允许删除的前缀内）——或者更糟：它留在那里但没人知道它从哪来。
 5. **不要把 `PUBLIC_AGENT_BASE_URL` 指向 `127.0.0.1:2024`**。那是**访客的**回环地址，
    而且会绕过网关的四道闸门（白名单/限流/体积/长度）。

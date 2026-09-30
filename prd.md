@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | IMiss Blog |
-| 文档版本 | v1.54 |
+| 文档版本 | v1.55 |
 | 最后更新 | 2026-09-30 |
 | 关联文档 | `ARCH.md`（架构与技术设计）、`PROJECT_STATUS.md`（阶段、进度、下一步、阻塞项） |
 | 基线代码 | 上游模板基线 v6.16.8（Astro 7 静态站点，名称与出处见 `README.upstream.zh.md`），来源 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\my_-blog\Blog template` |
@@ -263,7 +263,7 @@
 
 | 编号 | 需求 | 详细说明 | 验收条件 | 优先级 |
 | --- | --- | --- | --- | --- |
-| R-DEP-01 | 静态站点上线 | `pnpm build` → `dist/` → 自建服务器 Nginx 托管；HTML 不缓存（`Cache-Control: no-cache`）、带哈希的静态资源长缓存（`immutable`）、gzip（**不启用 brotli**：要额外模块） | 线上域名能打开，刷新不 404，Lighthouse 无明显红色项。**配置正文已就绪**（`deploy/nginx-site.conf`，v1.54 / P6 预工），剩域名·证书·`nginx -t` | ◆ |
+| R-DEP-01 | 静态站点上线 | `pnpm build` → `dist/` → 自建服务器 Nginx 托管；HTML 不缓存（`Cache-Control: no-cache`）、带哈希的静态资源长缓存（`immutable`）、gzip（**不启用 brotli**：要额外模块）；发布通道用 `deploy/publish.mjs`（**Node ESM / 零依赖**：打包 → 传临时目录 → 两端 sha256 比对 → 原子替换 → 计数校验 → 回滚备份，安全闸门拒绝 `/`、`/etc`、`/tmp`、含 `..`、白名单外路径） | 线上域名能打开，刷新不 404，Lighthouse 无明显红色项。**配置正文已就绪**（`deploy/nginx-site.conf` + `deploy/publish.mjs`，v1.54 / P6 预工，发布脚本 v1.55 改写成 Node），剩域名·证书·`nginx -t` | ◆ |
 | R-DEP-02 | Agent 反代 | Nginx 把 `/api/` 反代到本机 Agent 网关；流式响应不能被缓冲（`proxy_buffering off`） | 线上桌宠能流式回复。⚠️ **v1.54 补第二条**：全局 `gzip on;` 时 `/api/agent/` 那段还必须有 **`gzip off;`**（压缩过滤器会攒着不发，与 `proxy_buffering off` 是两个独立的缓冲源，见 `ARCH.md` §12.2） | ◆ |
 | R-DEP-03 | 站点信息回填 | 部署后把站点信息组件的占位值换成真实值，并回填域名、OG 图、sitemap | 组件显示真实构建信息；社交平台分享有正确标题与摘要 | ◆ |
 | R-DEP-04 | 构建不依赖外网 | 构建过程不得因为外部 API 不可达而失败：① VNDB 封面下载保持关闭；② 番剧页未配置凭据时跳过拉取；③ **字体一律用本地文件**（远端字体 provider 会在构建期访问 jsdelivr，实测会直接失败，见 ARCH §14.3 T16）；④ GitHub 卡片步骤允许尝试联网但必须回落已提交的缓存 | 用黑洞代理掐断所有出网后 `pnpm build` 仍 `exit=0`（P0 已用 `ECONNREFUSED` 实测通过） | ★ |

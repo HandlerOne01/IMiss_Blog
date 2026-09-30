@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.54 |
+| 文档版本 | v1.55 |
 | 最后更新 | 2026-09-30 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | 上游模板基线 v6.16.8（站点信息里中性显示为「博客版本 v6.16.8」），Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -103,7 +103,7 @@ imiss_-blog/                      ← 工作区根（= 站点仓库）
 │  ├─ verify-posts.mjs            ← 【P4 已落地】内容校验（阻断式，见 §9.4）
 │  └─ export-agent-data.mjs       ← 【设计未落地】给 Agent 导出索引（v1.41 核对：脚本不存在，见 §2 的说明）
 ├─ server/pet-gateway.mjs         ← 【v1.45 / P5-5 新增】桌宠 Agent 网关：零依赖 Node 同源反代（:8787）
-├─ deploy/                        ← 【v1.45 新增 / v1.54 扩成"上线操作单"】`nginx.conf`（/api/agent/ 反代，只有 Agent 那一段）+ `nginx-site.conf`（【v1.54】完整站点的 server{}：80 跳转 + 443 静态 + 缓存/压缩/安全头/真 404，含 `include` 上面那段）+ `publish.ps1`（【v1.54】Windows→Linux 发布脚本）+ `langgraph.service`（【v1.54】后端 systemd unit）+ `pet-gateway.service`（可选 systemd）+ `README.md`（【v1.54】从零到上线的操作单）
+├─ deploy/                        ← 【v1.45 新增 / v1.54 扩成"上线操作单"】`nginx.conf`（/api/agent/ 反代，只有 Agent 那一段）+ `nginx-site.conf`（【v1.54】完整站点的 server{}：80 跳转 + 443 静态 + 缓存/压缩/安全头/真 404，含 `include` 上面那段）+ `publish.mjs`（【v1.55】Windows→Linux 发布脚本，**Node ESM / 零依赖**；v1.54 的 `publish.ps1` 已删除，原因见 §14.3 **T86**）+ `langgraph.service`（【v1.54】后端 systemd unit）+ `pet-gateway.service`（可选 systemd）+ `README.md`（【v1.54】从零到上线的操作单）
 ├─ reports/                       ← 【新增，.gitignore 已忽略】脚本产出：reports/screenshots/*.png、reports/import-report.json、reports/image-mapping-*.json、reports/verify-gateway.log
 ├─ src/assets/fonts/*.woff2       ← 【P0 已落地】本地字体（11 个，约 205KB）
 ├─ src/assets/images/pet/         ← 【P1 已落地】桌宠图集（P3 会用它做桌宠，Logo 也从这里裁）
@@ -793,7 +793,7 @@ scripts/verify-gateway.mjs         # 51 项断言（自带 stub 上游 + 真后�
 deploy/nginx.conf                  # /api/agent/ → 127.0.0.1:8787（只有 Agent 那一段；v1.54 起含 gzip off）
 deploy/nginx-site.conf             # 【v1.54】完整 server{}：静态段 + 真 404 + 缓存/压缩/安全头 + include 上面那段
 deploy/langgraph.service           # 【v1.54】后端（另一仓库的服务）systemd unit 模板
-deploy/publish.ps1                 # 【v1.54】发布脚本（构建 → 打包 → 上传 → 原子替换 → 计数校验 → 回滚备份）
+deploy/publish.mjs                 # 【v1.55】发布脚本（Node ESM / 零依赖：构建 → 打包 → 上传 → 原子替换 → 计数校验 → 回滚备份）
 deploy/README.md                   # 起法 / 环境变量 / 构建期 PUBLIC_AGENT_BASE_URL / 上线操作单
 deploy/pet-gateway.service         # 可选：systemd 常驻单元
 ```
@@ -1699,31 +1699,34 @@ server {                                  # ② 443 端口：真正的站点
 pnpm verify:posts                              # 1) 内容校验不过就停
 $env:PUBLIC_AGENT_BASE_URL = "/api/agent"      # 2) 构建期变量（同源反代）
 pnpm build                                     # 3) 产出 dist/
-./deploy/publish.ps1 -Server blog@<host> -WebRoot /var/www/imiss-blog/dist -DryRun   # 4) 先空跑看要执行什么
-./deploy/publish.ps1 -Server blog@<host> -WebRoot /var/www/imiss-blog/dist          # 5) 真发
+node deploy/publish.mjs --server blog@<host> --web-root /var/www/imiss-blog/dist --dry-run   # 4) 先空跑看要执行什么
+node deploy/publish.mjs --server blog@<host> --web-root /var/www/imiss-blog/dist             # 5) 真发
 # 6) Nginx 无需 reload（纯静态覆盖）；改了 nginx 配置才需要 nginx -t && systemctl reload nginx
 ```
 
-`deploy/publish.ps1`（v1.54 / P6 预工）做的十件事与它的安全闸门：
+`deploy/publish.mjs`（**v1.55 由 v1.54 的 `publish.ps1` 改写而来 —— 为什么必须改写见 §14.3 T86**）做的十件事与它的安全闸门（参数名已同步成 CLI 形态；**退出码 0 = 成功 / 1 = 执行中失败 / 2 = 参数或安全闸门拒绝执行**）：
 
 | 步骤 | 做什么 | 失败时怎么排查 |
 | --- | --- | --- |
-| ⓪ 参数闸门 | `-WebRoot` 为空 / 为 `/` / 为 `/etc` 等系统目录 / 不在白名单前缀（默认 `/var/www`,`/srv`,`/home`,`/data`,`/opt`）/ 含 `..` → **直接拒绝，一行命令都不执行** | 报错行会直接给出建议的 `-WebRootPrefixes` 值 |
+| ⓪ 参数闸门 | `--web-root` 为空 / 为 `/` / 为 `/etc` 等系统目录 / 不在白名单前缀（默认 `/var/www`,`/srv`,`/home`,`/data`,`/opt`）/ 含 `..` → **直接拒绝，一行命令都不执行** | 报错行会直接给出建议的 `--web-root-prefixes` 值 |
 | ① 连通性 | `ssh … true`（`BatchMode=yes`，**只认密钥登录**，密码交互会立刻失败而不是挂住） | 先手工 `ssh -i <key> user@host true` |
-| ② 构建 | `pnpm build`（`-SkipBuild` 跳过）；**失败立即中止，绝不上传半成品** | 看 pnpm 输出；`pnpm build` 全程不需要外网（R-DEP-04） |
+| ② 构建 | `pnpm build`（`--skip-build` 跳过）；**失败立即中止，绝不上传半成品** | 看 pnpm 输出；`pnpm build` 全程不需要外网（R-DEP-04） |
 | ③ 本地清点 | 文件数 / 总字节；并检查哨兵文件 `index.html` 与 `404.html` 在不在（不在就拒绝发布） | 本地 `dist/` 不完整 → 重新构建 |
 | ④ 打包 | `tar -czf` 在 **`dist/` 里**打相对路径（Windows 自带 bsdtar ↔ Linux GNU tar 互认，实测往返 sha256 一致） | `tar` 不存在（老系统）→ 装 `bsdtar` 或用 WSL |
 | ⑤ 上传 | `scp` 到 `/var/www/.imiss-publish/<时间戳>/`（**临时目录，不碰线上**） | 磁盘满 / 权限不足 |
 | ⑥ 差异比对 | 远端 `sha256sum` 清单 vs 本地 `Get-FileHash` → 新增/修改、未变、远端多余（待删）三份名单 | 远端清单读不到（首次部署）→ 视为"全部新增" |
 | ⑦ 生效 | 解包到临时目录 → 校验 `index.html` → 旧目录改名成 `<WebRoot>.releases/<时间戳>` → `cp -a` 落位 | 解包后缺 `index.html` 会在**改动线上目录之前**中止 |
-| ⑧ 删除多余文件 | **逐条**校验路径（前缀白名单 + 无 `..`/引号/反斜杠），条数 > 200 要显式 `-AllowMassDelete` | 报错会列出前几条可疑路径 |
+| ⑧ 删除多余文件 | **逐条**校验路径（前缀白名单 + 无 `..`/引号/反斜杠），条数 > 200 要显式 `--allow-mass-delete` | 报错会列出前几条可疑路径 |
 | ⑨ 校验 | 打印远端文件数 / 总字节 / 顶层目录 / 哨兵文件；与本地不一致会告警 | 差异常见于"上次残留孤儿文件" |
-| ⑩ 回滚备份 | 保留最近 `-KeepReleases`（默认 2）份 `<WebRoot>.releases/<时间戳>/`；回滚命令见 `deploy/README.md` §3 | — |
+| ⑩ 回滚备份 | 保留最近 `--keep-releases`（默认 2）份 `<WebRoot>.releases/<时间戳>/`；回滚命令见 `deploy/README.md` §3 | — |
 
-> ⚠️ `-SkipBuild` 会**自动降级为整包覆盖**并且**不删除远端任何文件**（本地 `dist/` 不保证是刚构建的完整产物，
+> ⚠️ `--skip-build` 会**自动降级为整包覆盖**并且**不删除远端任何文件**（本地 `dist/` 不保证是刚构建的完整产物，
 > 拿它当基准算"远端多余"风险太大 —— 宁可不删，也不能误删）。
-> ⚠️ **整条发布链路没有真机验证过**（没有服务器）：只验了 PowerShell 语法解析（0 error）、`-DryRun` 空跑、
-> 安全闸门的 6 个拒绝用例、以及 tar 往返一致性。**第一次务必带 `-DryRun` 走一遍**。
+> ⚠️ **整条发布链路没有真机验证过**（没有服务器）：只验了**本机真实调用路径**的 `--help`、`--dry-run`（清点
+> 799 文件 / 114.19 MiB、退出码 0）、安全闸门的拒绝用例（退出码 2）、tar 往返一致性。**第一次务必带 `--dry-run` 走一遍**。
+> ⚠️ **v1.55 更正这里 v1.54 的说法**：v1.54 写的"只验了 PowerShell 语法解析（0 error）"是**用错方法量出来的** ——
+> 那次用的是"按 UTF-8 解码成文本再 `ParseInput`"，而 PowerShell 5.1 真正跑脚本时按系统 ANSI（本机 CP936）读文件，
+> 同一份文件实测 **40 条语法错误、调用时直接崩**。判据必须与真实消费者走同一条读取路径（§14.3 **T86**）。
 
 **rsync 等价命令**（Linux/macOS 开发机以后要发同一台服务器时用这条；Windows 侧没有 rsync）：
 
@@ -1819,7 +1822,7 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | D12 | **网关 = 本仓库的零依赖 Node 同源反代（`server/pet-gateway.mjs`，:8787），只做安全与转发，不翻译协议**（v1.45 / P5-5） | ① 设计稿：`agent_-for_-blog` 里的 FastAPI 网关 + 自定义协议 `POST /api/pet/chat`；② 不做网关，直连 2024，只在 Nginx 上限流 | ① 与 **R-AGT-06「不改 agent 仓库」** 直接冲突（翻译层只能写在后端）；② 直连形态下"CORS/鉴权/长度"没有落点，而 `langgraph dev` 实测 `ACAO: *`；③ **反代只要前端改一个 `baseUrl`**（构建期变量），契约 §8.9 一个字不用动；④ 零依赖 = 服务器上不需要 `npm install`、不需要 Python 侧改一行，且没有可被 `npm audit` 的供应链面。**代价照实说**：网关因此**不理解 SSE 语义**（不会把技术错误翻译成人设台词 —— 那仍然是前端 `agent-client.ts` 的职责，§8.6），也没有真正意义上的"鉴权"（§8.9.7 #3 仍开着） |
 | D13 | **LangSmith 追踪保持现状：生产也全量追踪**（v1.45 补记，发起人 2026-09-28 拍板） | ① 生产关闭（`LANGSMITH_TRACING=false`）；② `LANGSMITH_HIDE_INPUTS` / `LANGSMITH_HIDE_OUTPUTS`；③ 自托管 LangSmith | 发起人选的 ① 的反面：**接受**把"人设全文（13 690 字符）+ 访客提问 + 库表结构 DDL + 实际 SQL 与结果行 + 她的答复"复制到第三方 `api.smith.langchain.com`、**保留 14 天**（实测一轮推荐点击 = 36 条 run / 171 642 字节，证据 `reports/_p54-trace-final.json`）。理由（按发起人的取舍如实记录）：**要能在线上出问题时看到 trace**，而"保留但隔离/自托管"都要额外的运维成本。⚠️ **这不是技术推荐，是知情后的取舍**；将来要翻案**不用改一行代码**，三个开关见 §8.9.7 #11（其中 `LANGSMITH_HIDE_*` 的两个开关**本项目尚未实测**，只能说成"候选"） |
 
-### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 85 条，编号连续 T1~T85：T1~T19 来自 P0/P1，T20~T26 来自 P2，T27~T29 来自 P3，T30~T33 来自 P3-9/P3-11，T34~T38 来自 P4，T39~T40 来自 R-PET-06，T41~T42 来自 R-PET-07，T43 来自 R-PET-08，T44 来自 R-PET-09，T45~T46 来自 R-PET-10，T47~T48 来自 P5-0 契约冻结，T49~T58 来自 P5-1~P5-3 接线，**T53/T54 于 v1.35 补登记**（这两条在 P5-1 就被引用过、但一直没进表），**T59~T63 来自 P5 独立复核修复**，**T64~T67 来自 R-PET-11 聊天框重做**，**T68~T70 来自 v1.37 人设 v7 与"重复上屏"修复**，**T71~T73 来自 v1.38 父级独立复跑**，**T74 来自 v1.39 文档纠偏**，**T75~T79 来自 v1.41（P2R 学习路线落地 / 排行移除）的实施与收尾**，**T80~T82 来自 v1.45（P5-5 网关）的实施与注入验证**，**T83~T84 来自 v1.46/v1.47 的 B-16**（B-16 于 v1.46 修复，这两条陷阱在 v1.47 的 P4-8 轮补登记进表 —— 完整取证见 `reports/_b16-report.md`），**T85 来自 v1.48 的 P4-8 收尾轮**）
+### 14.3 模板已知陷阱（P0 起逐阶段实测清单，现有 86 条，编号连续 T1~T86：T1~T19 来自 P0/P1，T20~T26 来自 P2，T27~T29 来自 P3，T30~T33 来自 P3-9/P3-11，T34~T38 来自 P4，T39~T40 来自 R-PET-06，T41~T42 来自 R-PET-07，T43 来自 R-PET-08，T44 来自 R-PET-09，T45~T46 来自 R-PET-10，T47~T48 来自 P5-0 契约冻结，T49~T58 来自 P5-1~P5-3 接线，**T53/T54 于 v1.35 补登记**（这两条在 P5-1 就被引用过、但一直没进表），**T59~T63 来自 P5 独立复核修复**，**T64~T67 来自 R-PET-11 聊天框重做**，**T68~T70 来自 v1.37 人设 v7 与"重复上屏"修复**，**T71~T73 来自 v1.38 父级独立复跑**，**T74 来自 v1.39 文档纠偏**，**T75~T79 来自 v1.41（P2R 学习路线落地 / 排行移除）的实施与收尾**，**T80~T82 来自 v1.45（P5-5 网关）的实施与注入验证**，**T83~T84 来自 v1.46/v1.47 的 B-16**（B-16 于 v1.46 修复，这两条陷阱在 v1.47 的 P4-8 轮补登记进表 —— 完整取证见 `reports/_b16-report.md`），**T85 来自 v1.48 的 P4-8 收尾轮**，**T86 来自 v1.55 的 P6 预工复核**）
 
 实现时按这张表走，不要凭"应该没问题"假设。每条都给了文件与行号，可当场复核。
 
@@ -1910,6 +1913,7 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com   # 直
 | T83 | **`@swup/astro` 只转发 6 个选项给 `new Swup()` —— 没被转发的选项"写了等于没写"，而且 `ignore` 数组只能放一个元素** —— `@swup/astro` 1.8.0 的 `buildInitScript()` **只**把 `ignoreVisit / animationSelector / containers / cache / native / plugins` 六个选项传给 `new Swup()`，其余同名选项**全部丢弃**。旧配置里的 `skipPopStateHandling: (e) => e.state?.url?.includes("#")` 因此**从来没生效过** —— 构建产物 `dist/_astro/page.*.js` 里 `skipPopStateHandling` 出现 **0** 次（修复前与修复后都是 0），一直没人发现。第二半：`ignore` 的 reviver（`deserialise()`）会把"**长度 2 且第 2 项是字符串**"的数组当成 `[:regex:, …]` 标记拆掉 —— 实测 `['a','b']` 反序列化后**只剩 `"b"`**，豁免**静默失效**。同类未转发选项还有 `resolveUrl` / `animateHistoryBrowsing` / `linkSelector`（只是它们的值恰好等于 Swup 默认值，才没有可观察差异） | 这是"配置看起来写了、行为上根本不存在"的假安全感 —— 比报错难查得多：**没有任何警告、没有任何报错**，读源码才看得出来。风险双向：以为加了一道闸门（其实没有），或者以为改了行为（其实没改）。`ignore` 那一半更阴：**写两个选择器时第一个被悄悄吃掉**，看起来"配了"，实际只豁免了一个 | ① **可验证手段：改完在构建产物里 grep 该选项的字面量** —— `dist/_astro/*.js` 里搜 `skipPopStateHandling` / `ignoreVisit` 等，**出现 0 次就说明它没进实例**（本项目就是这么定案的）；② `ignore` **数组只放一个元素**（本项目：`['a[href^="#"]:not([href="#"])']`），要豁免多个形态就写进**同一个选择器**（逗号分隔或 `:not()`），别用数组第二项；③ 想用上游没转发的选项时，先读 `@swup/astro` 的 `buildInitScript()` 白名单，再决定是"改走支持的入口"还是"自己 `new Swup()`" |
 | T84 | **Swup 4.9.2 对"同页锚点"走自己的 `link:anchor` 分支 → 点击不写历史，按一次「后退」直接离开该页；而判据不能只看 `location.hash`** —— `handleLinkClick()` 对同页锚点（`to === from` 且带 hash）执行 `hooks.callSync("link:anchor", …)`，里面调 `updateHistoryRecord()` = **`window.history.replaceState()`**（不是 `pushState`）。于是**URL 会变、也会滚到位**，但**永远不产生历史记录**。真机探针实测（`reports/_b16-probe*.{mjs,json,log}`）：文章页标题锚点 `history.length` **4 → 4**、侧栏目录项 **6 → 6**、390px **12 → 12**，点完按一次「后退」**全部落到 `/`（离开了该页）** | **判据陷阱比 bug 本身更值得记**：`location.hash` 变了、`window.scrollY` 也对了 —— 只断言这两项的话，**这条断言在坏掉的实现上照样全绿**。唯一能判出真假的是 **`history.length` 的差值**（以及后退后的落点）。另一个方向也反直觉：「后退会重渲染整页」这个常见猜测在真机上**不成立**（Swup `visit:start` 计数 0、JS 上下文与容器首个子节点都没变） | ① **回归断言**：`pnpm verify:ui` 的 **10 条 `R-NAV-08`**（`scripts/verify-ui.mjs` 末尾的 B-16 块）—— 含**点侧栏目录项 / 点正文标题锚点各自"`history.length` +1"**、**其后按「后退」留在本页 + hash 清空 + 不重渲染**、全程无整页导航、`/roadmap/` 的 8 个 `data-no-swup` 锚点仍进历史、**裸 `href="#"` 占位不在豁免内**、以及 **390px 浮层的两条边界**（锚点仍进历史 + 浮层不被误关；裸 `#` 仍是 Swup 拦下）；② 修法：`astro.config.mjs` 用 `ignore: ['a[href^="#"]:not([href="#"])']` 把这类点击**整个交回浏览器原生**，并删掉 `src/utils/toc-utils.ts` 里 `TOCManager` 自己的 `preventDefault()` + 手动 `window.scrollTo()`（**只豁免 Swup 而不动它会更糟**：URL 里连 hash 都不写，见 `reports/_b16-report.md` 探针 Q1）；③ `:not([href="#"])` **不能省** —— 裸 `#` 占位被豁免后会变成原生 `#` 跳转（URL 尾巴多一个 `#`、白多一条历史记录） |
 | T85 | **"删干净了"的判据，扫描面必须等于「产物全集」—— 只扫 `*.html`、或只扫"可见文本"，都会漏掉随产物发布出去的非 HTML 静态文件；同一病因的另一半是"解释自己删干净了"的那段话本身会被发布（模板 HTML 注释被 Astro 原样打进产物）** —— v1.47（P4-8）的第一版，把"为什么删掉上游署名"的理由写成了 `src/components/layout/Footer.astro` **模板区**里的 `<!-- … -->`。Astro 会把模板里的 HTML 注释**原样**写进 `dist/**/*.html`，而页脚是每个页面都渲染的组件 —— 于是那段解释里的**上游主题名 / 作者名**出现在**全站 162 个 HTML** 里。**第二次（v1.48 查出、v1.49 清掉）：扫描面当时只有 `dist/**/*.html`（165 个），而产物是 `799` 个文件** —— `dist/assets/css/twikoo-custom.css` 顶部的上游署名行（原文见 `git show 1e5ea99:public/assets/css/twikoo-custom.css`，源文件同一行的 `:4`）**既不进 HTML、页面上也永远看不见**（`commentConfig.type: "none"`，这条 CSS 根本没人加载），就这么**随产物发布了一整轮**，而零残留断言一路全绿 | 这是"清理动作自己制造残留"的典型：注意力全在"源码里还有没有那个字符串"，没人想到**解释文字本身就是会被发布的内容**。而且它**只在产物里显形**：源码里 grep 上游主题名只会命中那段"解释"，读起来完全是一条正常的注释，**读代码永远看不出来**。`Footer.astro` 每页都渲染，一处注释 = 全站 162 份 —— 规模被组件复用放大。第二次那半更"安静"：**非 HTML 产物在浏览器里永远看不见**，它躺在 `dist/assets/` 里等访客的浏览器来取 —— 只要判据不问"发布出去的东西一共有哪些"，它就能一直绿下去 | ① 这类解释写在 **frontmatter / JS 注释**里（不随产物发布），**不要**写在模板 HTML 注释里 —— 本项目就是这么改的（`Footer.astro` frontmatter 顶部那段注释，并明确写了"必须留在 frontmatter"）；② **判据的扫描面 = 产物全集，不是"页面集合"**：`dist/**` 的**每一个文件**（HTML / CSS / JS / JSON / sitemap / `llms.txt` / pagefind / robots…）**加上文件名与路径本身**（`<上游主题名>-*.png` 这类"内容干净、只有名字里带"的存活方式，只有查路径才抓得到；逐字判据见 `scripts/verify-ui.mjs`）。`verify:ui` 的 `R-ID-05/R-NAV-06` 从 v1.49 起按这个口径扫，并**另记一条**「产物文件名/路径不含上游字样」；"剥掉 `<script>`/`<style>`/HTML 注释之后的可见文本"那一层（第④层）**保留但只能当补充** —— 它抓不到 CSS 文件、也抓不到 HTML 注释（第①②层才是主判据）；③ **二进制怎么算"扫过了"**：读文件，**含 NUL 字节即视为二进制** → 跳过其**内容**、**文件名/路径照查**，并把"内容可读 N / 跳过二进制 M"写进**通过文案**（跳过面必须可见，否则"跳过一大批"会退化成"扫了个空"，同类见 T77）；再加一条反向保险：**可读文本文件数为 0 直接判红**；④ 一条可复用的自检：**改完把产物当数据集查一遍** —— `dist/**` 全部文件的内容 + **`ls` 一遍文件名**，别只 grep 源码、也别只 grep HTML；⑤ 同源推论：**"页面上看不见"不等于"没发布"** —— 关掉的组件、没人加载的 CSS、构建期原样复制过来的静态文件，全都在发布面上 |
+| T86 | **Windows PowerShell 5.1 按系统 ANSI/GBK 读无 BOM 的 `.ps1`：含中文的脚本在"被调用时"成片语法崩、报错文本本身还是乱码**；而更值得记的是**判据陷阱** —— `ReadAllBytes + UTF8.GetString + Parser::ParseInput` 这类"先解码再解析"的检查**永远发现不了它** —— v1.54 交付的 `deploy/publish.ps1`（28 888 字节，其中 **13 366 字节非 ASCII**，满篇中文注释，**无 BOM**，首 3 字节 `60,35,10`）在 v1.55 的 P6 预工复核里被**真实调用路径**抓出来：`[Parser]::ParseFile(<真实路径>)` 报 **40 条语法错误**（第一条 `:181 MissingFileSpecification` + `RedirectionNotSupported` —— `:181` 正是 `Say ("$ ssh " + … + " bash -s   <<'EOF'")` 那行，`<<` 被判成重定向操作符），而直接 `& .\deploy\publish.ps1 -Server … -WebRoot … -DryRun` **在调用瞬间就 ParserError**，报错文本里的中文全是乱码（`涓婁紶锛氬帇缂╁寘` ＝ UTF-8 的「上传：压缩包」被当 GBK 读）。**机制（用 .NET 的 CP936 解码器逐字节实测）**：本机 `[Encoding]::Default` = **936 / GB2312**；UTF-8 里一个中文字 3 字节，GBK 眼里是"1 个双字节字 + 1 个落单字节"，落单字节（0x80–0xBF）又会与紧跟其后的那个字节拼成"另一个合法的 GBK 字" → 字节流从第一个中文起**整体错位**：实测 **52 个换行、41 个 `"`、1 个 `'`、18 个 `*`、11 个 `-`、7 个 `$`、6 个 `/`、5 个反引号、2 个 `{`、131 个空格**被当成"双字节字的第二字节"吞掉（第一个吞噬点在偏移 116：`0x82 + 0x0A`），于是 561 行的文件在 PowerShell 眼里只剩 **510 行** —— 一条注释把下一行的 `function Invoke-RemoteBash {` 吃进了自己行内，引号配对随之崩掉，`<<'EOF'` 就落到字符串外面了。**同一份字节加 3 字节 BOM → `ParseFile` 0 error 且 `--dry-run` 真跑通（清点 799 文件 / 114.19 MiB、退出码 0）；同一份内容把非 ASCII 全换成 `?`（纯 ASCII）→ `ParseFile` 也是 0 error** —— 所以坏的不是脚本逻辑，是"文件编码 + 读取方按什么编码读"这个契约 | ① 这类坑**只在"真跑"时出现**，任何"读进来自己解码再解析"的检查都量不到它：上一轮用的正是 `ReadAllBytes + UTF8.GetString + Parser::ParseInput`，同一份文件它报 **0 error**（`ParseInput=0 / ParseFile=40` 的对照），于是"语法零错误"被写进了文档与状态表 —— **判据错了，结论就跟着错一整轮**。② 报错文本本身是乱码，最容易被误读成"脚本写错了 / 中文注释里有非法字符"，于是跑去改逻辑 —— 真正该改的是编码契约。③ 波及面比"一条命令跑不起来"更大：这份脚本是 P6 的发布通道，**离线怎么检查都看不出来**，上线当天才会炸 | ① **面向 Windows 交付的脚本优先用 Node**（本项目已要求 Node ≥ 22，Node 读源码一律按 UTF-8，与 BOM 无关）—— 本轮的修法就是把 `deploy/publish.ps1` 改写成零依赖的 `deploy/publish.mjs` 并删掉 `.ps1`（能力与安全闸门逐条保留，另加 `--help`）。② 若必须用 `.ps1`：**内容保持纯 ASCII**（实测 0 error），或**带 BOM**（实测 0 error 且能跑）—— 但**别指望 `verify:docs` 第 11 项替你兜住**：那道门只扫 `.ts/tsx/js/mjs/astro/svelte/css/json/md/yml/yaml/txt/styl`，**`.ps1` / `.sh` / `.conf` / `.service` 都不在名单里**，本轮实测"给 `deploy/publish.ps1` 加 BOM"之后 `pnpm verify:docs` 仍然 **15/15 全绿**（也就是说这条路上没有任何机器闸门，"不写中文"全靠人记）。③ 通用判据：**"语法检查通过" ≠ "能跑" —— 检查器必须和真实消费者走同一条读取路径**（能直接调用就直接调用，退一步至少也要用 `ParseFile` 让解析器按文件真实编码自己读，而不是自己解码后再喂 `ParseInput`）。④ 反向自查：任何"我验过了"的结论，都要能说清**消费者是谁、它按什么编码 / 什么解析器读**（与 T58 同源：一边写、一边读，两边对不上就出事） |
 
 ### 14.4 被移除的上游功能怎么找回来
 

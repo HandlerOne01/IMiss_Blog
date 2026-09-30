@@ -13,6 +13,7 @@ Use `pnpm`; the `preinstall` script enforces it.
 - `pnpm type-check`: run TypeScript with `--noEmit`.
 - `pnpm format` / `pnpm lint`: `biome … --write ./src ./scripts` — **do not run in this project**: it rewrites regexes inside the CDP template literals in `scripts/verify-ui.mjs` and reformats unrelated files (trap T75). Format only the files you touched: `npx biome check <files>`.
 - Never write files **or commit messages** through PowerShell text output (`Set-Content` / `Out-File` / `echo … >`): it adds a UTF-8 BOM, and this project has already been bitten twice (once across the three docs, once with **4 commit subjects starting with U+FEFF**, fixed via `git filter-branch --msg-filter`). Write files with the editor/Node, and commit with `git commit -F <file>` or `-m` — never a PowerShell pipeline. Same root cause as T75's neighbours, logged as trap **T58**.
+- The other half of T58's "one side writes, the other side reads" family: **Windows PowerShell 5.1 reads a BOM-less `.ps1` as ANSI/GBK**, so a script with non-ASCII comments blows up **when it is invoked** (not when it is parsed by a "decode it yourself first" checker). Prefer Node for scripts handed to Windows, or keep `.ps1` content pure ASCII. Logged as trap **T86** in `ARCH.md` §14.3 — its real lesson is that a checker must read a file the same way its real consumer does.
 - `pnpm build`: generate icons, LQIPs, the Astro build, font subsets, and Pagefind search output in `dist`.
 - `pnpm preview`: preview the production build locally.
 - `pnpm new-post`: scaffold a new content post.
