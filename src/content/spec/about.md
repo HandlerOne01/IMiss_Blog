@@ -1,27 +1,21 @@
-# 关于我 / About Me
+# 关于我
 
-你好！我是 **夏叶** ，一个在数字世界中默默无闻的一片叶子。
+我是 **IMiss**。这里是**我自己的技术笔记仓库**，也是练手的地方。
 
-## 🛠️ 关于本站
+因为喜欢《鸣潮》里的爱弥斯，这个站的样子、右下角那只桌宠、还有她说话的口气，都是照着她来的。
 
-这个网站使用 **Astro** 框架构建，采用了 [Firefly](https://github.com/CuteLeaf/Firefly) 模板，Firefly 是基于 [Fuwari](https://github.com/saicaca/fuwari) 的二次开发。
+## 这个站是什么
 
-**Firefly** 是一款基于 Astro 框架和 Fuwari 模板开发的清新美观且现代化个人博客主题模板，专为技术爱好者和内容创作者设计。该主题融合了现代 Web 技术栈，提供了丰富的功能模块和高度可定制的界面，让您能够轻松打造出专业且美观的个人博客网站。
+C/C++、Linux、网络、数据库、算法这些基础课的笔记都整理在里面，写的时候尽量按「过几个月还能看懂、还能查回来」的标准来，不是把概念抄一遍。
 
+除了笔记，还有几样东西是我后来自己加上去的：
 
-**🖥️在线预览： [Firefly - Demo site](https://firefly.cuteleaf.cn/)**
+- **学习路线** —— 把一百三十多篇笔记按 8 条主线排成一条有先后的路径，一共 136 站、约 69 小时。每条主线标了难度和大概要花多少小时，免得像我一样东看一篇、西看一篇。
+- **爱弥斯桌宠** —— 右下角那只爱弥斯能聊天。她背后接的是一个真的 Agent（LangGraph + DeepSeek），能翻站内笔记、也能按你的要求做推荐；后端没开的时候她会退回本地台词，不会甩你一脸报错。
+- **动态 / 书签导航** —— 随手记的东西和常去的站点。
 
-**📝Firefly使用文档： [https://docs-firefly.cuteleaf.cn](https://docs-firefly.cuteleaf.cn/)**
+## 这个站是怎么搭的
 
-**⭐Firefly开源地址：[https://github.com/CuteLeaf/Firefly](https://github.com/CuteLeaf/Firefly)** 
+静态生成用 Astro，交互部件用 Svelte，样式是 Tailwind。桌宠的对话不直接打后端，中间过一层自己写的同源网关，限流和长度校验都落在那一层。
 
-**⭐Fuwari开源地址：[https://github.com/saicaca/fuwari](https://github.com/saicaca/fuwari)**
-
-::github{repo="CuteLeaf/Firefly"}
-
-::github{repo="saicaca/fuwari"}
-
----
-
-*感谢你的来访！希望在这里能找到对你有用的内容！*
-
+评论区还在选型，所以暂时没有留言功能。
