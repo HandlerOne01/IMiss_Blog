@@ -8,7 +8,9 @@
  *   按本站的钩子重接：主题切换用模板的 `theme-change` 事件、切页用 Swup 的
  *   `astro:page-load`、阅读页安静模式按 pathname 判断。
  * 运动（R-PET-06）：三档 `petConfig.movement.mode` ——
- *   `float`（默认）悬浮 + 偶尔飞行 · `fixed` 固定不动 · `ground` 贴地行走。
+ *   `fixed`（**默认**，发起人 2026-10-02 改：「这小人待机时会移动，别让它移动」）
+ *   固定不动 · `float` 悬浮 + 偶尔飞行 · `ground` 贴地行走。
+ *   ⚠️ 三档都还在、都还能用（改配置或 `__imissSetMode()` 切）——只是默认档换了。
  *   悬浮的上下浮动**由 rAF 逐帧写 transform**（不用 CSS animation：CSS 动画的
  *   位移优先级和 JS 写的 `translate3d` 会互相覆盖，拖拽与位置记忆会打架）。
  * 样式：`src/styles/pet.css`（**不是**组件的 scoped style —— JS 动态创建的星屑节点
@@ -2223,11 +2225,22 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				pet.x = clampX(saved.x);
 				pet.userMoved = true;
 			}
-			// y 的来路按模式分：贴地 → 地面；悬浮/固定 → 同一模式存下来的 y，否则用悬浮基准线
+			// y 的来路按模式分：贴地 → 地面；悬浮/固定 → 同一模式存下来的 y，否则用各自的默认落点
 			if (MODE === "ground") {
 				pet.y = floorY;
 			} else if (saved && saved.mode === MODE && saved.y !== null) {
 				pet.y = MODE === "float" ? clampAirY(saved.y) : clampY(saved.y);
+			} else if (MODE === "fixed") {
+				// ⚠️ v1.59（R-PET-06 默认档改 `fixed`）：**固定档的首访落点 = 右下角的地面线**
+				// （与贴地档同一个落点）。改前它跟着悬浮档走 `floatBaseY()`（视口 52% 处），
+				// 实测（`reports/_pet-fixed-landing-probe.mjs`，1440×900、全新 profile 无 localStorage）：
+				// 宠物停在 (1228, 401) —— 正落在**视口纵向正中**，压住右栏组件
+				// （「还没有发布动态」那段 5385px² + 两个 `.category-pill` 共 3712px²）。
+				// 一个"完全静止"的宠物停在屏幕正中不合口径（本文件上面的注释自己写的是
+				// "只想让它安静待在角落"），所以改成站在右下角地面线上：既是角落，
+				// 又天然避开右下角浮动按钮列（x 仍由 `defaultX()` 的 `FLOAT_RESERVE` 预留，
+				// 宠物右边缘 1352 距按钮列左边缘 1376 有 24px，实测间距见同一份报告）。
+				pet.y = floorY;
 			} else {
 				pet.y = floatBaseY();
 			}
