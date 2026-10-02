@@ -20,6 +20,8 @@ import {
 //   · R-NAV-03：「我的」里删掉「哔哩哔哩」「番组计划」；VNDB→「轻小说」、AnimeList→「番剧」
 //               （都只改名，URL 与功能不变）；「关于我」移到最后一项
 //   · R-NAV-04：删除顶层「关于」父项（「打赏」随之彻底移除，「关于我」并入「我的」）
+//   · B-10（v1.57 关闭）：「链接」顶层下拉用发起人自己的 8 条外链重建（v1.47 曾整组删除），
+//               位置**固定**在「我的」与「留言」之间 → 顶层为 主页/文章/学习路线/我的/链接/留言
 //
 // ⚠️ 两条容易踩的规则（上游 utils/nav-menu-utils.ts）：
 //   1) 带 pageKey 的项会对照 siteConfig.pages 自动隐藏；子项全被关掉时整组消失，
@@ -94,13 +96,75 @@ const getDynamicNavBarConfig = (): NavBarConfig => {
 		],
 	});
 
-	// 自定义导航栏链接
-	// P4-8（v1.47）：这里原来有一整块 `links.push({ name: "链接", ... })`，内含两条对上游主题的
-	// 署名外链（「上游主题」→ 模板作者仓库、「上游文档」→ 模板作者的文档站）。
-	// 发起人要求站上不再出现任何上游字样，故**整块删除**。
-	// 不需要额外的"空组处理"：`src/utils/nav-menu-utils.ts:19-21` 在 children 过滤后为 0 时 `return null`，
-	// 整组会从导航里自然消失，不会留下一个点不开的空「链接」下拉。
-	// ⚠️ 发起人以后要放自己的外链，是**阻塞项 B-10**（尚未拍板），照下面的格式加回来即可。
+	// 自定义导航栏链接 —— 「链接」（阻塞项 B-10，v1.57 关闭）
+	// 历史：P4-8（v1.47）把这一整块删掉过 —— 当时里面只有两条对上游主题的署名外链
+	// （「上游主题」→ 模板作者仓库、「上游文档」→ 模板作者的文档站），发起人要求站上
+	// 不留任何上游字样。删块之后导航第 5 格自然消失：`src/utils/nav-menu-utils.ts:19-21`
+	// 在 children 过滤后为 0 时 `return null`，不会留下一个点不开的空下拉。
+	// ⚠️ 那条"空组自然消失"的规则**现在仍然成立、也仍然重要**：下面这 8 条**都没有
+	//    `pageKey`**（全是外链，不对应站内页面开关），所以谁也不会把它们过滤掉；
+	//    但将来若给它们加上会失效的 `pageKey`，整组就会一声不响地消失。
+	// v1.57：发起人给出自己的 8 条清单，照 v1.47 被删那块的原结构（name / url / icon /
+	//    `external: true` / children）**原样重建**，子项名字取短名。8 条一律用首页 URL，
+	//    顺序就是发起人给的顺序（AI 对话 → 代码托管 / 刷题 / 社区 → 模型社区）。
+	// ⚠️ 这一格插在「我的」与「留言」之间 → 顶层项集合与顺序都变了，
+	//    `scripts/verify-ui.mjs` 的 `EXPECT_TOP_NAV` 必须同步（已同步，并在本轮做过注入验证）。
+	links.push({
+		name: "链接",
+		url: "#",
+		icon: "material-symbols:link",
+		// 子菜单
+		children: [
+			{
+				name: "DeepSeek",
+				url: "https://chat.deepseek.com/",
+				external: true,
+				icon: "simple-icons:deepseek",
+			},
+			{
+				name: "ChatGPT",
+				url: "https://chatgpt.com/",
+				external: true,
+				icon: "simple-icons:openai",
+			},
+			{
+				name: "Claude",
+				url: "https://claude.ai/",
+				external: true,
+				icon: "simple-icons:claude",
+			},
+			{
+				name: "GitHub",
+				url: "https://github.com/",
+				external: true,
+				icon: "fa7-brands:github",
+			},
+			{
+				name: "洛谷",
+				url: "https://www.luogu.com.cn/",
+				external: true,
+				icon: "simple-icons:luogu",
+			},
+			{
+				name: "力扣",
+				url: "https://leetcode.cn/",
+				external: true,
+				icon: "simple-icons:leetcode",
+			},
+			{
+				name: "CSDN",
+				url: "https://www.csdn.net/",
+				external: true,
+				icon: "simple-icons:csdn",
+			},
+			{
+				name: "Hugging Face",
+				url: "https://huggingface.co/",
+				external: true,
+				icon: "simple-icons:huggingface",
+			},
+		],
+	});
 
 	// 留言（原「社交」父项已删除，本项提升为顶层并置于最后，见 R-NAV-01）
 	links.push(LinkPresets.Guestbook);
