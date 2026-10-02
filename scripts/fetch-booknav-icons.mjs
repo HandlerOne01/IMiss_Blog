@@ -305,7 +305,7 @@ for (const site of SITES) {
 		"脚本会重跑一遍取图（官网 `favicon.ico` → 页面 `<link rel=\"icon\">` → 一次性兜底）、",
 		"用 sharp 归一化成 128×128 PNG 覆盖写回本目录，并重写这份 README 的来源表。",
 		"品牌色表在 `src/constants/booknav-brand-colors.ts`（脚本与页面配置同源）。",
-		"每次跑完记得再把 `scripts/verify-ui.mjs` 的徽标断言跑一遍（`pnpm verify:ui`）。",
+		"每次跑完记得 `pnpm build` 再 `pnpm verify:ui`（`scripts/verify-ui.mjs` 的 R-BOOKNAV-05~08 就是这个目录的契约）。",
 		"",
 		"## 当前文件与来源",
 		"",
