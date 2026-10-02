@@ -12,11 +12,17 @@
  *
  * 前置：目标站点已经在跑（pnpm dev 或 pnpm preview）。
  * 依赖：零 npm 依赖 —— 直接开系统 Chrome 的 DevTools Protocol，用 Node 内置的 WebSocket。
+ *
+ * ⚠️ v1.58 起**多了一个非 npm 依赖**：`src/constants/booknav-brand-colors.ts`
+ *    （书签页品牌色的单一事实来源）。Node 从 22.6 起能直接 import 这种"只有类型标注、
+ *    没有 enum/namespace"的 .ts（走类型擦除），`engines.node >= 22.23` 已经覆盖。
+ *    为什么不把那张表抄一份进来：抄第二份 = 迟早漂（见 EXPECT_BOOKNAV_BRAND_HEX 的注释）。
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { BOOKNAV_BRAND_COLORS } from "../src/constants/booknav-brand-colors.ts";
 
 // ─── 参数 ────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -134,6 +140,87 @@ const EXPECT_BOOKNAV_GROUPS = [
 	["cloud", "云服务与账号", 4],
 	["thirdparty", "其他三方服务", 5],
 ];
+// ─── v1.58：书签页图标「官方图标 + 官方品牌色」的判据常量 ─────────────────────
+// ⚠️ **品牌色表不在这里重抄一遍**，而是从 `src/constants/booknav-brand-colors.ts`
+//    **导入同一份**。理由：抄第二份 = 迟早漂 —— 配置里改了色而断言还钉着旧值，
+//    两边各自"自洽"，红不了也绿不对。这是本项目"单一事实来源"的一贯口径。
+// 深色主题对比度阈值（与 ARCH.md §11 的 R-CFG 那批同一条 WCAG 公式，见文件里的 contrast()）
+const MIN_BOOKNAV_DARK_CONTRAST = 3;
+// 旧的中性灰 / 白 —— 发起人的抱怨就是"有图标但还是没颜色"，所以**这两类值一个都不许留**。
+// 除了 text-neutral-700(#404040) / dark:text-neutral-200(#E5E5E5)，把 Tailwind 的
+// neutral-600/300、zinc-600/300 也列进来（改一个字就会落到隔壁色阶上）。
+const OLD_NEUTRAL_ICON_COLORS = [
+	"rgb(64, 64, 64)", // text-neutral-700
+	"rgb(82, 82, 82)", // text-neutral-600
+	"rgb(229, 229, 229)", // dark:text-neutral-200
+	"rgb(212, 212, 212)", // dark:text-neutral-300
+];
+// ⚠️ **黑名单必须按解析后的 RGB 数值比，不能比字符串**（v1.58 注入验证实测踩到）：
+//    `text-neutral-700` 的 computed color 在**亮色**下是 `rgb(64, 64, 64)`，
+//    但在**深色**下 Chrome 把它序列化成 `oklch(0.371 0 none)` —— 同一张卡的同一个颜色、
+//    两种字符串形态。第一版直接拿字符串 `.includes(graphicColor)`，
+//    于是注入"去掉某条的 iconColor → 图标退回中性灰"时这条断言**照样判绿**
+//    （认不出 oklch 形态的 #404040），只有"逐张等于品牌色"那条抓住了它。
+//    教训与 T77 同类：判据认的是"长得像"而不是"是不是同一个颜色"。
+const OLD_NEUTRAL_RGB = OLD_NEUTRAL_ICON_COLORS.map((c) => ({ raw: c, rgb: parseCssColor(c) }));
+/** 两个颜色是否同一个 sRGB 颜色（各通道容差 1，容忍 oklab↔sRGB 往返舍入） */
+const sameRgb = (a, b) => !!a && !!b && Math.abs(a.r - b.r) <= 1 && Math.abs(a.g - b.g) <= 1 && Math.abs(a.b - b.b) <= 1;
+// 本地 favicon 目录（`kind === "image"` 的 11 张必须全部指向这里，**不许是网络 URL**）
+const LOCAL_ICON_PREFIX = "/booknav-icons/";
+// 允许退化成字母块的**例外**：站点整站不可达、连一次性兜底接口都只给通用占位图。
+// 任务书允许这一条，但要求"必须带品牌色 + 报告里点名"。数量写死在这里，
+// 是为了让"又多了一张字母块"这件事**必须靠改这一行才会变绿**，而不是自动通过。
+const EXPECT_BOOKNAV_LETTER_EXCEPTIONS = ["bigme.pro"];
+// 走 iconify（`simple-icons:*` / `material-symbols:*`）的卡片标题。**单一事实来源是
+// 配置本身**，但断言不能去 import `booknavConfig.ts`（它 import 了 `@/…` 别名，Node 解析不了），
+// 所以这里列出来 —— 它是"配置 ↔ 断言"之间的第二条腿：配置里少写一个 icon、
+// 或把某张卡从 iconify 改成别的东西，下面 R-BOOKNAV-05/06 会当场红，
+// 而不会因为"总数没变"就静默通过。
+const ICONIFY_BOOKNAV_TITLES = new Set(
+	[
+		"DeepSeek",
+		"ChatGPT",
+		"Claude",
+		"Gemini",
+		"Grok",
+		"即梦 AI",
+		"Hugging Face",
+		"LangSmith",
+		"火山方舟",
+		"DeepSeek 开放平台",
+		"OpenAI Platform",
+		"洛谷",
+		"力扣 LeetCode",
+		"GitHub",
+		"Gitee",
+		"CSDN",
+		"LangChain 中文文档",
+		"LangChain 官方文档",
+		"npm",
+		"Chat SDK",
+		"FreeCAD",
+		"腾讯位置服务 · 开发文档",
+		"华为云",
+		"Docker",
+		"Canva 可画",
+		"Google",
+	].map((t) => t.toLowerCase()),
+);
+// 卡片标题（小写，与 data-title 同形态）→ 配置里的品牌色。
+//
+// ⚠️ **大小写必须逐字对上**：`BOOKNAV_BRAND_COLORS` 的键是配置里的**原文标题**
+//    （如 `"OpenAI Platform"` / `"DeepSeek 开放平台"`），而页面的 `data-title` 是
+//    `item.title.toLowerCase()`。第一版拿小写标题去索引原文键 → 这两张卡静默漏掉、
+//    总数从 26 变 24 却照样绿（**漏掉的那两张根本没被核对**）。
+//    所以先把品牌表按小写建一次索引，再做交集。
+const BRAND_COLORS_BY_LOWER_TITLE = new Map(
+	Object.entries(BOOKNAV_BRAND_COLORS).map(([t, v]) => [t.toLowerCase(), v]),
+);
+const EXPECT_BOOKNAV_BRAND_HEX = Object.fromEntries(
+	EXPECT_BOOKNAV_CARDS.filter(
+		([t]) => BRAND_COLORS_BY_LOWER_TITLE.has(t.toLowerCase()) && ICONIFY_BOOKNAV_TITLES.has(t.toLowerCase()),
+	).map(([t]) => [t.toLowerCase(), BRAND_COLORS_BY_LOWER_TITLE.get(t.toLowerCase()).light.toUpperCase()]),
+);
 // P4-8：上游示例文章（主题介绍篇 + `guide/*` 等 29 个文件）已按发起人要求删除，
 // 所有"文章页"断言改用迁移进来的真实文章（否则断言会指向一个已经不存在的路由）
 const SAMPLE_POST = "/posts/linux-net/http-xieyi/";
@@ -558,6 +645,13 @@ const COLLECT_ROADMAP = `(() => {
 // 判据 —— 判据本体（38 条标题与 URL、6 个组名与条数）在文件头的
 // EXPECT_BOOKNAV_CARDS / EXPECT_BOOKNAV_GROUPS 里。
 const COLLECT_BOOKNAV = `(async () => {
+  // ⚠️ **先把主题钉成亮色**（v1.58 实测踩到的坑）：主循环里前面的步骤可能把页面留在
+  //    深色态（html.dark 类 + data-theme），于是这一趟量到的"亮色渲染色"其实是深色提亮值，
+  //    R-BOOKNAV-06 的"渲染色 == 配置品牌色"当场判红、而红行显示的是一串
+  //    完全正确的**深色**值 —— 看起来像配色写错了，其实是采集时没锁主题。
+  //    只读不写会让事实随"上一个用例干了什么"漂，必须自己钉住。
+  document.documentElement.classList.remove("dark");
+  document.documentElement.setAttribute("data-theme", "light");
   // ⚠️ dbg：这两个字段是"失败时能自证"用的 —— 书签断言红了的时候，先看它们：
   //    如果 dbgPage 不是 /booknav/，说明打在了别的页面上；如果 dbgPage 对但 root=null，
   //    说明页面还没渲染出 <booknav-list>（等太短）。没有它们，红行只能告诉你"全是 undefined"。
@@ -588,6 +682,10 @@ const COLLECT_BOOKNAV = `(async () => {
   }
   const sections = [...root.querySelectorAll("section[data-group-id]")];
   const cards = [...root.querySelectorAll(".booknav-card")];
+  // v1.58：图标的**计算色**（不是配置字符串）。这里只负责把浏览器算出来的东西搬回来，
+  // 颜色解析与对比度判定全在 Node 侧（理由见文件里 parseCssColor 上方那段注释：
+  // Chrome 会把 oklch/oklab 的计算值原样序列化，在页面里正则抓数字会得到垃圾）。
+  const colorOf = (el) => (el ? getComputedStyle(el).color : null);
   return {
     missing: false,
     sectionIds: sections.map((s) => s.getAttribute("data-group-id")),
@@ -596,29 +694,92 @@ const COLLECT_BOOKNAV = `(async () => {
     // 分类胶囊上那个条数角标：它必须与组内实际卡片数一致（否则"6"是写死的假数字）
     pillNames: [...root.querySelectorAll("button[data-target]")].map((b) => (b.textContent || "").replace(/\\s+/g, " ").trim()),
     pillTargets: [...root.querySelectorAll("button[data-target]")].map((b) => b.getAttribute("data-target")),
-    cards: cards.map((c) => ({
-      title: c.getAttribute("data-title"),
-      href: c.getAttribute("href"),
-      group: c.closest("section[data-group-id]")?.getAttribute("data-group-id") ?? null,
-      letter: c.querySelector(".booknav-icon")?.getAttribute("data-letter") ?? null,
-      // 三种图标形态各自数一次：svg（手填 iconify）/ img（图片或自动 favicon）/ 首字母块
-      svg: c.querySelectorAll(".booknav-icon svg").length,
-      img: c.querySelectorAll(".booknav-icon img").length,
-      letterEl: c.querySelectorAll(".booknav-letter").length,
-      target: c.getAttribute("target"),
-    })),
+    cards: cards.map((c) => {
+      const box = c.querySelector(".booknav-icon");
+      const svg = box ? box.querySelector("svg") : null;
+      const img = box ? box.querySelector("img") : null;
+      const letter = box ? box.querySelector(".booknav-letter") : null;
+      const graphic = svg || letter;
+      return {
+        title: c.getAttribute("data-title"),
+        href: c.getAttribute("href"),
+        group: c.closest("section[data-group-id]")?.getAttribute("data-group-id") ?? null,
+        letter: box?.getAttribute("data-letter") ?? null,
+        // 三种图标形态各自数一次：svg（手填 iconify）/ img（本地 favicon）/ 首字母块
+        svg: box ? box.querySelectorAll("svg").length : 0,
+        img: box ? box.querySelectorAll("img").length : 0,
+        letterEl: box ? box.querySelectorAll(".booknav-letter").length : 0,
+        target: c.getAttribute("target"),
+        // ── v1.58 新增：配色相关事实 ──────────────────────────────────────────
+        // 图标区里那个"可见图形元素"（svg 或字母块）的计算色，以及它背后那层
+        // 图标块底色（zinc-100 / zinc-800）—— 对比度就是这两者之间算。
+        graphicColor: colorOf(graphic),
+        boxBg: box ? getComputedStyle(box).backgroundColor : null,
+        boxW: box ? Math.round(box.getBoundingClientRect().width) : null,
+        boxH: box ? Math.round(box.getBoundingClientRect().height) : null,
+        brandVar: box ? (box.style.getPropertyValue("--brand-c") || "").trim() : "",
+        darkVar: box ? (box.style.getPropertyValue("--brand-c-dark") || "").trim() : "",
+        dataBrand: box ? box.getAttribute("data-brand-color") : null,
+        // 图标是装饰性的：卡片标题已经提供了无障碍名，svg 必须对 AT 隐藏
+        svgAriaHidden: svg ? svg.getAttribute("aria-hidden") : null,
+        imgSrc: img ? img.getAttribute("src") : null,
+      };
+    }),
     // R-BOOKNAV-03（favicon 决定的证据）：关掉自动 favicon 之后，页面上**不该再有任何
     // 指向第三方 favicon 接口的请求**。这里数的是"真的会发出去的 URL"（img[src]），
     // 不是配置里的字符串 —— 配置字符串留着无害，发请求才有害。
     thirdPartyIconRequests: [...root.querySelectorAll(".booknav-icon img")].map((im) => im.getAttribute("src")).filter((s) => /favicon\\.im/.test(s || "")),
+    // v1.58：**运行期零第三方请求**的完整口径 —— 上一轮只数 favicon.im 一家，
+    // 换成 s2/favicons 或 googleapis 就漏过去了。这里数"图标 src 里所有不是本站
+    // 相对路径的 URL"（站内是 /booknav-icons/…；http(s):// 与协议相对 // 都算外部）。
+    externalIconSrcs: [...root.querySelectorAll(".booknav-icon img")]
+      .map((im) => im.getAttribute("src") || "")
+      .filter((s) => /^(https?:)?\\/\\//i.test(s)),
     // 空组过滤（getEnabledBooknavGroups 的职责）：空 section 与"0 张卡的组"都不许有
     emptySections: sections.filter((s) => s.querySelectorAll(".booknav-card").length === 0).map((s) => s.getAttribute("data-group-id")),
-    // 卡片高度：favicon 关掉后图标块仍是 56px（w-14 h-14）→ 卡片高度不该被压扁
+    // 卡片高度：图标块 56px（w-14 h-14）→ 卡片高度不该被压扁
     cardHeights: [...new Set(cards.map((c) => Math.round(c.getBoundingClientRect().height)))],
     total: cards.length,
     dbgPage,
     dbgWaitedMs: waited,
   };
+})()`;
+
+// ─── v1.58：深色主题下的图标配色采集（R-BOOKNAV-07）─────────────────────────
+// ⚠️ **必须真的把页面切到深色再读**，不能只读内联 style 里那串 color-mix 文本：
+//    本书签页的深色走 Tailwind 的 `dark:` 变体（`@custom-variant dark (&:where(.dark, .dark *))`），
+//    它跟的是 **html.dark 类**；而项目别处（R-ID-02 那批）跟的是 prefers-color-scheme。
+//    两套机制都要切，否则量到的仍是亮色下的颜色、断言会"假绿"。
+//    实测：只切媒体特性、不切类，图标色就是亮色值（原品牌色）→ 深色对比度根本没被验到。
+//
+// ⚠️ **还要等过渡跑完**（第二处坑，实测踩到）：`.booknav-icon` 上有
+//    `transition-transform duration-300`，改主题会让 `getComputedStyle` 在过渡期间
+//    返回**插值中的颜色**（实测刚切完读到 `oklab(0.747…)`，300ms 后才是 `rgb(124,58,237)`）。
+//    不等就量 = 量到一个不存在的中间色，红行会指向一个"代码里根本没有的颜色"。
+//    所以这里改成**异步 + 400ms 等待**（> 300ms 过渡），由调用方 `awaitPromise: true` 取回。
+const COLLECT_BOOKNAV_DARK = `(async () => {
+  // ⚠️ 这里**不再自己切主题** —— 切类会触发 .booknav-icon 的 300ms 过渡，
+  //    量到的是插值中的颜色。调用方改成"先用 Emulation.setEmulatedMedia 把
+  //    prefers-color-scheme 设成 dark，然后 Page.navigate 重载"，
+  //    这样深色是页面 boot 起就生效的，color-mix 一次算好、没有过渡。
+  //    这里只做一次形状校验并在没深色时报出来（避免又变成"量到亮色值却判绿"）。
+  const isDark = document.documentElement.classList.contains("dark");
+  const colorOf = (el) => (el ? getComputedStyle(el).color : null);
+  const out = [...document.querySelectorAll("booknav-list .booknav-card")].map((c) => {
+    const box = c.querySelector(".booknav-icon");
+    const svg = box ? box.querySelector("svg") : null;
+    const letter = box ? box.querySelector(".booknav-letter") : null;
+    const graphic = svg || letter;
+    return {
+      title: c.getAttribute("data-title"),
+      kind: svg ? "svg" : box && box.querySelector("img") ? "img" : letter ? "letter" : "empty",
+      color: colorOf(graphic),
+      boxBg: box ? getComputedStyle(box).backgroundColor : null,
+      brandVar: box ? (box.style.getPropertyValue("--brand-c") || "").trim() : "",
+      darkVar: box ? (box.style.getPropertyValue("--brand-c-dark") || "").trim() : "",
+    };
+  });
+  return { isDark, cards: out };
 })()`;
 
 // ─── 对比度采集（R-ID-02 的验收要求）──────────────────────
@@ -1061,6 +1222,11 @@ async function main() {
 	// 产物清单里的每一个文件都参与全部四层判定，没有任何豁免。
 	const distHtmlFiles = await listDistHtml();
 	const distAllFiles = await listDistAll();
+	// ⚠️ **用 null 表示"没扫"**（dev 服务器 / dist 为空时走不到扫描那一步）。
+	//    如果初始成空数组，R-BOOKNAV-08 那条"产物里不出现聚合服务域名"会在
+	//    **根本没扫**的情况下判绿 —— T77 同类的"闸门静默失效"。下面断言里显式区分
+	//    `null`（判红 + 说明要跑 pnpm build/preview）与 `[]`（真扫过且零命中）。
+	let distIconAggregatorHits = null;
 	if (isDevServer) {
 		record("INFO(dev)", "上游身份零残留扫描已跳过", true, "读的是磁盘 dist/，dev 下可能是旧产物；请用 pnpm preview");
 	} else if (distAllFiles.length === 0) {
@@ -1074,6 +1240,11 @@ async function main() {
 		const feedLeakFiles = [];
 		// v1.57：隐私/排除项命中（**文件相对路径 → 命中的串**，便于归因到具体改错了哪一条 URL）
 		const privacyLeakFiles = [];
+		// v1.58：**运行期零第三方请求**的 favicon 聚合服务域名（产物级那一半）。
+		// 判据是"产物文件内容里不出现这些域名"——上一轮只数了页面上的 `img[src]`，
+		// 数不到"某个服务端/构建期脚本把 URL 写进了 js/css 里、浏览器运行期才发出去"的情形。
+		const ICON_AGGREGATOR_NEEDLES = ["s2/favicons", "favicon.im", "faviconV2", "googleapis.com"];
+		distIconAggregatorHits = [];
 		// v1.57：正控 —— 发起人明确要收录的站点必须在产物里（否则"守卫全绿"可能只是产物空了）
 		const positiveNeedles = ["happy.bigmess.org", "chat.deepseek.com", "huggingface.co"];
 		const positives = new Set();
@@ -1107,6 +1278,8 @@ async function main() {
 			if (hits.length) identityLeakFiles.push(`${rel} → ${hits.map(([n]) => n).join("+")}`);
 			// v1.57：隐私/排除项（大小写敏感的字面量子串；二进制在上面已按 NUL 跳过）
 			for (const [n] of PRIVACY_NEEDLES) if (text.includes(n)) privacyLeakFiles.push(`${rel} → ${n}`);
+			// v1.58：favicon 聚合服务域名（产物级"运行期零第三方请求"守卫）
+			for (const n of ICON_AGGREGATOR_NEEDLES) if (text.includes(n)) distIconAggregatorHits.push(`${rel} → ${n}`);
 			// v1.57：正控计数（只统计内容里出现的，路径不算）
 			for (const n of positiveNeedles) if (text.includes(n)) positives.add(n);
 			if (rel.endsWith(".html")) {
@@ -1482,6 +1655,59 @@ async function main() {
 				awaitPromise: true,
 			});
 			facts[`${page.name}-booknav`] = bnRes.result.value;
+		}
+
+		// v1.58：书签页的**深色**图标配色（R-BOOKNAV-07 的唯一事实来源）。
+		// 只在 1440 那一趟采（390 那趟的配色是同一份 CSS，不必采第二遍，也省一次切主题）。
+		// ⚠️ 三件事必须同时做，缺一个量到的就是亮色值（第一版实测踩过）：
+		//   ① `Emulation.setEmulatedMedia` 把 prefers-color-scheme 设成 dark
+		//      —— 项目里 `--card-bg` 这类 token 走 CSS 变量，媒体查询会重算它们；
+		//   ② `html.dark` 类 —— 本书签页图标的深色走 Tailwind `dark:` 变体，
+		//      而 `@custom-variant dark (&:where(.dark, .dark *))` 跟的是**类**，不是媒体特性；
+		//   ③ 改完要等一帧，浏览器才会把 color-mix 重算进 computed style。
+		//     而且 `.booknav-icon` 带 300ms 过渡，必须等过渡跑完（采集表达式内部 await 450ms），
+		//     所以这里要传 `awaitPromise: true` —— 否则拿回来的是一张还没 resolve 的 Promise。
+		if (page.booknav && !page.mobile) {
+			// 第 ③ 条要**在页面加载前**就把媒体特性设成 dark，让页面 boot 时就按深色起；
+			// 加载后再补 `Emulation.setEmulatedMedia` 会重算 `dark:` 变体、触发 300ms 过渡。
+			await cdp.send("Emulation.setEmulatedMedia", {
+				features: [
+					{ name: "prefers-color-scheme", value: "dark" },
+					{ name: "prefers-reduced-motion", value: "no-preference" },
+				],
+			});
+			// ⚠️ **必须重新加载一次**：COLlect_BOOKNAV 刚刚把主题钉成了亮色（见那边注释），
+			//    而且主循环前面的用例可能已经把页面留在深色。重载能确保"深色是从页面
+			//    boot 起就生效的"，`color-mix` 一次算好、没有过渡中间值。
+			//    （不重载而只改类的话，实测会读到过渡插值色 —— 那是个代码里根本不存在的颜色，
+			//     注入验证时表现为"字母块拿到深色值、svg 图标却拿到亮色值"这种自相矛盾的结果。）
+			const darkLoaded = cdp.once("Page.loadEventFired");
+			await cdp.send("Page.navigate", { url: `${BASE}/booknav/` });
+			await darkLoaded;
+			await sleep(400);
+			const darkRes = await cdp.send("Runtime.evaluate", {
+				expression: COLLECT_BOOKNAV_DARK,
+				returnByValue: true,
+				awaitPromise: true,
+			});
+			facts["booknav-dark-icons"] = darkRes.result.value;
+			// 采完把媒体特性还原并重载，让同一趟里的截图与后续采集回到**亮色页面**
+			// （截图是交付物，必须是亮色；verify-ui 主循环跑到这里时页面可能已是深色，
+			//  所以这里显式还原而不是"指望它本来就是亮的"）。
+			await cdp.send("Emulation.setEmulatedMedia", {
+				features: [
+					{ name: "prefers-color-scheme", value: "light" },
+					{ name: "prefers-reduced-motion", value: "no-preference" },
+				],
+			});
+			const lightAgain = cdp.once("Page.loadEventFired");
+			await cdp.send("Page.navigate", { url: `${BASE}/booknav/` });
+			await lightAgain;
+			await cdp.send("Runtime.evaluate", {
+				expression: `(() => { document.documentElement.classList.remove("dark"); document.documentElement.setAttribute("data-theme", "light"); return true; })()`,
+				returnByValue: true,
+			});
+			await sleep(700);
 		}
 
 		const shot = await cdp.send("Page.captureScreenshot", {
@@ -2997,23 +3223,33 @@ async function main() {
 		// R-BOOKNAV-04 的**另一半**（隐私守卫在产物级那一段，见上面的 dist 扫描）：
 		// 线上真正会发出去的图标请求里**不许有第三方 favicon 接口**。
 		// ⚠️ 判据是 `img[src]`（真会发请求的东西）而不是配置字符串 —— 配置里留着那个 api 值无害。
+		//
+		// ⚠️ **v1.58 改口径（这是"就地迁移"而不是"删断言"）**：旧判据是
+		//    `thirdPartyIconRequests.length === 0 && 卡片内 <img> 数量 === 0`
+		//    —— 后半句在 v1.58 必然为假，因为 11 张卡**故意**改用了本地 favicon（走 `<img>`）。
+		//    "不许有 `<img>`"从来不是目标，"不许有**第三方**请求"才是。所以后半句换成
+		//    更严的判据：`<img>` 的 src 必须全部是站内 `/booknav-icons/`（数量由
+		//    R-BOOKNAV-08 单列一条逐张核对），这里保留计数以防"悄悄退回 0 张"。
+		const imgSrcList = (bn.cards ?? []).map((c) => c.imgSrc).filter(Boolean);
+		const localImgCount = imgSrcList.filter((s) => String(s).startsWith(LOCAL_ICON_PREFIX)).length;
 		record(
 			"R-BOOKNAV-03",
-			"favicon 自动获取已关闭：页面上 0 个指向第三方 favicon 接口的图标请求",
-			(bn.thirdPartyIconRequests ?? []).length === 0 && (bn.cards ?? []).every((c) => c.img === 0),
-			`第三方 favicon 请求 ${(bn.thirdPartyIconRequests ?? []).length} 个；卡片内 <img> 合计 ${(bn.cards ?? []).reduce((a, c) => a + c.img, 0)} 个`,
+			"favicon 自动获取已关闭：页面上 0 个指向第三方 favicon 接口的图标请求，且所有图标 <img> 都是站内本地副本",
+			(bn.thirdPartyIconRequests ?? []).length === 0 && localImgCount === imgSrcList.length,
+			`第三方 favicon 请求 ${(bn.thirdPartyIconRequests ?? []).length} 个；卡片内 <img> 合计 ${imgSrcList.length} 个，其中站内 ${localImgCount} 个`,
 		);
-		// R-BOOKNAV-03：关掉自动 favicon 后，**每一格都必须还有内容**（手填 svg 或首字母块），
-		// 不许出现"图标区空了"的卡片 —— 这是"关掉它会不会很难看"的可判定版本。
+		// R-BOOKNAV-03：**图标位不许空**（原来这条的措辞是"手填图标或首字母块"，
+		// v1.58 起口径收紧为"必须是真图标"，见下面的 R-BOOKNAV-05；这里只留"没有空格子"这一层）
 		const iconKinds = (bn.cards ?? []).map((c) => (c.svg > 0 ? "svg" : c.img > 0 ? "img" : c.letterEl > 0 ? "letter" : "empty"));
 		const emptyIcons = iconKinds.filter((k) => k === "empty").length;
 		const svgCount = iconKinds.filter((k) => k === "svg").length;
+		const imgCount = iconKinds.filter((k) => k === "img").length;
 		const letterCount = iconKinds.filter((k) => k === "letter").length;
 		record(
 			"R-BOOKNAV-03",
-			"38 格图标全部有内容（手填图标或首字母块），无一格空白",
-			(bn.cards ?? []).length > 0 && emptyIcons === 0 && svgCount + letterCount === (bn.cards ?? []).length,
-			`svg=${svgCount} ｜ 首字母块=${letterCount} ｜ 空白=${emptyIcons}（共 ${(bn.cards ?? []).length} 张）`,
+			`${EXPECT_BOOKNAV_CARDS.length} 格图标全部有内容（svg / 本地 favicon / 字母块），无一格空白`,
+			(bn.cards ?? []).length > 0 && emptyIcons === 0 && svgCount + imgCount + letterCount === (bn.cards ?? []).length,
+			`svg=${svgCount} ｜ 本地 favicon=${imgCount} ｜ 字母块=${letterCount} ｜ 空白=${emptyIcons}（共 ${(bn.cards ?? []).length} 张）`,
 		);
 		// R-BOOKNAV-03 的证据补充：卡片高度仍整齐（56px 图标块 + padding → 72px），
 		// 也就是"换成首字母块之后卡片没被压扁/撑高"。记录用，不作为硬判据（字体渲染差异会让 ±1px 漂）。
@@ -3055,6 +3291,184 @@ async function main() {
 			same(bnMobile.sectionIds, wantIds) && (bnMobile.cards ?? []).length === EXPECT_BOOKNAV_CARDS.length,
 			`移动端 组=${JSON.stringify(bnMobile.sectionIds)} ｜ 卡数=${(bnMobile.cards ?? []).length}`,
 		);
+
+		// ══ v1.58：官方图标 + 官方品牌色（R-BOOKNAV-05 / 06 / 07 / 08）══════════
+		// 发起人的抱怨原话：「标签怎么没有图标啊，就算有图标但还是没颜色啊，你可以拿官方图标」
+		// —— 三句话对应下面三条：① 每张都要**真图标** ② 每个图标都要**有颜色**
+		// ③ 颜色要是**各站品牌色**而不是统一染一遍。第 4 条是"运行期零第三方请求"。
+
+		// ── R-BOOKNAV-05：每张卡的图标都必须是**真图标**（svg 或本地 img）──
+		// 判据：`<svg>`（iconify 品牌矢量）或 `<img>`（本地官方 favicon）；
+		// `.booknav-letter` 只允许出现在**点名过的例外**上（站点整站不可达、连兜底都拿不到图形）。
+		// 失败时**逐张点名**是哪几张卡退化了 —— 只说"多了 3 个字母块"等于没说。
+		{
+			const degenerate = (bn.cards ?? []).filter((c) => (c.svg ?? 0) === 0 && (c.img ?? 0) === 0);
+			// 例外名单按**标题**认（data-title 是小写形态），与 EXPECT_BOOKNAV_LETTER_EXCEPTIONS 比
+			const allowed = new Set(EXPECT_BOOKNAV_LETTER_EXCEPTIONS);
+			const unlisted = degenerate.filter((c) => !allowed.has((c.title || "").trim()));
+			const missingFromPage = EXPECT_BOOKNAV_LETTER_EXCEPTIONS.filter(
+				(t) => !degenerate.some((c) => (c.title || "").trim() === t),
+			);
+			record(
+				"R-BOOKNAV-05",
+				`${EXPECT_BOOKNAV_CARDS.length} 张卡的图标都是真图标（iconify svg 或本地 favicon），字母块 ≤ ${EXPECT_BOOKNAV_LETTER_EXCEPTIONS.length} 个已点名的例外`,
+				(bn.cards ?? []).length === EXPECT_BOOKNAV_CARDS.length && unlisted.length === 0 && missingFromPage.length === 0,
+				unlisted.length
+					? `❌ 这些卡退化成字母块且不在例外名单里：${unlisted.map((c) => c.title).join(" / ")}（共 ${degenerate.length} 个字母块）`
+					: `svg=${svgCount} ｜ 本地 favicon=${imgCount} ｜ 字母块=${letterCount}${letterCount ? `（例外：${degenerate.map((c) => c.title).join(" / ")}）` : ""}${missingFromPage.length ? ` ｜ ⚠️ 例外名单里的 ${missingFromPage.join("/")} 在页面上**没**退化成字母块（名单过期了？）` : ""}`,
+			);
+			// R-BOOKNAV-05：字母块的**数量**必须正好等于名单长度 —— 挡住"多退化一个但恰好也叫例外名字"
+			record(
+				"R-BOOKNAV-05",
+				`退化成字母块的卡片数 == 例外名单长度（${EXPECT_BOOKNAV_LETTER_EXCEPTIONS.length}）`,
+				letterCount === EXPECT_BOOKNAV_LETTER_EXCEPTIONS.length,
+				`实测 ${letterCount} 个字母块（${degenerate.map((c) => c.title).join(" / ") || "无"}）vs 例外名单 ${EXPECT_BOOKNAV_LETTER_EXCEPTIONS.length} 个（${EXPECT_BOOKNAV_LETTER_EXCEPTIONS.join(" / ") || "空"}）`,
+			);
+			// R-BOOKNAV-05：图标是**装饰性**的，卡片标题才是无障碍名。
+			// 所以每个 iconify `<svg>` 都要 `aria-hidden="true"`（对 AT 隐藏、不挤占标题）。
+			// 这条同时挡住"为了加颜色把 svg 换成带 alt 的 <img> 或加 title"这类
+			// 会让读屏器把站点名念两遍的改法。
+			const ariaBad = (bn.cards ?? []).filter((c) => (c.svg ?? 0) > 0 && c.svgAriaHidden !== "true");
+			record(
+				"R-BOOKNAV-05",
+				`${svgCount} 个 iconify 图标都是装饰性的（svg[aria-hidden=true]，不挤占卡片标题的无障碍名）`,
+				svgCount === ICONIFY_BOOKNAV_TITLES.size && ariaBad.length === 0,
+				ariaBad.length
+					? `❌ ${ariaBad.length} 个 svg 没有 aria-hidden：${ariaBad.map((c) => c.title).join(" / ")}`
+					: `svg=${svgCount}（期望 ${ICONIFY_BOOKNAV_TITLES.size}，与断言名单一致）｜ aria-hidden 缺失 0 个`,
+			);
+		}
+
+		// ── R-BOOKNAV-06：**每个图标都要有颜色**，而且不是旧的中性灰 / 白 ──
+		// 判据取自**浏览器算出来的 computed color**（不是配置字符串）：发起人抱怨的
+		// `text-neutral-700 dark:text-neutral-200` 正是旧实现写死的那一对灰色，
+		// 所以先断言"一个都不许等于那几档灰/白"。
+		{
+			// 只有"有可见图形元素"的卡才参与（img 是位图，没有 color 可谈 —— 它自带真彩色）
+			const withGraphic = (bn.cards ?? []).filter((c) => (c.svg ?? 0) > 0 || (c.letterEl ?? 0) > 0);
+			const noColor = withGraphic.filter((c) => !c.graphicColor || c.graphicColor === "rgba(0, 0, 0, 0)");
+			// 数值比而不是字符串比（理由见 OLD_NEUTRAL_RGB 上方那段注释）
+			const stillNeutral = withGraphic.filter((c) => {
+				const got = parseCssColor(c.graphicColor);
+				return OLD_NEUTRAL_RGB.some((n) => sameRgb(got, n.rgb));
+			});
+			// **不同品牌卡的图标色不许全相同** —— 挡"全都染成主题主色 / 全都染成同一个色"的假实现
+			const distinctRendered = [...new Set(withGraphic.map((c) => c.graphicColor))];
+			const distinctConfigured = [...new Set(Object.values(EXPECT_BOOKNAV_BRAND_HEX))];
+			record(
+				"R-BOOKNAV-06",
+				`每个图标都有颜色（${withGraphic.length} 个带图形元素的图标，计算色 ≠ 旧中性灰/白）`,
+				withGraphic.length > 0 && noColor.length === 0 && stillNeutral.length === 0,
+				noColor.length
+					? `❌ 取不到计算色：${noColor.map((c) => c.title).join(" / ")}`
+					: stillNeutral.length
+						? `❌ 仍是旧中性灰/白（${OLD_NEUTRAL_ICON_COLORS.join(" / ")}）：${stillNeutral.map((c) => `${c.title}=${c.graphicColor}`).join(" / ")}`
+						: `实测计算色样本：${withGraphic.slice(0, 6).map((c) => `${c.title}=${c.graphicColor}`).join(" ｜ ")} …`,
+			);
+			record(
+				"R-BOOKNAV-06",
+				`不同品牌卡的图标色不全相同（渲染出 ${distinctRendered.length} 种色，配置里有 ${distinctConfigured.length} 种品牌色）`,
+				distinctRendered.length >= Math.min(distinctConfigured.length, withGraphic.length) && distinctRendered.length > 1,
+				`渲染色种类=${distinctRendered.length} ｜ 配置色种类=${distinctConfigured.length}`,
+			);
+		}
+		// ── R-BOOKNAV-06：抽样核对"渲染色 == 配置里的品牌色" ──
+		// 上面那条只保证"不是灰的、而且不止一种"，一个"所有色都错但各不相同"的实现照样能过。
+		// 这条把 26 张 iconify 卡的**亮色渲染色**逐张与配置品牌色比对 —— 逐张而不是抽样，
+		// 因为逐张才是"品牌色"这个词的真正含义（#4D6BFE 渲染成 #4D6BFD 也是错的）。
+		{
+			const mismatched = [];
+			for (const c of bn.cards ?? []) {
+				const want = EXPECT_BOOKNAV_BRAND_HEX[(c.title || "").trim()];
+				if (!want) continue;
+				const got = parseCssColor(c.graphicColor);
+				const gotHex = got ? `#${[got.r, got.g, got.b].map((v) => Math.round(v).toString(16).padStart(2, "0")).join("").toUpperCase()}` : "(解析失败)";
+				if (gotHex !== want) mismatched.push(`${c.title}: 渲染 ${gotHex} vs 配置 ${want}`);
+			}
+			record(
+				"R-BOOKNAV-06",
+				`${Object.keys(EXPECT_BOOKNAV_BRAND_HEX).length} 张 iconify 卡的亮色图标色逐张等于配置里的品牌色`,
+				Object.keys(EXPECT_BOOKNAV_BRAND_HEX).length > 0 && mismatched.length === 0,
+				mismatched.length ? `❌ ${mismatched.length} 张不符：${mismatched.slice(0, 6).join(" ｜ ")}` : `逐张核对通过（${Object.keys(EXPECT_BOOKNAV_BRAND_HEX).length} 张，色值来自 src/constants/booknav-brand-colors.ts）`,
+			);
+		}
+
+		// ── R-BOOKNAV-07：深色主题下的图标对比度 ≥ 3:1 ──
+		// 事实来自主循环之后**单独切到深色**再采的那一趟（COLLECT_BOOKNAV_DARK，见那边的注释：
+		// 只切 prefers-color-scheme 不切 html.dark 是量不到深色值的，第一版就会假绿）。
+		// 算法是文件里既有的 WCAG relativeLuminance + contrast()，与 §11 的 R-CFG 那批同源。
+		{
+			// 事实来自主循环里**单独重载到深色**再采的那一趟（COLLECT_BOOKNAV_DARK 与
+			// 调用处那段长注释：切类会读到 300ms 过渡的插值色，必须"设媒体特性 + 重载"）。
+			const darkFacts = facts["booknav-dark-icons"] ?? {};
+			const dark = darkFacts.cards ?? [];
+			const rows = dark
+				.filter((r) => r.kind === "svg" || r.kind === "letter")
+				.map((r) => {
+					const fg = parseCssColor(r.color);
+					const bg = parseCssColor(r.boxBg);
+					return { ...r, ratio: fg && bg ? contrast(fg, bg) : null };
+				});
+			const below = rows.filter((r) => r.ratio !== null && r.ratio < MIN_BOOKNAV_DARK_CONTRAST);
+			const unparsed = rows.filter((r) => r.ratio === null);
+			record(
+				"R-BOOKNAV-07",
+				`深色下每个图标对图标块底的对比度 ≥ ${MIN_BOOKNAV_DARK_CONTRAST}:1（${rows.length} 个 svg/字母块图标）`,
+				rows.length > 0 && below.length === 0 && unparsed.length === 0,
+				below.length
+					? `❌ 低于阈值：${below.map((r) => `${r.title}=${r.ratio.toFixed(2)}:1`).join(" / ")}`
+					: `最低 ${rows.length ? Math.min(...rows.map((r) => r.ratio)).toFixed(2) : "—"}:1 ｜ 最高 ${rows.length ? Math.max(...rows.map((r) => r.ratio)).toFixed(2) : "—"}:1 ｜ 样本：${rows.slice(0, 4).map((r) => `${r.title}=${r.ratio.toFixed(2)}`).join(" ｜ ")}`,
+			);
+			// R-BOOKNAV-07 的第二条：深色下**真的换了色**（不是"亮色值恰好也过阈值"）
+			// 判据：至少 2/3 的 svg 图标在深色下的计算色 ≠ 亮色下的计算色。
+			// 这条挡的是"忘了写 dark: 变体"——那时深色页面上露出的还是原品牌色，
+			// #181717 / #1C3C3C 那几张会糊在深色卡里，而上面的对比度断言可能仍侥幸通过
+			// （实测：深色下 GitHub 原品牌色 1.20:1、LangChain 1.25:1，确实会被抓住，
+			//  但如果哪天某个色恰好两边都过阈值，这条就是唯一的防线）。
+			// ⚠️ 前置：`isDark` 必须为真。否则"深色那一趟"其实量的是亮色值，
+			//    lifted 会算出 0/N，而红行会指向"暗色 ≠ 亮色"这个错误的方向。
+			const lightByTitle = new Map((bn.cards ?? []).map((c) => [(c.title || "").trim(), c.graphicColor]));
+			const lifted = rows.filter((r) => lightByTitle.get((r.title || "").trim()) !== r.color);
+			record(
+				"R-BOOKNAV-07",
+				"深色下图标色确实被主题感知地提亮（不是照搬亮色值）",
+				darkFacts.isDark === true && rows.length > 0 && lifted.length >= Math.ceil((rows.length * 2) / 3),
+				`html.dark=${darkFacts.isDark}（必须 true，否则这一趟量的还是亮色值）｜ ${lifted.length}/${rows.length} 个在深色下换了色值 ｜ 例：${rows.slice(0, 3).map((r) => `${r.title} 亮 ${lightByTitle.get((r.title || "").trim())} → 暗 ${r.color}`).join(" ｜ ")}`,
+			);
+		}
+
+		// ── R-BOOKNAV-08：运行期零第三方请求 ──
+		// 上传一轮只数了 favicon.im 一家（`thirdPartyIconRequests`），换一家服务就漏。
+		// 这条改成**封闭判据**：所有 `<img>` 的 src 一律必须是站内目录 `/booknav-icons/`，
+		// 任何 `http(s)://` 或协议相对的 `//` 开头都判红；同时把上一轮那条 favicon.im 守卫
+		// 并进来一起看（两条腿都留着，因为 `s2/favicons` 那类 URL 会同时命中两者）。
+		{
+			const imgSrcs = (bn.cards ?? []).map((c) => c.imgSrc).filter(Boolean);
+			const notLocal = (bn.cards ?? []).filter((c) => c.imgSrc && !String(c.imgSrc).startsWith(LOCAL_ICON_PREFIX));
+			const external = bn.externalIconSrcs ?? [];
+			record(
+				"R-BOOKNAV-08",
+				`运行期零第三方请求：${imgSrcs.length} 个图标 <img> 全部指向站内 ${LOCAL_ICON_PREFIX}（无 http(s)://、无协议相对 URL）`,
+				imgSrcs.length > 0 && notLocal.length === 0 && external.length === 0 && (bn.thirdPartyIconRequests ?? []).length === 0,
+				notLocal.length
+					? `❌ 不是站内路径：${notLocal.map((c) => `${c.title}=${c.imgSrc}`).join(" / ")}`
+					: external.length
+						? `❌ 出现外部 URL：${external.slice(0, 6).join(" / ")}`
+						: `全部站内 ｜ 外部图标 URL ${external.length} 个 ｜ favicon.im 命中 ${(bn.thirdPartyIconRequests ?? []).length} 个 ｜ 样本：${imgSrcs.slice(0, 4).join(" / ")}`,
+			);
+			// 这条是"产物级"的另一半（延续上一轮那条守卫）：dist/ 里也不许出现聚合接口域名。
+			// ⚠️ 判据对象是**产物文件内容**，不是配置字符串 —— 配置里留着 `favicon.api` 那个值无害。
+			record(
+				"R-BOOKNAV-08",
+				"产物里不出现 favicon 聚合服务域名（s2/favicons · favicon.im · googleapis）",
+				Array.isArray(distIconAggregatorHits) && distIconAggregatorHits.length === 0,
+				distIconAggregatorHits === null
+					? "❌ 产物没被扫到（dev 服务器或 dist 为空）→ 本项无从判定，按失败处理：先 `pnpm build` 再 `pnpm preview` 跑本脚本"
+					: distIconAggregatorHits.length
+						? `❌ 命中：${distIconAggregatorHits.slice(0, 6).join(" ｜ ")}`
+						: `扫 ${distAllFiles.length} 个产物文件：s2/favicons · favicon.im · faviconV2 · googleapis.com 零命中`,
+			);
+		}
 	}
 	record("R-ID-02", "主题色相 = 345", home.hueComputed === EXPECT_HUE || home.hueInline === EXPECT_HUE, `inline=${home.hueInline} computed=${home.hueComputed}`);
 	record("R-ID-04", "favicon 已换成 imiss", home.favicons.some((h) => (h ?? "").includes("imiss-32.png")), JSON.stringify(home.favicons));
