@@ -41,10 +41,27 @@ const EXPECT_BANNER_POSITION = "50% 35%";
 // 顶层导航顺序与子项顺序（prd.md R-NAV-01~04 / 第 2 章）
 // ⚠️ v1.41（P2R）：第 3 格由「排行」下拉换成「学习路线」单链接（R-PATH-01）——
 //    原来的 EXPECT_RANK_CHILDREN 常量与它的用法已随排行模块整体删除（Task 4 / R-PATH-06）。
-// P4-8（v1.47）：第 5 格「链接」整组删除 —— 它只有两条对上游主题的署名外链
+// P4-8（v1.47）：第 5 格「链接」曾整组删除 —— 它当时只有两条对上游主题的署名外链
 // （上游主题 / 上游文档站两条署名外链），发起人要求站上不留任何上游字样。
 // `nav-menu-utils.ts:19-21` 在 children 过滤后为 0 时 `return null`，整组自然消失。
-const EXPECT_TOP_NAV = ["主页", "文章", "学习路线", "我的", "留言"];
+// ⚠️ **v1.57（B-10 关闭）：「链接」整组用发起人自己的 8 条外链重建**，位置回到
+//    「我的」与「留言」之间 → 顶层从 5 格变回 **6 格**。这条常量是**单一事实来源**：
+//    `navBarConfig.ts` 里增删任何顶层项，这里都得跟着改（本轮已做注入验证：
+//    临时把「链接」组整块去掉 → 本断言当场判红，明细打出实际顺序）。
+const EXPECT_TOP_NAV = ["主页", "文章", "学习路线", "我的", "链接", "留言"];
+// v1.57：「链接」下拉的内容 —— 8 条外链，顺序即 `navBarConfig.ts` 里的顺序。
+// ⚠️ 子项名字取短名（「力扣」不是「力扣 LeetCode」），所以这里钉的是**导航里的短名**，
+//    与书签页那 38 张卡（`EXPECT_BOOKNAV_CARDS` 用全名）**故意不同**，别互相抄。
+const EXPECT_LINK_CHILDREN = [
+	{ name: "DeepSeek", href: "https://chat.deepseek.com/" },
+	{ name: "ChatGPT", href: "https://chatgpt.com/" },
+	{ name: "Claude", href: "https://claude.ai/" },
+	{ name: "GitHub", href: "https://github.com/" },
+	{ name: "洛谷", href: "https://www.luogu.com.cn/" },
+	{ name: "力扣", href: "https://leetcode.cn/" },
+	{ name: "CSDN", href: "https://www.csdn.net/" },
+	{ name: "Hugging Face", href: "https://huggingface.co/" },
+];
 const EXPECT_MY_CHILDREN = [
 	{ name: "动态", href: "/dynamic/" },
 	{ name: "项目", href: "/projects/" },
@@ -55,6 +72,68 @@ const EXPECT_MY_CHILDREN = [
 	{ name: "关于我", href: "/about/" },
 ];
 const EXPECT_ABSENT_LABELS = ["社交", "友链", "哔哩哔哩", "番组计划", "打赏", "关于"];
+// ─── v1.57：书签导航页（R-BOOKNAV-01 ~ 04）的单一事实来源 ────────────────────
+// 发起人 2026-09-30 最终选定 **38 张卡 / 6 组**，本表就是那份清单的**逐字落地**。
+// ⚠️ 为什么把 38 条全列出来而不是只数个数：只断言 `cards.length === 38` 的话，
+//    换掉任意一张卡（内容对不上发起人给的清单）仍然是绿的 —— 那正是"判据空过"。
+//    这里连 **URL 的顺序**一起钉死，改一条就红。
+// ⚠️ 这 38 条**同时是隐私守卫的正控**：它们都是"换成首页"之后的形态，
+//    所以守卫（PRIVACY_NEEDLES）判红时，这张表能证明"清单本身是好的、红的是被注入的那条"。
+const EXPECT_BOOKNAV_CARDS = [
+	// 组 1 · AI 工具
+	["DeepSeek", "https://chat.deepseek.com/"],
+	["ChatGPT", "https://chatgpt.com/"],
+	["Claude", "https://claude.ai/"],
+	["Gemini", "https://gemini.google.com/"],
+	["Grok", "https://grok.com/"],
+	["即梦 AI", "https://jimeng.jianying.com/"],
+	// 组 2 · AI 平台与模型
+	["Hugging Face", "https://huggingface.co/"],
+	["53AI 知识库", "https://www.53ai.com/"],
+	["LangSmith", "https://smith.langchain.com/"],
+	["CC Switch", "https://www.ccswitch.io/"],
+	["火山方舟", "https://www.volcengine.com/"],
+	["硅基流动", "https://www.siliconflow.cn/"],
+	["智谱 AI", "https://bigmodel.cn/"],
+	["DeepSeek 开放平台", "https://platform.deepseek.com/"],
+	["OpenAI Platform", "https://platform.openai.com/"],
+	// 组 3 · 学习与刷题
+	["洛谷", "https://www.luogu.com.cn/"],
+	["力扣 LeetCode", "https://leetcode.cn/"],
+	["蓝桥杯大赛", "https://dasai.lanqiao.cn/"],
+	["学习通", "https://i.chaoxing.com/"],
+	["中国教育考试网", "https://www.neea.edu.cn/"],
+	// 组 4 · 开发与文档
+	["GitHub", "https://github.com/"],
+	["Gitee", "https://gitee.com/"],
+	["CSDN", "https://www.csdn.net/"],
+	["LangChain 中文文档", "https://langchain-doc.cn/"],
+	["LangChain 官方文档", "https://docs.langchain.com/"],
+	["npm", "https://www.npmjs.com/"],
+	["Chat SDK", "https://chat-sdk.dev/"],
+	["FreeCAD", "https://www.freecad.org/"],
+	["腾讯位置服务 · 开发文档", "https://lbs.qq.com/"],
+	// 组 5 · 云服务与账号
+	["华为云", "https://www.huaweicloud.com/"],
+	["腾讯云", "https://cloud.tencent.com/"],
+	["Docker", "https://www.docker.com/"],
+	["Canva 可画", "https://www.canva.cn/"],
+	// 组 6 · 其他三方服务（**必须最后**）
+	["米醋 API", "https://www.micuapi.ai/"],
+	["Tavily", "https://tavily.com/"],
+	["PriceAI 比价", "https://priceai.cc/"],
+	["BigME.Pro", "https://happy.bigmess.org/"],
+	["Google", "https://www.google.com/"],
+];
+// 分组名与**权重顺序**（AI 工具优先 … 最后才是其他三方站）
+const EXPECT_BOOKNAV_GROUPS = [
+	["ai-tools", "AI 工具", 6],
+	["ai-platform", "AI 平台与模型", 9],
+	["study", "学习与刷题", 5],
+	["dev", "开发与文档", 9],
+	["cloud", "云服务与账号", 4],
+	["thirdparty", "其他三方服务", 5],
+];
 // P4-8：上游示例文章（主题介绍篇 + `guide/*` 等 29 个文件）已按发起人要求删除，
 // 所有"文章页"断言改用迁移进来的真实文章（否则断言会指向一个已经不存在的路由）
 const SAMPLE_POST = "/posts/linux-net/http-xieyi/";
@@ -473,6 +552,75 @@ const COLLECT_ROADMAP = `(() => {
 	};
 })()`;
 
+// ─── 书签导航页事实采集（R-BOOKNAV-01 ~ 04，v1.57 新增）──
+// 这一页此前**一条断言都没有**（grep `booknav` 只命中导航子项表与 ALLOWED_ROUTES）。
+// 本轮整页换内容（6 组 38 张），所以补上"分组渲染 / 卡片数 / 图标降级 / 空组过滤"这一组
+// 判据 —— 判据本体（38 条标题与 URL、6 个组名与条数）在文件头的
+// EXPECT_BOOKNAV_CARDS / EXPECT_BOOKNAV_GROUPS 里。
+const COLLECT_BOOKNAV = `(async () => {
+  // ⚠️ dbg：这两个字段是"失败时能自证"用的 —— 书签断言红了的时候，先看它们：
+  //    如果 dbgPage 不是 /booknav/，说明打在了别的页面上；如果 dbgPage 对但 root=null，
+  //    说明页面还没渲染出 <booknav-list>（等太短）。没有它们，红行只能告诉你"全是 undefined"。
+  const dbgPage = location.pathname;
+  const dbgReady = document.readyState;
+  // ⚠️ **为什么要轮询**：这一页的 <booknav-list> 是服务端标记 + 内联自定义元素脚本，
+  //    实测在"整轮 verify:ui 跑到这一段"的负载下，load 之后 2.4 秒内偶尔还查不到它
+  //    （单独打开这一页永远查得到）→ 旧写法直接 return {missing:true}，于是 10 条书签断言
+  //    全红，而红行只说"全是 undefined"，看不出是"没渲染"还是"打错页"。现在最多等 6 秒，
+  //    超时也把诊断字段带回来。
+  let root = document.querySelector("booknav-list");
+  let waited = 0;
+  while (!root && waited < 6000) {
+    await new Promise((r) => setTimeout(r, 200));
+    waited += 200;
+    root = document.querySelector("booknav-list");
+  }
+  if (!root) {
+    return {
+      missing: true,
+      dbgPage,
+      dbgReady,
+      dbgWaitedMs: waited,
+      dbgBodyTags: document.body.children.length,
+      dbgHasTag: document.getElementsByTagName("booknav-list").length,
+      dbgHtmlLen: document.documentElement.outerHTML.length,
+    };
+  }
+  const sections = [...root.querySelectorAll("section[data-group-id]")];
+  const cards = [...root.querySelectorAll(".booknav-card")];
+  return {
+    missing: false,
+    sectionIds: sections.map((s) => s.getAttribute("data-group-id")),
+    sectionNames: sections.map((s) => (s.querySelector("h2") || {}).textContent?.trim() ?? ""),
+    sectionCounts: sections.map((s) => s.querySelectorAll(".booknav-card").length),
+    // 分类胶囊上那个条数角标：它必须与组内实际卡片数一致（否则"6"是写死的假数字）
+    pillNames: [...root.querySelectorAll("button[data-target]")].map((b) => (b.textContent || "").replace(/\\s+/g, " ").trim()),
+    pillTargets: [...root.querySelectorAll("button[data-target]")].map((b) => b.getAttribute("data-target")),
+    cards: cards.map((c) => ({
+      title: c.getAttribute("data-title"),
+      href: c.getAttribute("href"),
+      group: c.closest("section[data-group-id]")?.getAttribute("data-group-id") ?? null,
+      letter: c.querySelector(".booknav-icon")?.getAttribute("data-letter") ?? null,
+      // 三种图标形态各自数一次：svg（手填 iconify）/ img（图片或自动 favicon）/ 首字母块
+      svg: c.querySelectorAll(".booknav-icon svg").length,
+      img: c.querySelectorAll(".booknav-icon img").length,
+      letterEl: c.querySelectorAll(".booknav-letter").length,
+      target: c.getAttribute("target"),
+    })),
+    // R-BOOKNAV-03（favicon 决定的证据）：关掉自动 favicon 之后，页面上**不该再有任何
+    // 指向第三方 favicon 接口的请求**。这里数的是"真的会发出去的 URL"（img[src]），
+    // 不是配置里的字符串 —— 配置字符串留着无害，发请求才有害。
+    thirdPartyIconRequests: [...root.querySelectorAll(".booknav-icon img")].map((im) => im.getAttribute("src")).filter((s) => /favicon\\.im/.test(s || "")),
+    // 空组过滤（getEnabledBooknavGroups 的职责）：空 section 与"0 张卡的组"都不许有
+    emptySections: sections.filter((s) => s.querySelectorAll(".booknav-card").length === 0).map((s) => s.getAttribute("data-group-id")),
+    // 卡片高度：favicon 关掉后图标块仍是 56px（w-14 h-14）→ 卡片高度不该被压扁
+    cardHeights: [...new Set(cards.map((c) => Math.round(c.getBoundingClientRect().height)))],
+    total: cards.length,
+    dbgPage,
+    dbgWaitedMs: waited,
+  };
+})()`;
+
 // ─── 对比度采集（R-ID-02 的验收要求）──────────────────────
 // 思路：不靠肉眼。把 --hue 在 345（本站）与 165（上游原值）之间切换，
 // 用同一个 WCAG 公式算出几组"文字/背景"配色的对比度，做 A/B：
@@ -827,6 +975,37 @@ async function main() {
 	// （改名映射表见 PROJECT_STATUS.md v1.49 变更行 与 ARCH §14.3 T85。）
 	const UPSTREAM_CI =
 		/firefly|cuteleaf|夏夜流萤|夏叶|xiaye@msn\.com|cuteleaf\.cn|ko-fi\.com\/cuteleaf|ifdian\.net\/a\/cuteleaf/i;
+	// ─── v1.57：隐私与排除项**泄漏守卫**（发起人点名的 14 个串，一个都不许进产物）────
+	// 为什么要有这条：书签导航那 38 条是发起人**从自己浏览器里抄出来的书签**，原始 URL 里
+	// 混着只有他自己会有的东西 —— 腾讯云轻量**实例 ID**、Docker **用户名**、LangSmith
+	// **组织 ID**、Google/Gemini 的**追踪参数**、学习通的**时间戳参数**。本轮统一"换成首页"
+	// 时这些串**顺带被抹掉**了，但"顺带"不是"保证"：改一条 URL、把某条原始链接粘回去、
+	// 或者从别处再导入一次，它们就会重新进产物，而且**页面上看不出来**（参数不影响跳转）。
+	// 所以这里把它们钉成**产物级**判据（扫 `dist/**` 全集，含文件名/路径）。
+	//
+	// ⚠️ 判据是**字面量子串**（大小写敏感）：`i.chaoxing.com/base?t=` 这种带 `?`/`=` 的写法
+	//    故意连参数名前缀一起钉，免得只靠域名判（域名本身是发起人要收录的正常内容）。
+	// ⚠️ **不要把 `happy.bigmess.org` 加进来** —— 它是发起人明确要收录的站点（BigME.Pro，
+	//    落在「其他三方服务」组），加进来等于把要收录的东西判成泄漏。同理，`bigmodel.cn`
+	//    / `micuapi.ai` / `priceai.cc` 这些域名也都是清单内的正常内容。
+	// ⚠️ 这 14 个串里有一个是**通用英文词**：`dlsite` 与 `theporndude` 是发起人点名要排除的
+	//    站点（清单里本来就没有它们），本轮实测在当前产物里 0 命中（见下面断言的 detail）。
+	const PRIVACY_NEEDLES = [
+		["lhins-r4o6dc9v", "腾讯云轻量实例 ID"],
+		["handler01", "Docker 用户名"],
+		["900dd689-c116-4ccf-911f-78494a0db890", "LangSmith 组织 ID"],
+		["dlsite", "被排除的站点（dlsite）"],
+		["theporndude", "被排除的站点（theporndude）"],
+		["139.159.190.22", "被排除的服务器 IP"],
+		["wzyp.cn", "被排除的域名（wzyp.cn）"],
+		["27届小比特-实习-资料汇总", "被排除的资料名"],
+		["i.chaoxing.com/base?t=", "学习通的时间戳参数（原始 URL 形态）"],
+		["webhp?", "Google 追踪参数（原始 URL 形态）"],
+		["/u/1/app?", "Gemini 追踪参数（原始 URL 形态）"],
+		["activeTab=readme", "带 activeTab 参数的原始 URL 形态"],
+		["/thankyou.php?", "带 thankyou.php 参数的原始 URL 形态"],
+		["searchParams=", "带 searchParams= 的原始 URL 形态"],
+	];
 	// R-ID-06：订阅功能移除后，这些不该再出现在任何页面里
 	const FEED_LEAK_NEEDLES = [
 		["application/rss+xml", "head 里的 RSS alternate 链接"],
@@ -893,12 +1072,19 @@ async function main() {
 		const visibleLeakFiles = [];
 		const nameLeakFiles = [];
 		const feedLeakFiles = [];
+		// v1.57：隐私/排除项命中（**文件相对路径 → 命中的串**，便于归因到具体改错了哪一条 URL）
+		const privacyLeakFiles = [];
+		// v1.57：正控 —— 发起人明确要收录的站点必须在产物里（否则"守卫全绿"可能只是产物空了）
+		const positiveNeedles = ["happy.bigmess.org", "chat.deepseek.com", "huggingface.co"];
+		const positives = new Set();
 		let scanned = 0;
 		let binarySkipped = 0;
 		let unreadable = 0;
 		for (const { abs, rel } of distAllFiles) {
 			// ② 文件名 / 路径本身（二进制文件也照查 —— "名字里带"是最容易被漏掉的存活方式）
 			if (UPSTREAM_CI.test(rel)) nameLeakFiles.push(rel);
+			// v1.57：隐私串也查**文件名/路径本身**（同一层，理由同上）
+			for (const [n] of PRIVACY_NEEDLES) if (rel.includes(n)) privacyLeakFiles.push(`${rel}（路径） → ${n}`);
 			// 内容扫描：含 NUL 字节即视为二进制 → 跳过内容，只留上面的文件名判定
 			let buf;
 			try {
@@ -919,6 +1105,10 @@ async function main() {
 			// ③ 品牌 / 身份 / 凭据串（大小写敏感；用 IDENTITY_NEEDLES 表，含"不含上游主题名"的那些）
 			const hits = IDENTITY_NEEDLES.filter(([n]) => text.includes(n));
 			if (hits.length) identityLeakFiles.push(`${rel} → ${hits.map(([n]) => n).join("+")}`);
+			// v1.57：隐私/排除项（大小写敏感的字面量子串；二进制在上面已按 NUL 跳过）
+			for (const [n] of PRIVACY_NEEDLES) if (text.includes(n)) privacyLeakFiles.push(`${rel} → ${n}`);
+			// v1.57：正控计数（只统计内容里出现的，路径不算）
+			for (const n of positiveNeedles) if (text.includes(n)) positives.add(n);
 			if (rel.endsWith(".html")) {
 				// ④ 可见文本（剥 script/style/HTML 注释）
 				if (UPSTREAM_CI.test(visibleTextOf(text))) visibleLeakFiles.push(rel);
@@ -962,6 +1152,25 @@ async function main() {
 			"全站产物没有订阅残渣（rss/atom 链接与入口）",
 			feedLeakFiles.length === 0,
 			fmt(feedLeakFiles),
+		);
+		// ── v1.57：隐私与排除项泄漏守卫（两条：负控 + 正控）────────────────────────
+		// 负控：14 个串一个都不许出现在**产物全集**（内容 + 文件名/路径）里。
+		// 失败时把**命中的文件与串**逐条打出来 —— 只报"失败"而不说改哪条 URL，等于没说。
+		record(
+			"R-BOOKNAV-04",
+			`书签清单没把隐私/排除项带进产物（${PRIVACY_NEEDLES.length} 个串，扫 ${distAllFiles.length} 个产物文件 + 文件名/路径）`,
+			privacyLeakFiles.length === 0 && scanned > 0,
+			privacyLeakFiles.length
+				? `命中 ${privacyLeakFiles.length} 处：${privacyLeakFiles.slice(0, 8).join(" ｜ ")}${privacyLeakFiles.length > 8 ? " …" : ""}`
+				: `${scanNote}。14 个串（腾讯云实例 ID / Docker 用户名 / LangSmith 组织 ID / dlsite / theporndude / 139.159.190.22 / wzyp.cn / 27届小比特-实习-资料汇总 / i.chaoxing.com/base?t= / webhp? / /u/1/app? / activeTab=readme / /thankyou.php? / searchParams=）零命中`,
+		);
+		// 正控：守卫不能是"产物里什么都没有"的假绿 —— 发起人点名要收录的域名必须在。
+		// ⚠️ 这一条同时挡住"把 happy.bigmess.org 顺手加进守卫"这种自伤（加了它，负控与正控会同时红）。
+		record(
+			"R-BOOKNAV-04",
+			"守卫的正控：发起人明确要收录的站点仍在产物里（不是「产物空了」的假绿）",
+			positives.size === positiveNeedles.length,
+			`命中 ${positives.size}/${positiveNeedles.length}：${positiveNeedles.map((n) => `${n}=${positives.has(n)}`).join(" ｜ ")}（happy.bigmess.org 已按发起人要求收录，**故意不在负控名单里**）`,
 		);
 	}
 
@@ -1175,6 +1384,11 @@ async function main() {
 		{ name: "myanimelist-1440", path: "/myanimelist/", width: 1440, height: 900, mobile: false },
 		{ name: "vndb-1440", path: "/vndb/", width: 1440, height: 900, mobile: false },
 		{ name: "about-1440", path: "/about/", width: 1440, height: 900, mobile: false },
+		// v1.57（B-10）：书签导航页 —— 整页换内容后必须有断言看着（此前一条都没有），
+		// booknav: true → 额外采集分组/卡片/图标降级事实（COLLECT_BOOKNAV）。
+		// 用 1440×1400 是因为 38 张卡分 6 组铺下来很高，900 高的整页截图会把下面的组切掉。
+		{ name: "booknav-1440", path: "/booknav/", width: 1440, height: 1400, mobile: false, booknav: true },
+		{ name: "booknav-390", path: "/booknav/", width: 390, height: 844, mobile: true, booknav: true },
 		// P2R 学习路线（排行那 8 张随模块删除，Task 4 / P2R-6）
 		{ name: "roadmap-1440", path: "/roadmap/", width: 1440, height: 1000, mobile: false, roadmap: true },
 		{ name: "roadmap-390", path: "/roadmap/", width: 390, height: 844, mobile: true, roadmap: true },
@@ -1258,6 +1472,16 @@ async function main() {
 				awaitPromise: true,
 			});
 			facts[`${page.name}-roadmap`] = rmRes.result.value;
+		}
+
+		// v1.57：书签导航页的 DOM 契约事实（分组 / 卡片 / 图标降级 / 空组）
+		if (page.booknav) {
+			const bnRes = await cdp.send("Runtime.evaluate", {
+				expression: COLLECT_BOOKNAV,
+				returnByValue: true,
+				awaitPromise: true,
+			});
+			facts[`${page.name}-booknav`] = bnRes.result.value;
 		}
 
 		const shot = await cdp.send("Page.captureScreenshot", {
@@ -2668,6 +2892,39 @@ async function main() {
 	const my = home.navTops.find((t) => t.name === "我的");
 	record("R-NAV-03", "我的子项顺序与链接", !!my && same(my.children, EXPECT_MY_CHILDREN), JSON.stringify(my?.children));
 	record("R-NAV-01~04", "已删除的导航项不再出现", EXPECT_ABSENT_LABELS.every((l) => !home.allLabels.includes(l)), home.allLabels.filter((l) => EXPECT_ABSENT_LABELS.includes(l)).join(",") || "无残留");
+	// ── v1.57（B-10 关闭）：「链接」下拉用发起人自己的 8 条外链重建 ──────────────
+	// 位置由上面那条「顶层导航顺序」钉住（第 5 格、在「我的」与「留言」之间），
+	// 这里钉**内容**：8 条的名字 + href + 顺序，一条不对就红。
+	// ⚠️ 子项名字是**短名**（「力扣」/「洛谷」/「CSDN」），不是书签页那 38 张卡的全名 ——
+	//    两边故意不同（导航栏放不下「力扣 LeetCode」），别把它和 EXPECT_BOOKNAV_CARDS 对齐。
+	{
+		const link = home.navTops.find((t) => t.name === "链接");
+		record(
+			"R-NAV-01~04",
+			"「链接」下拉的 8 条外链（名字 + href + 顺序）与发起人清单一致",
+			!!link && same(link.children, EXPECT_LINK_CHILDREN),
+			`实际 ${JSON.stringify(link?.children ?? null)}`,
+		);
+		// 这 8 条**都不是站内页面**：必须带 external（外链新开页 + 主题的图标/rel 处理），
+		// 且不许挂 pageKey（挂了会被 siteConfig.pages 过滤掉、整组可能一声不响地消失）。
+		// 这一条同时是"空组"判据的正面版：children 存在且 8 条都在。
+		const navSrc = await fs.readFile(path.resolve("src/config/navBarConfig.ts"), "utf8");
+		const linkBlock = navSrc.match(/name:\s*"链接",[\s\S]*?\n\t\}\);/)?.[0] ?? "";
+		const externals = (linkBlock.match(/external:\s*true/g) ?? []).length;
+		record(
+			"R-NAV-01~04",
+			"「链接」组 8 条都标了 external: true、且都没有 pageKey",
+			externals === 8 && !/pageKey/.test(linkBlock),
+			`external: true 出现 ${externals} 次（期望 8）｜ 块内含 pageKey=${/pageKey/.test(linkBlock)}`,
+		);
+		// 上游署名项的负控（原样保留）：重建后的 8 条里不许混进任何上游字样
+		record(
+			"R-NAV-01~04",
+			"重建的「链接」组里没有上游署名项",
+			!/firefly|cuteleaf|夏夜流萤/i.test(linkBlock) && linkBlock.length > 0,
+			linkBlock ? `块长 ${linkBlock.length} 字符，上游字样=${/firefly|cuteleaf|夏夜流萤/i.test(linkBlock)}` : "没抓到「链接」块（配置被改？）",
+		);
+	}
 	// 移动抽屉与桌面共用同一份 navBarConfig，所以顺序断言对两边都成立（「排行」不再出现在任何一层）
 	record("R-NAV-01", "移动端菜单最后一项是「留言」且第 3 格是「学习路线」", mobileHome.mobileTops.at(-1)?.name === "留言" && mobileHome.mobileTops.some((t) => t.name === "学习路线"), JSON.stringify(mobileHome.mobileTops.map((t) => t.name)));
 	// M6（终审）：`mobileNavActive` 与 `mobileNavExpanded` 两个采集项原来的唯一消费者是
@@ -2685,6 +2942,120 @@ async function main() {
 		`当前页项文字 ${JSON.stringify(aboutNav?.mobileNavActive)} ｜ 自动展开的分组 ${JSON.stringify(aboutNav?.mobileNavExpanded)}`,
 	);
 	record("R-ID-01", "站点名 IMiss Blog（标题 + 导航栏品牌）", home.title.includes("IMiss Blog") && (home.brand ?? "").includes("IMiss Blog"), `title=${home.title} brand=${home.brand}`);
+	// ── v1.57：书签导航页（R-BOOKNAV-01 ~ 04）──────────────────────────────────
+	// 这一页此前**一条界面断言都没有**（grep `booknav` 只命中导航子项表与 ALLOWED_ROUTES）。
+	// 本轮整页从"上游示例三组 10 张"换成发起人最终选定的 **6 组 38 张**，判据一起补上。
+	// ⚠️ 事实取自 `facts["booknav-1440"].booknav` 与 `facts["booknav-390"].booknav`
+	//    （主循环里 `booknav: true` 那一趟采的），不是 fetch HTML 正则 —— 图标降级形态、
+	//    卡片高度、空组过滤这些只有真渲染出来才看得出。
+	{
+		// ⚠️ **键名这里踩过一次坑（v1.57 实现时）**：主循环把额外采集的结果存在
+		//    `${page.name}-booknav`（整份 facts 里的键是 `"booknav-1440-booknav"`），
+		//    **不是** `facts["booknav-1440"].booknav` —— 后者是"主 COLLECT 结果上挂一个 booknav
+		//    字段"的读法，永远取不到东西，于是 10 条断言全红、而红行只会说"全是 undefined"。
+		//    同一个文件里 post / roadmap 用的是同一个键名约定（`x-1440-post` / `x-1440-roadmap`）。
+		const bn = facts["booknav-1440-booknav"] ?? {};
+		const bnMobile = facts["booknav-390-booknav"] ?? {};
+		// R-BOOKNAV-01：分组**按 weight 降序渲染**（发起人的优先级：AI 工具优先 … 其他三方站最后）
+		const wantIds = EXPECT_BOOKNAV_GROUPS.map((g) => g[0]);
+		const wantNames = EXPECT_BOOKNAV_GROUPS.map((g) => g[1]);
+		const wantCounts = EXPECT_BOOKNAV_GROUPS.map((g) => g[2]);
+		record(
+			"R-BOOKNAV-01",
+			`书签页按权重渲染 ${EXPECT_BOOKNAV_GROUPS.length} 组（AI 工具优先 … 其他三方服务最后）`,
+			same(bn.sectionIds, wantIds) && same(bn.sectionNames, wantNames),
+			`实际 id=${JSON.stringify(bn.sectionIds)} ｜ 组名=${JSON.stringify(bn.sectionNames)}`,
+		);
+		// R-BOOKNAV-01：每组条数与 EXPECT_BOOKNAV_GROUPS 的第三列一致（合计 38）
+		record(
+			"R-BOOKNAV-02",
+			"每组条数正确（6/9/5/9/4/5 = 38）",
+			same(bn.sectionCounts, wantCounts),
+			`实际 ${JSON.stringify(bn.sectionCounts)}（合计 ${(bn.sectionCounts ?? []).reduce((a, b) => a + b, 0)}）`,
+		);
+		// R-BOOKNAV-02：38 张卡的**标题 + URL + 顺序**必须逐条等于发起人清单。
+		// 只数个数是不够的 —— 换掉一张卡仍是 38 张，但内容已经不是他要的了。
+		// ⚠️ 只折叠**标题**的大小写、不折叠 URL：模板渲染 data-title 时用的是
+		//    `item.title.toLowerCase()`（booknav.astro 的既有行为，本轮不改），所以标题这一列
+		//    天然是小写；URL 必须逐字符相等（大小写不同就是另一个地址）。
+		const fold = (s) => String(s).toLowerCase();
+		const gotCards = (bn.cards ?? []).map((c) => [c.title, c.href]);
+		const wantCardsFolded = EXPECT_BOOKNAV_CARDS.map(([title, href]) => [fold(title), href]);
+		record(
+			"R-BOOKNAV-02",
+			`书签页 ${EXPECT_BOOKNAV_CARDS.length} 张卡的标题与 URL 逐条等于发起人清单（含顺序；标题按 data-title 的小写形态比）`,
+			same(gotCards, wantCardsFolded),
+			gotCards.length === EXPECT_BOOKNAV_CARDS.length
+				? `条数一致（${gotCards.length}），但内容/顺序有出入：第一处不同 = ${JSON.stringify(
+						(() => {
+							const i = gotCards.findIndex((c, k) => JSON.stringify(c) !== JSON.stringify(EXPECT_BOOKNAV_CARDS[k]));
+							return i < 0 ? null : { 第几: i + 1, 实际: gotCards[i], 期望: wantCardsFolded[i] };
+						})(),
+					)}`
+				: `实际 ${gotCards.length} 张，期望 ${EXPECT_BOOKNAV_CARDS.length} 张`,
+		);
+		// R-BOOKNAV-04 的**另一半**（隐私守卫在产物级那一段，见上面的 dist 扫描）：
+		// 线上真正会发出去的图标请求里**不许有第三方 favicon 接口**。
+		// ⚠️ 判据是 `img[src]`（真会发请求的东西）而不是配置字符串 —— 配置里留着那个 api 值无害。
+		record(
+			"R-BOOKNAV-03",
+			"favicon 自动获取已关闭：页面上 0 个指向第三方 favicon 接口的图标请求",
+			(bn.thirdPartyIconRequests ?? []).length === 0 && (bn.cards ?? []).every((c) => c.img === 0),
+			`第三方 favicon 请求 ${(bn.thirdPartyIconRequests ?? []).length} 个；卡片内 <img> 合计 ${(bn.cards ?? []).reduce((a, c) => a + c.img, 0)} 个`,
+		);
+		// R-BOOKNAV-03：关掉自动 favicon 后，**每一格都必须还有内容**（手填 svg 或首字母块），
+		// 不许出现"图标区空了"的卡片 —— 这是"关掉它会不会很难看"的可判定版本。
+		const iconKinds = (bn.cards ?? []).map((c) => (c.svg > 0 ? "svg" : c.img > 0 ? "img" : c.letterEl > 0 ? "letter" : "empty"));
+		const emptyIcons = iconKinds.filter((k) => k === "empty").length;
+		const svgCount = iconKinds.filter((k) => k === "svg").length;
+		const letterCount = iconKinds.filter((k) => k === "letter").length;
+		record(
+			"R-BOOKNAV-03",
+			"38 格图标全部有内容（手填图标或首字母块），无一格空白",
+			(bn.cards ?? []).length > 0 && emptyIcons === 0 && svgCount + letterCount === (bn.cards ?? []).length,
+			`svg=${svgCount} ｜ 首字母块=${letterCount} ｜ 空白=${emptyIcons}（共 ${(bn.cards ?? []).length} 张）`,
+		);
+		// R-BOOKNAV-03 的证据补充：卡片高度仍整齐（56px 图标块 + padding → 72px），
+		// 也就是"换成首字母块之后卡片没被压扁/撑高"。记录用，不作为硬判据（字体渲染差异会让 ±1px 漂）。
+		record(
+			"R-BOOKNAV-03",
+			"卡片高度整齐（同一高度，没有被首字母块压扁或撑开）",
+			(bn.cardHeights ?? []).length === 1,
+			`实测卡片高度集合 = ${JSON.stringify(bn.cardHeights)}（38 张卡同一高度即通过）；移动端 390 下 = ${JSON.stringify(bnMobile.cardHeights)}`,
+		);
+		// R-BOOKNAV-01：**空组过滤**（`getEnabledBooknavGroups()` 会把 items 为 0 的组丢掉）——
+		// 页面里不许出现"有标题、0 张卡"的空 section，也不许出现"6 个组但总数对不上"。
+		record(
+			"R-BOOKNAV-01",
+			"没有空组：每个 section 都有卡片（getEnabledBooknavGroups 的空组过滤生效）",
+			(bn.emptySections ?? []).length === 0 && (bn.sectionIds ?? []).length === EXPECT_BOOKNAV_GROUPS.length,
+			`空组 ${JSON.stringify(bn.emptySections ?? null)} ｜ section 数=${(bn.sectionIds ?? []).length}`,
+		);
+		// R-BOOKNAV-02：分类胶囊的锚点 id 与组一致，且胶囊上的条数角标 == 组内实际卡片数
+		// （角标是模板里 `{group.items.length}` 渲染的，钉住它可以抓到"配置 6 条、页面 5 张"的漂移）
+		const pillCounts = (bn.pillNames ?? []).map((t) => Number((t.match(/(\d+)\s*$/) ?? [])[1]));
+		record(
+			"R-BOOKNAV-02",
+			"分类胶囊的锚点与条数角标都与分组一致",
+			same(bn.pillTargets, wantIds) && same(pillCounts, wantCounts),
+			`胶囊锚点=${JSON.stringify(bn.pillTargets)} ｜ 角标=${JSON.stringify(pillCounts)} ｜ 胶囊文字=${JSON.stringify(bn.pillNames)}`,
+		);
+		// R-BOOKNAV-02：卡片一律 `target="_blank"` + `rel="noopener noreferrer"`（38 条全是外链）
+		const badTargets = (bn.cards ?? []).filter((c) => c.target !== "_blank").length;
+		record(
+			"R-BOOKNAV-02",
+			"38 张卡都是新窗口打开（target=_blank）",
+			(bn.cards ?? []).length === EXPECT_BOOKNAV_CARDS.length && badTargets === 0,
+			`target 不是 _blank 的卡片 ${badTargets} 张`,
+		);
+		// R-BOOKNAV-01：390 视口下同样是 6 组 38 张（手机上没有横向溢出 / 没有组被挤掉）
+		record(
+			"R-BOOKNAV-01",
+			"移动端 390 下同样是 6 组 38 张卡",
+			same(bnMobile.sectionIds, wantIds) && (bnMobile.cards ?? []).length === EXPECT_BOOKNAV_CARDS.length,
+			`移动端 组=${JSON.stringify(bnMobile.sectionIds)} ｜ 卡数=${(bnMobile.cards ?? []).length}`,
+		);
+	}
 	record("R-ID-02", "主题色相 = 345", home.hueComputed === EXPECT_HUE || home.hueInline === EXPECT_HUE, `inline=${home.hueInline} computed=${home.hueComputed}`);
 	record("R-ID-04", "favicon 已换成 imiss", home.favicons.some((h) => (h ?? "").includes("imiss-32.png")), JSON.stringify(home.favicons));
 	// P6-8：apple-touch-icon 必须是 180px 那张（Apple 约定边长），不是"数组里第一个 png"。
@@ -6993,14 +7364,20 @@ async function main() {
 			);
 		}
 
-		// ③ 导航：不再有「链接」组，且不留下"点开是空的分组容器"
+		// ③ 导航：v1.57 起「链接」组**用发起人自己的 8 条重建**（口径就地翻转），
+		//    但仍然不许出现"点开是空的分组容器"，也不许混进上游署名项。
 		{
 			const tops = home.navTops || [];
+			// ⚠️ 这条断言在 v1.47~v1.56 期间是反的（"不再有「链接」组"）。翻转的理由与证据：
+			//    v1.57 发起人给出 8 条清单、B-10 关闭 —— 现在**要求它存在且 8 条都在**。
+			//    ⚠️ 判据必须同时看"有没有这一格"与"里面是不是 8 条"：只看前者的话，
+			//    一个 children 被过滤光的空「链接」壳子也能过（而那正是 v1.47 注释里担心的形态）。
+			const link = tops.find((t) => t.name === "链接");
 			record(
 				"R-NAV-01~04",
-				"导航里不再有「链接」组（整组消失，不是留一个空下拉）",
-				!tops.some((t) => t.name === "链接") && !home.allLabels.includes("链接"),
-				`顶层=${JSON.stringify(tops.map((t) => t.name))}`,
+				"「链接」组已按 B-10 重建：在导航里且含 8 条子项",
+				!!link && home.allLabels.includes("链接") && (link.children?.length ?? 0) === 8,
+				`顶层=${JSON.stringify(tops.map((t) => t.name))} ｜ 「链接」子项数=${link?.children?.length ?? 0}`,
 			);
 			// "空分组容器"= 触发器 href 是 `#`（下拉）却没有任何子项。
 			// 上游那两条署名外链删掉后，如果 nav-menu-utils 不 return null，这里就会抓到空壳。
