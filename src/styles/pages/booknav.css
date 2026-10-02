@@ -16,7 +16,12 @@ booknav-list {
 	scroll-margin-top: 5.5rem;
 }
 
-/* 图标缺失时的首字母兜底样式 */
+/* 图标缺失时的首字母兜底样式
+ * ⚠️ v1.58：颜色改成**跟随条目品牌色**（`.booknav-letter--brand` 走 `--brand-c` /
+ *    深色下的 `--brand-c-dark`），不再是清一色的主题主色灰块 ——
+ *    发起人的原话是"标签…就算有图标但还是没颜色"，灰色字母块正是他要消掉的东西。
+ *    这两条留作**没有品牌色可用时**的最终兜底（当前 38 张里用不到，但没有它
+ *    这个组件就只剩"有品牌色"一种活法）。 */
 .booknav-letter {
 	font-size: 1.25rem;
 	font-weight: 700;
@@ -28,4 +33,23 @@ booknav-list {
 	display: flex;
 	align-items: center;
 	justify-content: center;
+}
+
+/* 带品牌色的字母块（深色下 `--brand-c-dark` 由内联 style 给出提亮值） */
+.booknav-letter--brand {
+	color: var(--brand-c);
+	background: color-mix(in srgb, var(--brand-c) 14%, transparent);
+}
+
+/* 深色：文字色换成提亮值，底色也跟着用提亮值（否则底太暗、衬不出字）。
+ * ⚠️ **底色的 alpha 必须比亮色小**（8% vs 14%）—— 实测踩到的坑：
+ *    深色下底色品牌色本身就是**浅紫** `#B19CFB`，16% 叠在 zinc-800 上把底抬到
+ *    `rgb(61,58,76)`，于是"浅紫字 on 中紫底"的对比度掉到 **2.61:1**（< 3:1）。
+ *    亮色下底色是**深紫** `#7C3AED`，叠在 zinc-100 上只会把底压暗、衬出深紫字，
+ *    所以亮色可以用更高的 alpha（实测 14% → 4.23:1）。
+ *    浏览器实测（`reports/_bni-alphascan.mjs`）：深色 8% → 5.53:1，安全余量充足。
+ *    两条都用 `reports/verify-ui.mjs` 的 R-BOOKNAV-07 钉住。 */
+.dark .booknav-letter--brand {
+	color: var(--brand-c-dark);
+	background: color-mix(in srgb, var(--brand-c-dark) 8%, transparent);
 }

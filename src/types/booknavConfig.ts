@@ -11,6 +11,17 @@ export type BooknavItem = {
 	// 2. public 目录图片：/assets/images/xxx.png
 	// 3. astro-icon 图标名：fa7-brands:github
 	icon?: string;
+	// 图标的**官方品牌色**（十六进制，如 "#4D6BFE"）。
+	// ⚠️ 这里写的是"品牌色"，不是"最终渲染色" —— 页面按主题色感知地使用它：
+	//   · 亮色主题：原样使用（卡片图标底是浅灰 zinc-100，品牌色直接可见）
+	//   · 深色主题：`color-mix(in oklab, <品牌色> 55%, white)` —— 只抬亮度、保留色相，
+	//     避免 #181717 / #1C3C3C / #0052D9 这类深色在深色卡上"看不见"。
+	//     个别色在 55% 下仍够不到 3:1（如 GitHub 的 #181717）才单独配深色值，
+	//     见 `src/constants/booknav-brand-colors.ts`（品牌色表的单一事实来源）。
+	//   · 留空：退回主题的中性色（`text-neutral-700` / `dark:text-neutral-200`），即旧行为
+	// 三种图标形态都能吃这个颜色：iconify `<svg>`、以及兜底的 `.booknav-letter` 首字母块。
+	// 本地 favicon（`kind === "image"`）自带真彩色，**不用**也不该用这个字段。
+	iconColor?: string;
 	weight?: number; // 组内权重，数字越大排序越靠前，默认 0
 	enabled?: boolean; // 是否启用，默认 true
 };

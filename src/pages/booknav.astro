@@ -1,6 +1,7 @@
 ---
 import { Icon } from "astro-icon/components";
 import { booknavPageConfig, siteConfig } from "@/config";
+import { BRAND_DARK_MIX_PERCENT } from "@/constants/booknav-brand-colors";
 import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
 import MainGridLayout from "@/layouts/MainGridLayout.astro";
@@ -21,6 +22,28 @@ if (!siteConfig.pages.booknav) {
 // 使用配置文件中的书签数据，按权重排序
 const groups = getEnabledBooknavGroups();
 
+/**
+ * 按条目上色的 CSS 变量。
+ *
+ * 为什么要"变量 + 主题覆写"而不是直接写 `style="color:#4D6BFE"`：
+ * 深色卡片上 `#181717`（GitHub）/ `#1C3C3C`（LangChain）/ `#0052D9`（腾讯位置服务）
+ * 这类深色**看不见**（实测 `#181717` 对 zinc-800 只有 1.20:1）。做法是**主题色感知**的：
+ *   · 亮色：`--brand-c` 原样用品牌色
+ *   · 深色：`color-mix(in oklab, <品牌色> 55%, white)` —— **oklab 空间往白里混 55%**，
+ *     只抬亮度、保留色相与饱和度关系，logo 仍然一眼认得出是哪个牌子。
+ *     选 55% 而不是更狠的比例：实测 22 个品牌色里只有 GitHub 的 `#181717` 在 55% 下
+ *     仍够不到 3:1（2.31:1），它单独配了 `iconColorDark`（GitHub 官方深色主题里的
+ *     `#8B949E`，5.51:1）。余下 21 个 **不需要任何逐色特例**，一个公式全过。
+ *     ⚠️ 试过 65%：GitHub 掉到 2.31:1、LangChain 也只到 3.32:1，所以往白里混得越多
+ *     **不一定**越安全（oklab 的 L 上升但对比度同时受卡片底色约束），55% 是实测最优档。
+ *   · 没写 `iconColor` 的条目（本地 favicon / 未登记品牌色的）**不输出**这行 style，
+ *     图标退回旧的中性色，行为与改造前一致。
+ */
+const brandVars = (iconColor?: string): string | undefined => {
+	if (!iconColor) return undefined;
+	return `--brand-c: ${iconColor}; --brand-c-dark: color-mix(in oklab, ${iconColor} ${BRAND_DARK_MIX_PERCENT}%, white);`;
+};
+
 // 预先解析每个书签的图标与域名，避免在模板里重复计算
 const resolvedGroups = groups.map((group) => ({
 	...group,
@@ -29,6 +52,7 @@ const resolvedGroups = groups.map((group) => ({
 		domain: getBooknavDomain(item.url),
 		letter: getBooknavLetter(item.title),
 		resolvedIcon: resolveBooknavIcon(item, booknavPageConfig.favicon),
+		brandStyle: brandVars(item.iconColor),
 	})),
 }));
 
@@ -139,11 +163,19 @@ const description =
                         <div
                           class="booknav-icon relative w-14 h-14 shrink-0 rounded-xl overflow-hidden bg-zinc-100 dark:bg-zinc-800 border border-black/5 dark:border-white/5 flex items-center justify-center group-hover:scale-105 transition-transform duration-300"
                           data-letter={item.letter}
+                          data-brand-color={item.iconColor ?? undefined}
+                          style={item.brandStyle}
                         >
                           {item.resolvedIcon.kind === "icon" && (
                             <Icon
                               name={item.resolvedIcon.value}
-                              class="text-6xl text-neutral-700 dark:text-neutral-200"
+                              aria-hidden="true"
+                              class:list={[
+                                "text-6xl",
+                                item.iconColor
+                                  ? "text-(--brand-c) dark:text-(--brand-c-dark)!"
+                                  : "text-neutral-700 dark:text-neutral-200",
+                              ]}
                             />
                           )}
                           {item.resolvedIcon.kind === "image" && (
@@ -157,7 +189,15 @@ const description =
                             />
                           )}
                           {item.resolvedIcon.kind === "letter" && (
-                            <span class="booknav-letter">{item.letter}</span>
+                            <span
+                              class:list={[
+                                "booknav-letter",
+                                item.iconColor &&
+                                  "booknav-letter--brand text-(--brand-c) dark:text-(--brand-c-dark)!",
+                              ]}
+                            >
+                              {item.letter}
+                            </span>
                           )}
                         </div>
 
@@ -233,6 +273,10 @@ const description =
         }
 
         // 图标加载失败时降级为首字母块
+        // ⚠️ v1.58：降级出来的字母块**也要带品牌色** —— 内联 style 里已经写好了
+        //    `--brand-c` / `--brand-c-dark`（挂在 .booknav-icon 上，会被子元素继承），
+        //    所以这里只要补上 `booknav-letter--brand` 这个类即可；漏了它就会退回
+        //    主题主色灰块，也就是发起人抱怨的那个样子。
         handleIconError(e) {
           const img = e.target;
           if (!img || img.tagName !== "IMG") return;
@@ -240,7 +284,8 @@ const description =
           if (!wrapper || wrapper.dataset.fallback === "done") return;
           wrapper.dataset.fallback = "done";
           const letter = wrapper.dataset.letter || "?";
-          wrapper.innerHTML = `<span class="booknav-letter">${letter}</span>`;
+          const brand = wrapper.style.getPropertyValue("--brand-c") ? " booknav-letter--brand" : "";
+          wrapper.innerHTML = `<span class="booknav-letter${brand}">${letter}</span>`;
         }
 
         // 点击分类胶囊平滑滚动到对应分组
