@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | IMiss Blog |
-| 文档版本 | v1.57 |
+| 文档版本 | v1.58 |
 | 最后更新 | 2026-10-02 |
 | 关联文档 | `ARCH.md`（架构与技术设计）、`PROJECT_STATUS.md`（阶段、进度、下一步、阻塞项） |
 | 基线代码 | 上游模板基线 v6.16.8（Astro 7 静态站点，名称与出处见 `README.upstream.zh.md`），来源 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\my_-blog\Blog template` |
@@ -112,7 +112,7 @@
 | 动态 | `/dynamic/` | 模板 | 本地 `src/content/dynamic/*.md` | ✅（内容后续自填） |
 | 项目 | `/projects/` | 模板 | `src/content/projects/` | ✅ |
 | 相册 | `/gallery/` | 模板 | 图集配置 | ✅ |
-| 书签导航 | `/booknav/` | 模板 | 书签配置（**v1.57 起是发起人最终选定的 6 组 38 张**，见 R-BOOKNAV-01~04） | ✅ |
+| 书签导航 | `/booknav/` | 模板 | 书签配置（**v1.57 起是发起人最终选定的 6 组 38 张**，见 R-BOOKNAV-01~08） | ✅ |
 | 轻小说（原 VNDB） | `/vndb/` | 模板改名 | VNDB API（`dynamic` 模式，客户端拉取） | ⚠️ 需 userId（待提供） |
 | 番剧（原 AnimeList） | `/myanimelist/` | 模板改名 | MAL API（构建期拉取） | ⚠️ 需 username + clientId（待提供） |
 | 关于我 | `/about/` | 自写（v1.51 起，原来是模板的自我介绍） | `src/content/spec/about.md` | ✅ |
@@ -172,6 +172,10 @@
 | R-BOOKNAV-02 | **38 张卡逐条等于发起人清单，URL 一律用首页** | 38 条**没有任何完全重复**；同品牌两条（DeepSeek 对话 / 开放平台、LangChain 中文文档 / 官方文档）**按不同用途各留一张，不合并**。发起人原始 URL 里的查询串/追踪参数/实例 ID 在"换成首页"这一步**顺带抹掉**。组内 `weight` 10 递减 | `verify:ui` 断言 **38 张卡的标题与 URL 逐条等于清单（含顺序）**——只数个数不够，换掉一张卡仍是 38 张；另断言每组条数、胶囊角标、`target="_blank"` | ★ |
 | R-BOOKNAV-03 | **favicon 自动获取关闭**（v1.57 决定，附实测证据） | `booknavPageConfig.favicon.enabled` 由 `true` 改 **`false`**。理由：开着时 `resolveBooknavIcon()` 会给每张没写 `icon` 的卡生成第三方 `https://a.favicon.im/{域名}`，访客打开这一页就会把 **18 个域名**交给 favicon.im。**实测依据**（`reports/_bn-favicon-probe.{mjs,json}` + 两张截图）：关闭后 38 格图标**全部有内容**（20 个手填 iconify svg + 18 个首字母块，`<img>` 0 个、无破图、卡片高度整齐 72px）；开着时 18 张走第三方、**其中 8 张实测加载失败**（`brokenImgs: 8`）→ 关闭不但更私密，观感也更稳。`api` 值保留在配置里，改一个布尔即可回退 | 页面上 **0 个**指向第三方 favicon 接口的图标请求；38 格图标无一空白；卡片高度一致 | ◆ |
 | R-BOOKNAV-04 | **隐私与排除项泄漏守卫**（产物级） | 断言产物里**绝不出现**：腾讯云轻量实例 ID `lhins-r4o6dc9v`、Docker 用户名 `handler01`、LangSmith 组织 ID `900dd689-c116-4ccf-911f-78494a0db890`、被排除的站点/地址 `dlsite` / `theporndude` / `139.159.190.22` / `wzyp.cn`、`27届小比特-实习-资料汇总`，以及原始 URL 形态 `i.chaoxing.com/base?t=` / `webhp?` / `/u/1/app?` / `activeTab=readme` / `/thankyou.php?` / `searchParams=` —— 共 **14 个串**，扫 `dist/**` 全集 + 文件名/路径，失败时打出命中的文件与串。⚠️ **`happy.bigmess.org` 不在守卫名单里**：它是发起人明确要收录的站点（BigME.Pro，「其他三方服务」组），另有一条**正控**断言要求它仍在产物里 | 14 个串零命中；正控（`happy.bigmess.org` / `chat.deepseek.com` / `huggingface.co`）都在产物里；注入一条带 `?id=lhins-r4o6dc9v` 的 URL 后守卫当场判红 | ★ |
+| R-BOOKNAV-05 | **每张卡的图标都必须是「真图标」**（v1.58，发起人：「标签怎么没有图标啊」） | 38 张卡的图标形态只有两种允许：**iconify 官方矢量**（`<svg>`，26 张）或**各站官方 favicon 的本地副本**（`<img>`，11 张）。**首字母块（`.booknav-letter`）只允许出现在「已点名的例外」上** —— 当前例外恰好 **1 条**：`BigME.Pro`（`happy.bigmess.org`）整站 **503**（chrome / curl / Googlebot 三种 UA、http/https、www/裸域全部 503；`bigmess.org` / `bigme.pro` 裸域 DNS 直接失败），取不到任何官方图形；一次性兜底接口给的是**通用地球占位图**（不是品牌图标），已按**归一化后的像素 sha256** 识别并**丢弃**（`scripts/fetch-booknav-icons.mjs` 的 `PLACEHOLDER_SHA256`）。⚠️ 这个守卫是必须的：不加它那张卡会显示"看着有图标、其实是地球"，而本条断言会因为它是 `<img>` 而放行。图标是**装饰性**的：每个 iconify `<svg>` 都要 `aria-hidden="true"`，卡片标题才是无障碍名 | **字母块数量 ≤ 例外条数（实名核对）**，且失败明细里逐张列出退化的是哪几张卡；字母块条数**恰好等于**例外名单长度；26 个 `<svg>` 全部带 `aria-hidden="true"`；注入 `icon: ""` 后本条当场判红（实测 `这些卡退化成字母块且不在例外名单里：deepseek`） | ★ |
+| R-BOOKNAV-06 | **每个图标都要有颜色，且是各站自己的品牌色**（v1.58，发起人：「就算有图标但还是没颜色啊」） | 根因是原实现把颜色写死成 `text-neutral-700 dark:text-neutral-200`（灰/白）。现在 `BooknavItem` 新增可选 **`iconColor`**（**官方品牌色**，不是"最终渲染色"）；品牌色表是**单一事实来源** `src/constants/booknav-brand-colors.ts`，配置里写 `iconColor: brandHex("<品牌键>")`（**键名打错就抛错，不静默兜底灰** —— 静默兜底灰会让那张卡悄悄变回旧的灰色而没人发现）。26 张 iconify 卡各有品牌色；11 张本地 favicon 是位图、天然彩色，**不写** `iconColor`；`BigME.Pro` 的字母块也带品牌色（`#7C3AED`，**显式占位**：站点不可达、品牌色不可考）。⚠️ 同品牌两条（`DeepSeek` / `DeepSeek 开放平台`、`ChatGPT` / `OpenAI Platform`、两条 LangChain）**色值相同但键各自独立** —— 断言是按**卡片标题**索引品牌色逐张核对的，共用一个键会让另一条卡**静默漏掉核对**（实测：26 张只核对了 24 张却照样显示通过）。Chat SDK 无公开品牌规范，`#6366F1` 同为显式占位 | 每个有图形元素的图标的**计算色 ≠ 旧的中性灰/白**（按**解析后的 RGB 数值**比——`text-neutral-700` 在亮色下是 `rgb(64,64,64)`、在深色下是 `oklch(0.371 0 none)`，同一颜色两种字符串形态，比字符串会漏）；同一页面里**不同品牌卡的渲染色不全相同**；**26 张 iconify 卡的亮色渲染色逐张等于配置里的品牌色**；注入"去掉某条的 `iconColor`"后本条当场判红 | ★ |
+| R-BOOKNAV-07 | **深色主题下的图标可辨识度**（v1.58） | 深色卡片上 `#181717`（GitHub）/ `#1C3C3C`（LangChain）/ `#0052D9`（腾讯位置服务）这类深色**看不见**。做法是**主题色感知**的，不是"整体提亮到发白"：亮色原样用品牌色；深色下 `color-mix(in oklab, <品牌色> 55%, white)` —— **保留色相、只抬亮度**，22 个渲染色**零逐色特例**。⚠️ 离线模型曾算出 GitHub 在 55% 下只有 2.31:1、据此配过一个 `#8B949E` 深色特例，**真浏览器实测是 3.24:1**（Chrome 走 premultiplied oklab 插值），于是**把特例删掉了**；`BrandColorEntry.dark` 字段保留为显式逃生口，当前一个都没启用。⚠️ 字母块那层底色在深色下用 **8%**（亮色 14%）——深色下底色品牌色本身就是浅紫，16% 会把底抬到 `rgb(61,58,76)`、对比度掉到 2.61:1 | 深色下**每个图标对它自己那层图标块底色的对比度 ≥ 3:1**（实测 27 个：最低 3.24:1 / 最高 12.23:1）；且深色下图标色**确实被提亮**（不是照搬亮色值），前置断言 `html.dark === true` 防止"深色那一趟量的还是亮色值" | ★ |
+| R-BOOKNAV-08 | **运行期零第三方请求**（v1.58，延续 R-BOOKNAV-03 的口径并收紧） | 11 张本地图标一律写站内路径 `/booknav-icons/<slug>.png`，**不许写网络图片 URL**。素材由 `scripts/fetch-booknav-icons.mjs` 在**构建前的准备阶段一次性**抓取（顺序：官网 `favicon.ico` → 页面 `<link rel="icon">` → 一次性兜底），用 sharp 归一化成 **128×128 PNG（1.5~12.7 KB）**；那次兜底**只出现在脚本里，产物里不许出现该服务**。⚠️ 上一轮只数了 `favicon.im` 一家，换一家服务就漏 → 现在改成**封闭判据**：所有图标 `<img>` 的 `src` 必须全部以 `/booknav-icons/` 开头，任何 `http(s)://` 或协议相对 URL 都判红；再加一条**产物级**守卫（`dist/**` 内容里不出现 `s2/favicons` / `favicon.im` / `faviconV2` / `googleapis.com`，且"产物没被扫到"时**判红**而不是放过） | 11 个图标 `<img>` 全部站内；产物全集零命中；`favicon.enabled` 仍为 `false`（`api` 值保留可一键回退） | ★ |
 
 | 编号 | 需求 | 详细说明 | 验收条件 | 优先级 |
 | --- | --- | --- | --- | --- |
