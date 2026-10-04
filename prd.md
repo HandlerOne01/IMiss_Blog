@@ -3,8 +3,8 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | IMiss Blog |
-| 文档版本 | v1.59 |
-| 最后更新 | 2026-10-02 |
+| 文档版本 | v1.60 |
+| 最后更新 | 2026-10-04 |
 | 关联文档 | `ARCH.md`（架构与技术设计）、`PROJECT_STATUS.md`（阶段、进度、下一步、阻塞项） |
 | 基线代码 | 上游模板基线 v6.16.8（Astro 7 静态站点，名称与出处见 `README.upstream.zh.md`），来源 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\my_-blog\Blog template` |
 | 需求来源 | 项目发起人口述需求 + 上游模板的在线演示站（上游出处集中说明见 `README.upstream.zh.md`） + 原型 `my_-blog\blog_test` + 排行榜参考图 `my_-blog\dosc\排行`（⚠️ **历史来源**：排行模块已于 v1.41 整体移除、参考图随之作废，此行只为保留需求出处，见 R-PATH-06 与 `ARCH.md` §14.4） |
