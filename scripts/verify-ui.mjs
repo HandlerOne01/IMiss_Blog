@@ -1251,11 +1251,47 @@ async function main() {
 		let scanned = 0;
 		let binarySkipped = 0;
 		let unreadable = 0;
+		// ─── v1.60：模板示例公告文案守卫（**负控 + 正控**，同一条断言的两条腿）──────────
+		// 为什么要有这条：`src/config/announcementConfig.ts` 的 `content` 一直是**模板自带的
+		// 那句示例公告**，它跟着 `sidebarConfig` 里两处 `type: "announcement"`（左栏 + 移动端
+		// 底部面板，两处共用这一份配置）出现在**每一页**的侧栏公告卡里 —— 直到 v1.60 发起人
+		// 看着截图原话「这个示例公告是什么鬼？正式一点」才换掉。换文案只要改一行，但**上面那一大段
+		// "上游身份零残留"是拦不住它的**：那段扫的是上游主题名/作者名/UID，模板示例公告**不在判据里**
+		// → 谁把它改回去都不会有断言变红。所以这里补上。
+		//
+		// ⚠️ **正控不是装饰，是这条断言的另一半**：只有负控的话，"公告被 `enable: false` 关掉 /
+		//    组件从 `sidebarConfig` 里摘掉 / 卡片渲染成空"这三种情况会让负控**更干净**（产物里
+		//    本来就没有那句话了）—— 那正是 T77 那一类"判据空过"的假绿。所以正控必须落在
+		//    **卡片切片内部**（"页面别处恰好也有这几个字"不算），并且要求每一张卡都命中。
+		// 判据落到 prd 的哪两条：负控 = R-ID-05（产物零残留）、正控 = R-WDG-04（侧栏组件实际渲染）。
+		const ANNOUNCEMENT_TEMPLATE_NEEDLES = [
+			["这是一则示例公告", "模板示例公告（原 `announcementConfig.content` 后半句）"],
+			["欢迎来到我的博客", "模板示例公告（原 `announcementConfig.content` 前半句）"],
+		];
+		// 正控判据 = 公告卡里必须**逐字**出现 `announcementConfig.content` 那一整句；
+		// 另留一个可识别片段单独计数，好在"整句失配"时一眼看出是句子被截断还是整张卡没了。
+		// ⚠️ 改 `announcementConfig.ts` 里那句话，就要同步改这两个常量（代码注释里也钉了这句）。
+		const ANNOUNCEMENT_LIVE_FULL =
+			"本站已整理 133 篇技术笔记，并按 8 条主线排成学习路线（136 站）；站内搜索与桌宠对话均已上线。";
+		const ANNOUNCEMENT_LIVE_FRAGMENT = "133 篇技术笔记";
+		// 公告卡切片：`<widget-layout … data-id="announcement" …>…</widget-layout>`。
+		// 卡里**不嵌套** `widget-layout`，所以非贪婪匹配到的第一个闭合标签就是整张卡的边界。
+		const announcementCardsOf = (html) =>
+			html.match(/<widget-layout[^>]*?data-id="announcement"[\s\S]*?<\/widget-layout>/g) ?? [];
+		const announcementTemplateHits = [];
+		let annCards = 0;
+		let annCardsWithFull = 0;
+		let annCardsWithFragment = 0;
+		let annHomeCards = 0;
+		let annHomeCardsWithFull = 0;
 		for (const { abs, rel } of distAllFiles) {
 			// ② 文件名 / 路径本身（二进制文件也照查 —— "名字里带"是最容易被漏掉的存活方式）
 			if (UPSTREAM_CI.test(rel)) nameLeakFiles.push(rel);
 			// v1.57：隐私串也查**文件名/路径本身**（同一层，理由同上）
 			for (const [n] of PRIVACY_NEEDLES) if (rel.includes(n)) privacyLeakFiles.push(`${rel}（路径） → ${n}`);
+			// v1.60：模板示例公告串同样查**文件名/路径本身**（同一层，理由同上）
+			for (const [n] of ANNOUNCEMENT_TEMPLATE_NEEDLES)
+				if (rel.includes(n)) announcementTemplateHits.push(`${rel}（路径） → ${n}`);
 			// 内容扫描：含 NUL 字节即视为二进制 → 跳过内容，只留上面的文件名判定
 			let buf;
 			try {
@@ -1280,6 +1316,9 @@ async function main() {
 			for (const [n] of PRIVACY_NEEDLES) if (text.includes(n)) privacyLeakFiles.push(`${rel} → ${n}`);
 			// v1.58：favicon 聚合服务域名（产物级"运行期零第三方请求"守卫）
 			for (const n of ICON_AGGREGATOR_NEEDLES) if (text.includes(n)) distIconAggregatorHits.push(`${rel} → ${n}`);
+			// v1.60：模板示例公告文案（负控；二进制文件在上面已按"含 NUL 字节"跳过内容）
+			for (const [n] of ANNOUNCEMENT_TEMPLATE_NEEDLES)
+				if (text.includes(n)) announcementTemplateHits.push(`${rel} → ${n}`);
 			// v1.57：正控计数（只统计内容里出现的，路径不算）
 			for (const n of positiveNeedles) if (text.includes(n)) positives.add(n);
 			if (rel.endsWith(".html")) {
@@ -1288,6 +1327,19 @@ async function main() {
 				// R-ID-06：订阅残渣
 				const feedHits = FEED_LEAK_NEEDLES.filter(([n]) => text.includes(n));
 				if (feedHits.length) feedLeakFiles.push(`${rel} → ${feedHits.map(([n]) => n).join("+")}`);
+				// v1.60：公告卡**正控**计数 —— 只数"卡片切片内部"命中，"页面别处恰好有这几个字"不算。
+				// 逐页把每张卡都数一遍（而不是只看首页）：两处 `type: "announcement"` 共用同一份配置，
+				// 任何一张卡漏掉新文案都是回归。
+				const cards = announcementCardsOf(text);
+				annCards += cards.length;
+				for (const c of cards) {
+					if (c.includes(ANNOUNCEMENT_LIVE_FULL)) annCardsWithFull++;
+					if (c.includes(ANNOUNCEMENT_LIVE_FRAGMENT)) annCardsWithFragment++;
+				}
+				if (rel === "index.html") {
+					annHomeCards += cards.length;
+					annHomeCardsWithFull += cards.filter((c) => c.includes(ANNOUNCEMENT_LIVE_FULL)).length;
+				}
 			}
 		}
 		const fmt = (arr) => (arr.length ? `${arr.length} 个：${arr.slice(0, 5).join(" ｜ ")}${arr.length > 5 ? " …" : ""}` : "干净");
@@ -1344,6 +1396,33 @@ async function main() {
 			"守卫的正控：发起人明确要收录的站点仍在产物里（不是「产物空了」的假绿）",
 			positives.size === positiveNeedles.length,
 			`命中 ${positives.size}/${positiveNeedles.length}：${positiveNeedles.map((n) => `${n}=${positives.has(n)}`).join(" ｜ ")}（happy.bigmess.org 已按发起人要求收录，**故意不在负控名单里**）`,
+		);
+		// ── v1.60：模板示例公告文案守卫（**负控 + 正控压进同一个 pass，故意不拆两条**）──────
+		// 拆成两条的话，"公告被关掉 / 卡片渲染成空"会呈现为「负控 ✅ + 正控 ❌」——
+		// 看着像**半个成功**，而这恰恰是最需要一眼判死的假绿（T77 同类）。压进一条：
+		// 任何一条腿断掉 → 整条红，没有"半绿"可读。
+		// 四条腿缺一不可：① 旧示例串零命中；② 真扫到了可读文本（`scanned > 0`，防"产物空了"假绿）；
+		// ③ 产物里**至少有公告卡**且**每一张卡都逐字含新文案**；④ 首页（`dist/index.html`，
+		// 有侧栏的代表页）也必须有卡且含新文案 —— 只靠 ③ 的话，"只在某一页保留公告、
+		// 其余 161 页全摘掉"仍会绿。
+		record(
+			"R-ID-05/R-WDG-04",
+			`模板示例公告文案零残留 + 新公告文案确实渲染在侧栏公告卡里（负控 ${ANNOUNCEMENT_TEMPLATE_NEEDLES.length} 个串扫 ${distAllFiles.length} 个产物文件 + 文件名/路径；正控 = 卡内逐字含新文案）`,
+			announcementTemplateHits.length === 0 &&
+				scanned > 0 &&
+				annCards > 0 &&
+				annCardsWithFull === annCards &&
+				annHomeCards > 0 &&
+				annHomeCardsWithFull === annHomeCards,
+			`负控（${ANNOUNCEMENT_TEMPLATE_NEEDLES.map(([n]) => n).join(" / ")}）：${
+				announcementTemplateHits.length
+					? `❌ 命中 ${announcementTemplateHits.length} 处：${announcementTemplateHits.slice(0, 8).join(" ｜ ")}${announcementTemplateHits.length > 8 ? " …" : ""}`
+					: "零命中"
+			}；正控（公告卡内逐字含「${ANNOUNCEMENT_LIVE_FRAGMENT}」那一整句）：共 ${annCards} 张卡，含整句 ${annCardsWithFull} 张、含片段 ${annCardsWithFragment} 张${
+				annCards === 0
+					? "（❌ 产物里一张公告卡都没有 → 公告被关掉 / 组件被摘掉，这正是正控要挡的假绿）"
+					: ""
+			}；首页 dist/index.html ${annHomeCards} 张卡、含整句 ${annHomeCardsWithFull} 张；${scanNote}`,
 		);
 	}
 
