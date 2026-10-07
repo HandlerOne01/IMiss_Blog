@@ -5,6 +5,23 @@ import { profileConfig } from "@/config/profileConfig";
 import { encodeMailto, MAILTO_ONCLICK_SCRIPT } from "@/utils/email-utils";
 import { url } from "@/utils/url-utils";
 
+/*
+ * 资料卡头像的悬停反馈：**只留一层轻微压暗，不再浮图标**
+ * ============================================================================
+ * v1.64（2026-10-07）按发起人要求去掉：他指着侧栏头像截图问
+ * 「鼠标光标放这后这个图片图标能不能不显示？」—— 原本 `group-hover` 时会在头像正中
+ * 淡入一枚 `fa7-regular:address-card`（名片）图标，观感像"点这里可以换图"，
+ * 而这里其实只是通往 `/about/` 的链接。
+ *
+ * 保留的部分：压暗层（`group-hover:bg-black/30` / 按下 `bg-black/50`）与 `active:scale-95`。
+ * 头像是个链接，把反馈全删掉访客就不知道它可点了。
+ *
+ * ⚠️ 这段说明写在 **frontmatter** 里而不是模板里：模板里的 `<!-- -->` 会**原样进产物**
+ *    （ARCH.md §14.3 **T85**）—— 本轮第一版就写在模板里，`dist/index.html` 里真的多出两处
+ *    含 `address-card` 的注释（浅/深两套侧栏各一份），已改到这边。
+ * ⚠️ 压暗层带 `profile-avatar-veil` 这个 class 是**给断言用的钩子**（`verify:ui` 的
+ *    R-WDG-04 会先量"那里没有 svg、没有子元素"，再用真鼠标悬停确认"底色确实变深了"）。
+ */
 interface Props {
 	class?: string;
 	style?: string;
@@ -21,13 +38,9 @@ const className = Astro.props.class;
        max-w-48 lg:max-w-none overflow-hidden rounded-xl active:scale-95"
   >
     <div
-      class="absolute transition pointer-events-none group-hover:bg-black/30 group-active:bg-black/50
-        w-full h-full z-50 flex items-center justify-center"
+      class="profile-avatar-veil absolute transition pointer-events-none group-hover:bg-black/30
+        group-active:bg-black/50 w-full h-full z-50"
     >
-      <Icon
-        name="fa7-regular:address-card"
-        class="transition opacity-0 scale-90 group-hover:scale-100 group-hover:opacity-100 text-white text-5xl"
-      />
     </div>
     <ImageWrapper
       src={profileConfig.avatar || ""}
