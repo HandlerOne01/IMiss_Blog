@@ -8203,58 +8203,197 @@ async function main() {
 			);
 		}
 
-		// ⑥ 音乐：导航/侧栏入口都没有，产物里没有任何音频文件引用，
-		//    且运行时那个 <audio> 元素没有 src —— 没有 src 就**不可能**发出音频请求（含 404）。
+		// ⑥ 音乐（**v1.63 就地翻转口径**）：导航栏与侧栏**都**要出现播放器入口 / 组件。
+		//    ⚠️ 这一段在 v1.47~v1.62 期间钉的是**反的**（"导航栏与侧栏都不再有音乐播放器入口 / 组件"）。
+		//    为什么翻：发起人 2026-10-07 交来自己的《别难过》并选"两个都开"，
+		//    `musicConfig.ts` 的 `showInNavbar` / `showInSidebar` 已改回 `true`、`local.playlist` 有 1 条，
+		//    旧口径的前提（v1.47 删掉上游示例曲 → 歌单空 → 点开是个空播放器）**已不成立**。
+		//    ⚠️ 判据只认**两个入口各自的结构**，不认"页面里有没有「音乐」两个字"：
+		//      · 导航那一格是 `<button id="music-player-switch" aria-label="音乐">`，
+		//        它**根本不在** `home.allLabels` 里（allLabels 只收导航链接的文字）——
+		//        旧口径那个 `navHasMusic` 因此**恒为 false**，等于从来没在判 `showInNavbar`（T85 的"判据扫错层"）。
+		//      · 侧栏那一格是 `#left-sidebar-wrapper` 里的 `.music-player-widget`。
+		//    **注入证据**（见 reports/_music-report.md）：把 `showInSidebar` 改回 `false` 重建 →
+		//    下面第 2 格判红、同轮其余各格仍绿；还原后核对 sha256 一致。
+		const TRACK = {
+			name: "别难过",
+			artist: "JEReka",
+			url: "/assets/music/JEReka - 别难过.mp3",
+			cover: "/assets/music/cover/JEReka-bie-nanguo.jpg",
+			// ⚠️ 这两个字节数是**素材事实**（源文件原样复制 / APIC 原样抽出的产物），写死在这里当
+			//    "构建链有没有把它原样带出去"的判据：谁在构建里加了压缩或转码，数字一变就判红。
+			mp3Bytes: 9599149, // 9.15 MiB，sha256 4d1af1c0…8ef547（与源文件逐字节相同）
+			coverBytes: 141956, // 从该 mp3 的 ID3v2.3 APIC 帧原样抽出的 image/jpeg
+		};
 		{
 			const html = await (await fetch(`${BASE}/`)).text();
-			const navHasMusic = (home.allLabels || []).includes("音乐");
-			const sidebarWidget = /music-widget-|class="[^"]*music-player/.test(html);
-			const assetsRef = /\/assets\/music\//.test(html);
 			await goto(`${BASE}/`);
-			const probe = await evalIn(`(() => {
-				const audios = Array.prototype.map.call(document.querySelectorAll("audio"), (a) => ({
-					src: a.getAttribute("src") || "", currentSrc: a.currentSrc || "", preload: a.getAttribute("preload") || "",
-				}));
-				const audioRes = performance.getEntriesByType("resource").map((e) => e.name).filter((n) => /music|\\.mp3|\\.webm|\\.ogg/i.test(n));
-				return { audios, audioRes };
+			const dom = await evalIn(`(() => {
+				const navSwitch = document.getElementById("music-player-switch");
+				const navPanel = document.getElementById("music-nav-panel");
+				const widgets = Array.prototype.slice.call(document.querySelectorAll(".music-player-widget"));
+				const sidebarRoot = document.getElementById("left-sidebar-wrapper");
+				const inSidebar = widgets.filter(function (w) { return sidebarRoot && sidebarRoot.contains(w); });
+				const inNav = navPanel ? widgets.filter(function (w) { return navPanel.contains(w); }) : [];
+				return {
+					navSwitch: !!navSwitch,
+					navLabel: navSwitch ? (navSwitch.getAttribute("aria-label") || "") : "",
+					navPanel: !!navPanel,
+					widgetTotal: widgets.length,
+					widgetInNav: inNav.length,
+					widgetInSidebar: inSidebar.length,
+					sidebarIds: inSidebar.map(function (w) { return w.id; }),
+					sidebarLabel: inSidebar.length ? (inSidebar[0].getAttribute("aria-label") || "") : "",
+				};
 			})()`);
-			const anySrc = (probe?.audios || []).some((a) => a.src || a.currentSrc);
 			record(
 				"R-ID-06",
-				"导航栏与侧栏都不再有音乐播放器入口 / 组件",
-				!navHasMusic && !sidebarWidget && !assetsRef,
-				`导航含「音乐」=${navHasMusic}，侧栏播放器 DOM=${sidebarWidget}，HTML 引用 /assets/music/=${assetsRef}`,
+				"导航栏出现音乐播放器入口：按钮（aria-label「音乐」）+ 它控制的浮层里恰好 1 个 widget",
+				dom?.navSwitch === true && dom?.navLabel === "音乐" && dom?.navPanel === true && dom?.widgetInNav === 1,
+				`#music-player-switch=${dom?.navSwitch}（aria-label=「${dom?.navLabel}」）｜#music-nav-panel=${dom?.navPanel}｜浮层内 .music-player-widget=${dom?.widgetInNav}（期望 1）`,
 			);
 			record(
 				"R-ID-06",
-				"页面没有音频请求（audio 元素无 src + 无音频资源加载记录 → 结构上不可能 404）",
-				(probe?.audios?.length ?? 0) >= 0 && !anySrc && (probe?.audioRes?.length ?? 0) === 0,
-				`audio 元素=${JSON.stringify(probe?.audios)}，音频资源请求=${JSON.stringify(probe?.audioRes)}`,
+				"侧边栏出现音乐播放器卡片（#left-sidebar-wrapper 内恰好 1 个 .music-player-widget）",
+				dom?.widgetInSidebar === 1,
+				`#left-sidebar-wrapper 内 widget=${dom?.widgetInSidebar}（期望 1）｜id=${JSON.stringify(dom?.sidebarIds)}｜aria-label=「${dom?.sidebarLabel}」｜全页 widget 总数=${dom?.widgetTotal}（期望 2：导航浮层 1 + 侧栏 1）`,
+			);
+			// ⚠️ **产物里中文是 `\uXXXX` 转义的**（Astro 的 `define:vars` 序列化 + `minify-inline-scripts`
+			//    一起做的：实测 `dist/index.html` 里是 `"name":"\u522B\u96BE\u8FC7"`）——
+			//    所以**不能**直接 `html.includes("别难过")`，那会在**正确**的产物上判红（第一版实测如此）。
+			//    这里按"解转义 → JSON.parse → 逐字段比"来判：比字符串包含强（证明的是**形状**对，
+			//    不是"页面上碰巧出现过这几个字节"），也不怕将来转义形态再变。
+			const decodeEsc = (s) => s.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+			const listRaw = /"localPlaylist":\s*(\[[\s\S]*?\])/.exec(html)?.[1] ?? "";
+			let servedList = null;
+			try {
+				servedList = JSON.parse(decodeEsc(listRaw));
+			} catch {
+				servedList = null;
+			}
+			const servedFirst = Array.isArray(servedList) ? servedList[0] : null;
+			record(
+				"R-ID-06",
+				"首页产物里那段播放器配置（Manager 的 localPlaylist）正好是这 1 条，name/artist/url/pic 四字段与配置逐字一致",
+				Array.isArray(servedList) &&
+					servedList.length === 1 &&
+					servedFirst?.name === TRACK.name &&
+					servedFirst?.artist === TRACK.artist &&
+					servedFirst?.url === TRACK.url &&
+					servedFirst?.pic === TRACK.cover,
+				`localPlaylist（解转义后）=${JSON.stringify(servedList)}｜期望 1 条 ${JSON.stringify({ name: TRACK.name, artist: TRACK.artist, url: TRACK.url, pic: TRACK.cover })}`,
 			);
 		}
 
-		// ⑦ 音乐配置：本地歌单已清空、两个入口开关都关了（配置层的事实，不是只看渲染）
+		// ⑥b 资源落位（**同样是就地翻转**）：v1.47~v1.62 这一格钉的是"页面没有音频请求 → 结构上不可能 404"。
+		//     现在换成正控："产物里真有这两个文件、字节数与素材逐字节一致、HTTP 真能取到 200"。
+		//     ⚠️ 新口径比旧口径**强**：旧口径在"资源缺失"和"资源正常"两种情况下**都会绿**
+		//     （它只证明了"没发请求"），这一格在资源缺失 / 少一个字节 / 404 时都会红。
+		//     ⚠️ HTTP 用 **HEAD**：只取响应头，**不下载那 9.15 MB**（4323 的静态服务实测支持 HEAD）。
+		{
+			const sizeOf = async (p) => {
+				try {
+					return (await fs.stat(path.resolve(p))).size;
+				} catch {
+					return -1;
+				}
+			};
+			const mp3Bytes = await sizeOf("dist/assets/music/JEReka - 别难过.mp3");
+			const coverBytes = await sizeOf("dist/assets/music/cover/JEReka-bie-nanguo.jpg");
+			const heads = {};
+			for (const u of [TRACK.url, TRACK.cover]) {
+				const r = await fetch(`${BASE}${encodeURI(u)}`, { method: "HEAD" }).catch(() => null);
+				heads[u] = r ? `${r.status}/len=${r.headers.get("content-length") ?? "—"}` : "请求失败";
+			}
+			const servedMp3 = heads[TRACK.url] === `200/len=${TRACK.mp3Bytes}`;
+			const servedCover = heads[TRACK.cover] === `200/len=${TRACK.coverBytes}`;
+			record(
+				"R-ID-06",
+				`音频与封面都在产物里（mp3 ${TRACK.mp3Bytes} 字节 / 封面 ${TRACK.coverBytes} 字节，原样未转码）且 HTTP 200 可达`,
+				mp3Bytes === TRACK.mp3Bytes && coverBytes === TRACK.coverBytes && servedMp3 && servedCover,
+				`dist 实测 mp3=${mp3Bytes} 字节（期望 ${TRACK.mp3Bytes}）、封面=${coverBytes} 字节（期望 ${TRACK.coverBytes}）｜HEAD ${TRACK.url} → ${heads[TRACK.url]}｜HEAD ${TRACK.cover} → ${heads[TRACK.cover]}`,
+			);
+		}
+
+		// ⑥c 运行期事实（**新增的正控**）：浏览器里那份播放器**真的拿到了这条曲目** ——
+		//     直接读 `window.__imissMusic.getState()`，四个字段逐字比对。
+		//     为什么不能只看 HTML：那段 JSON 也可能已经"死在页面上"（脚本没执行 / 被 minify 改坏 /
+		//     解析抛错被吞），只有真跑一遍 `init()` 才能证明这条曲目**到了浏览器里**。
+		//     ⚠️ 这一步**不会**下载那 9.15 MB：`init()` 走的 `loadTrack(0, false)` 只把 `audio.src`
+		//     挂上去（`preload='none'`、不 autoplay），不点播放就不发音频请求。
+		{
+			const st = await evalIn(`(async () => {
+				const mgr = window.__imissMusic;
+				if (!mgr) return { ok: false, why: "页面上没有 window.__imissMusic" };
+				// ⚠️ 不能只 \`await mgr.init()\` 就断言：视图脚本也会在 load 之后的 idle 回调里调它，
+				//    而 init() 对"正在初始化"是直接 return 的 → 撞上那个窗口时 wait 拿到的是**还没初始化**的
+				//    状态，会偶发判红。改成"踢一脚 + 轮询 initialized"。
+				mgr.init();
+				const t0 = Date.now();
+				while (!mgr.getState().initialized && Date.now() - t0 < 5000) {
+					await new Promise(function (r) { setTimeout(r, 50); });
+				}
+				const s = mgr.getState();
+				const list = s.playlist || [];
+				const t = list[0] || null;
+				const audio = document.querySelector("audio");
+				return {
+					ok: true,
+					initialized: s.initialized,
+					count: list.length,
+					track: t ? { name: t.name, artist: t.artist, url: t.url, pic: t.pic, lrc: t.lrc } : null,
+					audioSrc: audio ? (audio.getAttribute("src") || "") : null,
+					audioPreload: audio ? (audio.getAttribute("preload") || "") : null,
+				};
+			})()`);
+			const t = st?.track;
+			record(
+				"R-ID-06",
+				"浏览器里 window.__imissMusic 真的拿到这 1 条曲目，name/artist/url/cover 四个字段逐字与配置一致",
+				st?.ok === true &&
+					st?.initialized === true &&
+					st?.count === 1 &&
+					t?.name === TRACK.name &&
+					t?.artist === TRACK.artist &&
+					t?.url === TRACK.url &&
+					t?.pic === TRACK.cover &&
+					t?.lrc === undefined,
+				`初始化解锁=${st?.initialized}${st?.ok ? "" : `（${st?.why}）`}｜playlist ${st?.count} 条｜name=「${t?.name}」artist=「${t?.artist}」url=「${t?.url}」pic=「${t?.pic}」lrc=${JSON.stringify(t?.lrc)}（期望 undefined：这一首没有歌词文件）｜audio.src=「${st?.audioSrc}」preload=「${st?.audioPreload}」`,
+			);
+		}
+
+		// ⑦ 音乐配置（**v1.63 就地换成新口径**，判据形状照旧：剥掉行注释再扫生效代码）
+		//    旧口径钉的是"本地歌单已清空 + 两个入口开关均 false"；
+		//    新口径钉的是"歌单**恰好 1 条**、五个字段逐字对、两个开关均 true"，
+		//    并**继续钉住 v1.48 那两条**（上游 meting 歌单 ID 不在生效配置里 + `mode` 仍是 `local`）。
+		//    为什么配置层还要单独一条：渲染可能是缓存 / Swup 残留 / 别的开关顺手带上来的，
+		//    "配置层的事实"与"渲染的事实"要分别钉（v1.48 立的规矩，本轮沿用）。
+		// ⚠️ **必须先剥掉 `//` 行注释再扫**：本仓库的惯例是"清空值、并在注释里标注原值来源"
+		//    （R-ID-05 就是这么做的），`musicConfig.ts` 的注释里**故意留着**那个上游 ID 作历史记录。
+		//    不剥注释的话这条断言会被自己的说明文字判红 —— 第一版实测正是这样红的
+		//    （`meting.id 已清空=false` 而 id 其实早就空了），与 T85"判据扫错层"是同一类坑。
 		{
 			const musicCfg = await fs.readFile(path.resolve("src/config/musicConfig.ts"), "utf8");
-			// P4-8 收尾轮（v1.48）：`meting.id` 的归属已定 —— 发起人 2026-09-29 确认
-			// `10046455237` **不是自己的**，已清成空串。这条断言**就地换成新口径**（不是删掉）：
-			// 旧口径钉的是"上游歌单 ID 还在（=保留未删）"，新口径钉的是"上游歌单 ID 不再出现在
-			// **生效的配置**里 + `id` 确实为空 + `mode` 仍是 local（没被顺手切走）"。
-			// ⚠️ **必须先剥掉 `//` 行注释再扫**：本仓库的惯例是"清空值、并在注释里标注原值来源"
-			//    （R-ID-05 就是这么做的），`musicConfig.ts` 的注释里**故意留着**那个上游 ID 作历史记录。
-			//    不剥注释的话这条断言会被自己的说明文字判红 —— 第一版实测正是这样红的
-			//    （`meting.id 已清空=false` 而 id 其实早就空了），与 T85"判据扫错层"是同一类坑。
 			const musicCode = musicCfg.replace(/\/\/[^\n]*/g, "");
-			const playlistEmpty = /playlist:\s*\[\s*\]/.test(musicCode);
-			const navOff = /showInNavbar:\s*false/.test(musicCode);
-			const sideOff = /showInSidebar:\s*false/.test(musicCode);
+			// ⚠️ `playlist: [` 要连方括号一起匹配：光匹配 `playlist:` 会先撞上 meting 段的
+			//    `type: "playlist"`（虽然那里后面跟的是引号不是 `[`，写松一点就会错抓到别处）。
+			const listBlock = musicCode.match(/playlist:\s*\[([\s\S]*?)\]/)?.[1] ?? "";
+			const field = (k) => new RegExp(`${k}:\\s*"([^"]*)"`).exec(listBlock)?.[1] ?? null;
+			const want = { name: TRACK.name, artist: TRACK.artist, url: TRACK.url, cover: TRACK.cover, lrc: "" };
+			const got = Object.fromEntries(Object.keys(want).map((k) => [k, field(k)]));
+			const entryCount = (listBlock.match(/\bname:\s*"/g) || []).length;
+			const fieldsOk = Object.keys(want).every((k) => got[k] === want[k]);
+			const navOn = /showInNavbar:\s*true/.test(musicCode);
+			const sideOn = /showInSidebar:\s*true/.test(musicCode);
 			const metingCleared = !musicCode.includes("10046455237") && /^\s*id:\s*""/m.test(musicCode);
 			const modeStillLocal = /mode:\s*"local"/.test(musicCode);
 			record(
 				"R-ID-06",
-				"musicConfig：本地歌单已清空 + 两个播放器入口开关均 false + 上游 meting 歌单 ID 已清空（mode 仍 local）",
-				playlistEmpty && navOff && sideOff && metingCleared && modeStillLocal,
-				`playlist 空=${playlistEmpty}，showInNavbar=false=${navOff}，showInSidebar=false=${sideOff}，meting.id 已清空=${metingCleared}，mode=local=${modeStillLocal}`,
+				"musicConfig：本地歌单恰好 1 条且 name/artist/url/cover/lrc 五个字段逐字正确 + 两个入口开关均 true + 上游 meting 歌单 ID 仍清空（mode 仍 local）",
+				entryCount === 1 && fieldsOk && navOn && sideOn && metingCleared && modeStillLocal,
+				`歌单条数=${entryCount}（期望 1）｜${Object.keys(want)
+					.map((k) => `${k}=「${got[k]}」${got[k] === want[k] ? "✓" : `✗（期望「${want[k]}」）`}`)
+					.join("｜")}｜showInNavbar=true=${navOn}｜showInSidebar=true=${sideOn}｜meting.id 仍清空=${metingCleared}｜mode=local=${modeStillLocal}`,
 			);
 		}
 		await goto(`${BASE}/`);
