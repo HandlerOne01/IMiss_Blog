@@ -374,6 +374,20 @@ const COLLECT = `(() => {
     title: document.title,
     brand,
     logoSrc: logoImg ? (logoImg.getAttribute("src") || logoImg.getAttribute("srcset")) : null,
+    // v1.64：R-ID-04 新增的判据要"Logo 本体是什么形状"这个事实 —— 只钉文件名（含 imiss）
+    // 在换设计前后都成立（对本改动是恒真的）。新标识是**横向纸飞机**（256×190，1.347:1），
+    // 旧的方圆底爱心是 1:1，一个比例就能把两者分开。
+    // attrW/attrH = Astro 从源图元数据写进标签的固有尺寸；natW/natH = 浏览器实际加载那张
+    // （img 带 srcset，1x DPR 下会挑 28w 那张，取整后比例仍是 1.33）。
+    logoNatural: logoImg
+      ? {
+          attrW: Number(logoImg.getAttribute("width")) || null,
+          attrH: Number(logoImg.getAttribute("height")) || null,
+          natW: logoImg.naturalWidth,
+          natH: logoImg.naturalHeight,
+          currentSrc: logoImg.currentSrc || null,
+        }
+      : null,
     hueInline: document.documentElement.style.getPropertyValue("--hue").trim(),
     hueComputed: getComputedStyle(document.documentElement).getPropertyValue("--hue").trim(),
     navTops: tops,
@@ -3743,6 +3757,88 @@ async function main() {
 		);
 	}
 	record("R-ID-04", "导航栏 Logo 已换成 imiss", (home.logoSrc ?? "").includes("imiss"), home.logoSrc ?? "（没取到 logo）");
+	// ── v1.64：正式标识（纸飞机）──────────────────────────────────────────────
+	// 上面那三条只钉"文件名里有没有 imiss" —— 换设计（爱心 → 纸飞机）前后它们**都成立**，
+	// 对本次改动是恒真的（与 v1.63 修掉的 navHasMusic 同类病）。下面三条钉**图本体**：
+	//   ① favicon 不再带方圆底（发起人 2026-10-07 选的是 B 方案：只有纸飞机）；
+	//   ② favicon 里那架飞机是横向的（内容包围盒 ≈1.35:1），不是旧的 1:1 方块；
+	//   ③ 导航栏 Logo 同理（发给浏览器的那个 webp 本体就是 256×190）。
+	// 判据在**真浏览器里读像素**（Image + canvas，同源不污染画布）：零依赖，而且验的
+	// 正是访客拿到的那张图 —— 不是"看源码觉得应该是"。
+	{
+		const faviconProbe = await (async () => {
+			try {
+				const { result } = await cdp.send("Runtime.evaluate", {
+					expression: `(async () => {
+  const load = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error("load " + src)); im.src = src; });
+  const measure = async (src) => {
+    const im = await load(src);
+    const w = im.naturalWidth, h = im.naturalHeight;
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const g = c.getContext("2d"); g.drawImage(im, 0, 0);
+    const d = g.getImageData(0, 0, w, h).data;
+    const A = (x, y) => d[(y * w + x) * 4 + 3];
+    // 中央 50% 的列里，从上/从下数第一条有实心像素的行 —— 方圆底图标是 0，透明底是两位数百分比
+    const x0 = Math.floor(w * 0.25), x1 = Math.ceil(w * 0.75);
+    let top = -1, bottom = -1;
+    for (let y = 0; y < h && top < 0; y++) for (let x = x0; x < x1; x++) if (A(x, y) > 8) { top = y; break; }
+    for (let y = h - 1; y >= 0 && bottom < 0; y--) for (let x = x0; x < x1; x++) if (A(x, y) > 8) { bottom = h - 1 - y; break; }
+    let minX = w, minY = h, maxX = -1, maxY = -1;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (A(x, y) > 8) { if (x < minX) minX = x; if (y < minY) minY = y; if (x > maxX) maxX = x; if (y > maxY) maxY = y; }
+    return { w, h, topBand: top, bottomBand: bottom, bboxW: maxX - minX + 1, bboxH: maxY - minY + 1, corners: [A(0, 0), A(w - 1, 0), A(0, h - 1), A(w - 1, h - 1)] };
+  };
+  return { icon192: await measure("/favicon/imiss-192.png"), icon32: await measure("/favicon/imiss-32.png") };
+})()`,
+					returnByValue: true,
+					awaitPromise: true,
+				});
+				return result?.value ?? { error: "Runtime.evaluate 没有返回值" };
+			} catch (error) {
+				return { error: error instanceof Error ? error.message : String(error) };
+			}
+		})();
+
+		// ① + ② 都在 192px 那张上量（32px 一起量，只作为交叉印证写进详情）
+		const p = faviconProbe?.icon192;
+		const topBand = p ? p.topBand / p.h : -1;
+		const bottomBand = p ? p.bottomBand / p.h : -1;
+		const aspect = p ? p.bboxW / p.bboxH : 0;
+		const p32 = faviconProbe?.icon32;
+		const tail = p32 ? `｜imiss-32.png 交叉印证：上带 ${(p32.topBand / p32.h * 100).toFixed(1)}%、包围盒 ${p32.bboxW}×${p32.bboxH}` : "";
+		record(
+			"R-ID-04",
+			"favicon 是透明底、不带方圆底（B 方案：只有纸飞机，中央列上下都有透明带）",
+			!!p && topBand >= 0.08 && bottomBand >= 0.08 && p.corners.every((a) => a <= 8),
+			p
+				? `imiss-192.png ${p.w}×${p.h}：上透明带 ${(topBand * 100).toFixed(1)}%、下 ${(bottomBand * 100).toFixed(1)}%（旧方圆底图标是 0% / 0%）｜四角 alpha=${p.corners.join(",")} ${tail}`
+				: `❌ 取像素失败：${JSON.stringify(faviconProbe)}`,
+		);
+		record(
+			"R-ID-04",
+			"favicon 主体是横向纸飞机（内容包围盒 ≈1.35:1，不是旧方圆底的 1:1）",
+			!!p && aspect >= 1.2 && aspect <= 1.5 && p.bboxW >= p.w * 0.95,
+			p
+				? `内容包围盒 ${p.bboxW}×${p.bboxH} = ${aspect.toFixed(3)}:1（占画布宽 ${((p.bboxW / p.w) * 100).toFixed(1)}%）`
+				: `❌ 取像素失败：${JSON.stringify(faviconProbe)}`,
+		);
+		const ln = home.logoNatural;
+		const attrAspect = ln?.attrW && ln?.attrH ? ln.attrW / ln.attrH : 0;
+		const natAspect = ln?.natW && ln?.natH ? ln.natW / ln.natH : 0;
+		// ⚠️ 别被 `naturalWidth` 的绝对值骗到：img 带 `srcset`（`28w, 56w`）而**没有 `sizes`**，
+		// 按规范 `sizes` 缺省 = `100vw` → 这两个属性报的是**密度校正后的 CSS 像素**
+		// （实测 1440×1080 = 视口尺寸，不是资源像素数，`reports/_logo-navbar-probe.mjs` 里
+		// `decode()` 前后都是这个数）。但**比例**仍等于资源本体的比例（190:256 → 1.347，
+		// 取整成 42:56 后 1.333），所以判据用比例；真实像素由上面那两条 favicon 的
+		// canvas 判据钉住（读的是从服务器取回的那张图的真像素）。
+		record(
+			"R-ID-04",
+			"导航栏 Logo 本体是横向纸飞机（固有尺寸 256×190，≈1.35:1）",
+			!!ln && attrAspect >= 1.2 && attrAspect <= 1.5 && natAspect >= 1.15 && natAspect <= 1.55,
+			ln
+				? `标签固有尺寸 ${ln.attrW}×${ln.attrH} = ${attrAspect.toFixed(3)}:1 ｜ 实际加载（密度校正后，绝对值随视口）${ln.natW}×${ln.natH} = ${natAspect.toFixed(3)}:1 ｜ currentSrc=${ln.currentSrc}`
+				: "❌ 没取到 logo 的自然尺寸（[data-logo-theme] 找不到？）",
+		);
+	}
 	record("R-WDG-01", `站点统计只剩 ${EXPECT_STAT_ROWS} 行`, home.statRows === EXPECT_STAT_ROWS, `实际 ${home.statRows} 行`);
 	record("R-WDG-01", "站点统计不含已删文案", EXPECT_ABSENT_STAT_TEXT.every((t) => !(home.statText ?? "").includes(t)), "运行时长/最后活动/天前 均未出现");
 	record("R-WDG-02", "日历热力图已关闭", home.heatmapExists === false, `#heatmap-container ${home.heatmapExists ? "仍存在" : "不存在"}`);
