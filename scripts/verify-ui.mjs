@@ -1252,6 +1252,8 @@ async function main() {
 	//    **根本没扫**的情况下判绿 —— T77 同类的"闸门静默失效"。下面断言里显式区分
 	//    `null`（判红 + 说明要跑 pnpm build/preview）与 `[]`（真扫过且零命中）。
 	let distIconAggregatorHits = null;
+	// v1.64：资料卡头像悬停图标名的产物级命中（null = 没扫到产物；[] = 真扫过且零命中）
+	let distAvatarIconHits = null;
 	if (isDevServer) {
 		record("INFO(dev)", "上游身份零残留扫描已跳过", true, "读的是磁盘 dist/，dev 下可能是旧产物；请用 pnpm preview");
 	} else if (distAllFiles.length === 0) {
@@ -1270,6 +1272,10 @@ async function main() {
 		// 数不到"某个服务端/构建期脚本把 URL 写进了 js/css 里、浏览器运行期才发出去"的情形。
 		const ICON_AGGREGATOR_NEEDLES = ["s2/favicons", "favicon.im", "faviconV2", "googleapis.com"];
 		distIconAggregatorHits = [];
+		// v1.64：资料卡头像悬停图标（`fa7-regular:address-card`）**已按发起人要求删除**，
+		// 它的名字不许再出现在产物里（含注释）。用 null 表示"没扫到产物"（同 distIconAggregatorHits 的规矩）。
+		const REMOVED_AVATAR_VEIL_ICONS = ["address-card"];
+		distAvatarIconHits = [];
 		// v1.57：正控 —— 发起人明确要收录的站点必须在产物里（否则"守卫全绿"可能只是产物空了）
 		const positiveNeedles = ["happy.bigmess.org", "chat.deepseek.com", "huggingface.co"];
 		const positives = new Set();
@@ -1341,6 +1347,11 @@ async function main() {
 			for (const [n] of PRIVACY_NEEDLES) if (text.includes(n)) privacyLeakFiles.push(`${rel} → ${n}`);
 			// v1.58：favicon 聚合服务域名（产物级"运行期零第三方请求"守卫）
 			for (const n of ICON_AGGREGATOR_NEEDLES) if (text.includes(n)) distIconAggregatorHits.push(`${rel} → ${n}`);
+			// v1.64：**去掉了的资料卡悬停图标名**也不许残留在产物里。
+			// 为什么要有这条：本轮第一版把"为什么删掉它"的说明写成了**模板里的 HTML 注释**，
+			// 而模板注释会原样进产物（T85）→ `dist/index.html` 里真的多出两处含图标名的注释。
+			// 断言只查 DOM 是拦不住这种"名字回来了"的，所以这里连产物内容一起查。
+			for (const n of REMOVED_AVATAR_VEIL_ICONS) if (text.includes(n)) distAvatarIconHits.push(`${rel} → ${n}`);
 			// v1.60：模板示例公告文案（负控；二进制文件在上面已按"含 NUL 字节"跳过内容）
 			for (const [n] of ANNOUNCEMENT_TEMPLATE_NEEDLES)
 				if (text.includes(n)) announcementTemplateHits.push(`${rel} → ${n}`);
@@ -3905,6 +3916,128 @@ async function main() {
 					: "❌ 页面里没找到资料卡头像（#profile-wrapper img）",
 			);
 		}
+	}
+	// R-WDG-04：资料卡头像的**悬停反馈**（v1.64 按发起人要求去掉浮在头像正中的名片图标）
+	// 他原话：「鼠标光标放这后这个图片图标能不能不显示？」—— 那个 `fa7-regular:address-card`
+	// 悬停浮出来像"这里可以换图"，而这里其实只是通往 /about/ 的链接。
+	// 判据五条腿（前四条是"没了什么 / 还在什么"，第五条是**正控**：证明只删了图标、
+	// 没把悬停反馈一起删光）：
+	//   ① 头像链接内没有任何 `<svg>`（图标没了）② 压暗层（`.profile-avatar-veil`）没有子元素
+	//   ③ 头像 `<img>` 仍在（1 张）④ **产物里也搜不到 `address-card`**（防线前移到 dist，
+	//      防止"模板里的 HTML 注释把图标名又带回去" —— T85 那个坑本轮真踩到过一次）
+	//   ⑤ 压暗层**悬停后底色变了**（rgba(0,0,0,0) → 半透明黑）
+	// 用 `Input.dispatchMouseEvent` 的**真实鼠标**（`dispatchEvent` 不触发 CSS `:hover`）。
+	{
+		const avatarHover = await (async () => {
+			try {
+				const before = (
+					await cdp.send("Runtime.evaluate", {
+						expression: `(() => {
+  const a = document.querySelector("a[aria-label='Go to About Page']");
+  if (!a) return null;
+  a.scrollIntoView({ block: "center", behavior: "instant" });
+  const r = a.getBoundingClientRect();
+  const ov = a.querySelector(".profile-avatar-veil");
+  const cx = Math.round(r.x + r.width / 2), cy = Math.round(r.y + r.height / 2);
+  const hit = r.width > 0 ? document.elementFromPoint(cx, cy) : null;
+  return {
+    x: cx, y: cy,
+    rect: [Math.round(r.width), Math.round(r.height)],
+    viewport: [window.innerWidth, window.innerHeight],
+    topHit: !hit ? "none" : (hit === a ? "a" : (a.contains(hit) ? "a-内" : (hit.id || hit.tagName))),
+    bg: ov ? getComputedStyle(ov).backgroundColor : null,
+    veil: !!ov,
+    overlayChildren: ov ? ov.children.length : -1,
+    svgs: a.querySelectorAll("svg").length,
+    imgs: a.querySelectorAll("img").length,
+  };
+})()`,
+						returnByValue: true,
+					})
+				).result.value;
+				if (!before) return { error: "没找到资料卡头像链接（a[aria-label='Go to About Page']）" };
+
+				// ① 先走**真鼠标**（`Input.dispatchMouseEvent`；`dispatchEvent(new MouseEvent)` 不触发 :hover）
+				if (before.rect[0] > 0 && before.rect[1] > 0) {
+					await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: before.x, y: before.y, buttons: 0 });
+					await new Promise((r) => setTimeout(r, 700));
+				}
+				const real = (
+					await cdp.send("Runtime.evaluate", {
+						expression: `(() => {
+  const a = document.querySelector("a[aria-label='Go to About Page']");
+  const ov = a ? a.querySelector(".profile-avatar-veil") : null;
+  return { bg: ov ? getComputedStyle(ov).backgroundColor : null, hovered: a ? a.matches(":hover") : false };
+})()`,
+						returnByValue: true,
+					})
+				).result.value;
+
+				// ② 真鼠标没拿到 `:hover` 时（可能当轮视口是 390、侧栏被隐藏，坐标落不到它身上），
+				//    退回 CDP 的 `CSS.forcePseudoState` 强制 `:hover` —— 判据验的是"悬停样式长什么样"，
+				//    这条路同样走真实样式引擎，只是不依赖几何命中；详情里会写明用的是哪条路（不伪装）。
+				let forced = null;
+				if (!real?.hovered) {
+					try {
+						await cdp.send("DOM.enable");
+						await cdp.send("CSS.enable");
+						const { root } = await cdp.send("DOM.getDocument", { depth: 1 });
+						const { nodeId } = await cdp.send("DOM.querySelector", {
+							nodeId: root.nodeId,
+							selector: "a[aria-label='Go to About Page']",
+						});
+						if (nodeId) {
+							await cdp.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: ["hover"] });
+							await new Promise((r) => setTimeout(r, 400));
+							forced = (
+								await cdp.send("Runtime.evaluate", {
+									expression: `(() => {
+  const a = document.querySelector("a[aria-label='Go to About Page']");
+  const ov = a ? a.querySelector(".profile-avatar-veil") : null;
+  return { bg: ov ? getComputedStyle(ov).backgroundColor : null };
+})()`,
+									returnByValue: true,
+								})
+							).result.value;
+							await cdp.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] });
+						}
+					} catch (e) {
+						forced = { error: e instanceof Error ? e.message : String(e) };
+					}
+				}
+				return { before, real, forced };
+			} catch (error) {
+				return { error: error instanceof Error ? error.message : String(error) };
+			}
+		})();
+		const b = avatarHover?.before;
+		const real = avatarHover?.real;
+		const forced = avatarHover?.forced;
+		const transparent = (c) => typeof c === "string" && /rgba?\([^)]*,\s*0(\.0+)?\)$/.test(c.trim());
+		// 悬停后的底色：真鼠标优先，拿不到就用 forcePseudoState 的结果（两条路都在详情里写明）
+		const hoverBg = real?.hovered ? real.bg : (forced?.bg ?? real?.bg);
+		const hoverPath = real?.hovered ? "真鼠标" : forced?.bg ? "CSS.forcePseudoState（几何没命中，见 topHit/视口）" : "都没拿到";
+		// 产物级：dist 全量文件里不许再出现那个图标名（含被 minify 后剩下的字符串 / 注释）
+		// ⚠️ 用扫描循环里采到的 `distAvatarIconHits`（`null` = 产物没扫到 → 判红，不能静默放过）
+		const distIconHits = distAvatarIconHits;
+		record(
+			"R-WDG-04",
+			"资料卡头像悬停只压暗、不浮图标（v1.64 去掉名片覆盖图标），且产物里不留图标名",
+			!!b &&
+				b.veil === true &&
+				b.svgs === 0 &&
+				b.overlayChildren === 0 &&
+				b.imgs === 1 &&
+				transparent(b.bg) &&
+				typeof hoverBg === "string" &&
+				hoverBg !== b.bg &&
+				!transparent(hoverBg) &&
+				Array.isArray(distIconHits) &&
+				distIconHits.length === 0,
+			b
+				? `头像链接内 svg=${b.svgs}（要 0）· 压暗层子元素=${b.overlayChildren}（要 0）· img=${b.imgs}（要 1）｜底色 悬停前=${b.bg} → 悬停后=${hoverBg}（要变深）｜取法=${hoverPath}｜:hover 真命中=${real?.hovered}｜视口=${b.viewport?.join("×")} 头像尺寸=${b.rect?.join("×")} 中心命中=${b.topHit}｜产物里 address-card 命中=${Array.isArray(distIconHits) ? distIconHits.length : "❌ 产物没扫到（先 pnpm build）"} 个${Array.isArray(distIconHits) && distIconHits.length ? `：${distIconHits.slice(0, 3).join(" / ")}` : ""}`
+				: `❌ 探针失败：${JSON.stringify(avatarHover)}`,
+		);
 	}
 	record("R-WDG-01", `站点统计只剩 ${EXPECT_STAT_ROWS} 行`, home.statRows === EXPECT_STAT_ROWS, `实际 ${home.statRows} 行`);
 	record("R-WDG-01", "站点统计不含已删文案", EXPECT_ABSENT_STAT_TEXT.every((t) => !(home.statText ?? "").includes(t)), "运行时长/最后活动/天前 均未出现");
