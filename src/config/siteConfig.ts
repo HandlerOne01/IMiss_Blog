@@ -96,8 +96,8 @@ export const siteConfig: SiteConfig = {
 
 	// Favicon 配置
 	// 如果启用了OpenGraph图片功能，数组中需要包含png格式的favicon图标
-	// IMiss Blog：临时 favicon 由 scripts/make-logo.mjs 从桌宠图集裁出（见 prd.md R-ID-04），
-	// 正式图标到位后覆盖 public/favicon/imiss-*.png 即可
+	// IMiss Blog：正式标识（纸飞机）由 scripts/make-logo.mjs 从 `src/assets/images/logo/imiss-logo.png`
+	// 生成；改标识只需换那张源图再跑 `pnpm make:logo`（v1.64 起，B-03 已关闭）
 	// ⚠️ P6-8：数组**每一项都要写 `sizes`**。Layout.astro 选 apple-touch-icon 时按这里的
 	// 尺寸挑（优先 180×180，见该文件 `appleTouchIcon`），schema-image.ts 也按尺寸挑最大的
 	// raster 当 publisher logo；不写 sizes 会让它们退化成"猜"，32px 有被挑中的风险。
@@ -136,7 +136,7 @@ export const siteConfig: SiteConfig = {
 		// 使用 Astro 图标库时不需要设置 valueDark，图标会自动跟随主题亮暗色切换
 		logo: {
 			type: "image",
-			// IMiss Blog：临时 Logo（由 scripts/make-logo.mjs 从桌宠图集裁出，见 R-ID-04）
+			// IMiss Blog：正式 Logo —— 纸飞机（透明底，无方圆底；由 scripts/make-logo.mjs 生成，见 R-ID-04）
 			value: "assets/images/logo/imiss-light.webp",
 			valueDark: "assets/images/logo/imiss-dark.webp",
 			alt: "IMiss Blog",
