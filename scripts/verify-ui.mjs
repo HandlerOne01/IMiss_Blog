@@ -3757,12 +3757,16 @@ async function main() {
 		);
 	}
 	record("R-ID-04", "导航栏 Logo 已换成 imiss", (home.logoSrc ?? "").includes("imiss"), home.logoSrc ?? "（没取到 logo）");
-	// ── v1.64：正式标识（纸飞机）──────────────────────────────────────────────
-	// 上面那三条只钉"文件名里有没有 imiss" —— 换设计（爱心 → 纸飞机）前后它们**都成立**，
-	// 对本次改动是恒真的（与 v1.63 修掉的 navHasMusic 同类病）。下面三条钉**图本体**：
-	//   ① favicon 不再带方圆底（发起人 2026-10-07 选的是 B 方案：只有纸飞机）；
-	//   ② favicon 里那架飞机是横向的（内容包围盒 ≈1.35:1），不是旧的 1:1 方块；
-	//   ③ 导航栏 Logo 同理（发给浏览器的那个 webp 本体就是 256×190）。
+	// ── v1.64：正式标识（小图标纸飞机 / 大图标与侧栏头像人物）────────────────────
+	// 上面那三条只钉"文件名里有没有 imiss" —— 换设计（爱心 → 纸飞机 → 纸飞机+人物）前后
+	// 它们**都成立**，对本次改动是恒真的（与 v1.63 修掉的 navHasMusic 同类病）。
+	// 下面的判据钉**图本体**，按 v1.64 的分工分成两组（发起人 2026-10-07 定的，参考上游作者站的做法）：
+	//   **小图标 = 纸飞机**：① 32px favicon 是透明底、中央列上下都有透明带；
+	//                          ② 它的内容包围盒 ≈1.35:1（横向的飞机，不是 1:1 的方块）；
+	//                          ③ 导航栏 Logo 本体的固有尺寸 256×190。
+	//   **大图标与侧栏头像 = 人物插画**：④ 180/192 是满幅不透明方图；
+	//                          ⑤ 侧栏头像与 192 图标**同源**（8×8 指纹差异极小），
+	//                             而 32px 小图标与它们**明显不同源**（负控，差异极大）。
 	// 判据在**真浏览器里读像素**（Image + canvas，同源不污染画布）：零依赖，而且验的
 	// 正是访客拿到的那张图 —— 不是"看源码觉得应该是"。
 	{
@@ -3778,7 +3782,7 @@ async function main() {
     const g = c.getContext("2d"); g.drawImage(im, 0, 0);
     const d = g.getImageData(0, 0, w, h).data;
     const A = (x, y) => d[(y * w + x) * 4 + 3];
-    // 中央 50% 的列里，从上/从下数第一条有实心像素的行 —— 方圆底图标是 0，透明底是两位数百分比
+    // 中央 50% 的列里，从上/从下数第一条有实心像素的行 —— 满幅不透明图是 0，透明底是两位数百分比
     const x0 = Math.floor(w * 0.25), x1 = Math.ceil(w * 0.75);
     let top = -1, bottom = -1;
     for (let y = 0; y < h && top < 0; y++) for (let x = x0; x < x1; x++) if (A(x, y) > 8) { top = y; break; }
@@ -3787,7 +3791,35 @@ async function main() {
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (A(x, y) > 8) { if (x < minX) minX = x; if (y < minY) minY = y; if (x > maxX) maxX = x; if (y > maxY) maxY = y; }
     return { w, h, topBand: top, bottomBand: bottom, bboxW: maxX - minX + 1, bboxH: maxY - minY + 1, corners: [A(0, 0), A(w - 1, 0), A(0, h - 1), A(w - 1, h - 1)] };
   };
-  return { icon192: await measure("/favicon/imiss-192.png"), icon32: await measure("/favicon/imiss-32.png") };
+  // 8×8 缩略指纹 + 两图的最大通道差（判"是不是同一张画"）。画布缩放的取整会让个别格子
+  // 差十几，所以判据用**平均值**而不是最大值，阈值见调用处。
+  const sig = async (src) => {
+    const im = await load(src);
+    const c = document.createElement("canvas"); c.width = 8; c.height = 8;
+    const g = c.getContext("2d"); g.drawImage(im, 0, 0, 8, 8);
+    const d = g.getImageData(0, 0, 8, 8).data;
+    return { w: im.naturalWidth, h: im.naturalHeight, px: [...d] };
+  };
+  const mad = (a, b) => {
+    if (!a || !b) return null;
+    let sum = 0, n = 0;
+    for (let i = 0; i < 64; i++) for (let ch = 0; ch < 3; ch++) { sum += Math.abs(a.px[i * 4 + ch] - b.px[i * 4 + ch]); n++; }
+    return sum / n;
+  };
+  const avatarImg = document.querySelector("#profile-wrapper img") || document.querySelector("img[alt='Profile Image of the Author']");
+  const avatarSrc = avatarImg ? (avatarImg.currentSrc || avatarImg.getAttribute("src")) : null;
+  const r = {
+    icon32: await measure("/favicon/imiss-32.png"),
+    icon180: await measure("/favicon/imiss-180.png"),
+    icon192: await measure("/favicon/imiss-192.png"),
+  };
+  r.avatar = avatarImg ? { src: avatarImg.getAttribute("src"), currentSrc: avatarImg.currentSrc, natW: avatarImg.naturalWidth, natH: avatarImg.naturalHeight } : null;
+  const s192 = await sig("/favicon/imiss-192.png");
+  const s32 = await sig("/favicon/imiss-32.png");
+  const s180 = await sig("/favicon/imiss-180.png");
+  const sAvatar = avatarSrc ? await sig(avatarSrc) : null;
+  r.mad = { icon192_vs_avatar: mad(s192, sAvatar), icon180_vs_icon192: mad(s180, s192), icon32_vs_icon192: mad(s32, s192) };
+  return r;
 })()`,
 					returnByValue: true,
 					awaitPromise: true,
@@ -3798,24 +3830,22 @@ async function main() {
 			}
 		})();
 
-		// ① + ② 都在 192px 那张上量（32px 一起量，只作为交叉印证写进详情）
-		const p = faviconProbe?.icon192;
+		// ① + ② 都在 **32px** 那张上量（小图标 = 纸飞机；192 那张现在是大图标 = 人物）
+		const p = faviconProbe?.icon32;
 		const topBand = p ? p.topBand / p.h : -1;
 		const bottomBand = p ? p.bottomBand / p.h : -1;
 		const aspect = p ? p.bboxW / p.bboxH : 0;
-		const p32 = faviconProbe?.icon32;
-		const tail = p32 ? `｜imiss-32.png 交叉印证：上带 ${(p32.topBand / p32.h * 100).toFixed(1)}%、包围盒 ${p32.bboxW}×${p32.bboxH}` : "";
 		record(
 			"R-ID-04",
-			"favicon 是透明底、不带方圆底（B 方案：只有纸飞机，中央列上下都有透明带）",
+			"小图标（浏览器标签 32px）是透明底纸飞机：中央列上下都有透明带",
 			!!p && topBand >= 0.08 && bottomBand >= 0.08 && p.corners.every((a) => a <= 8),
 			p
-				? `imiss-192.png ${p.w}×${p.h}：上透明带 ${(topBand * 100).toFixed(1)}%、下 ${(bottomBand * 100).toFixed(1)}%（旧方圆底图标是 0% / 0%）｜四角 alpha=${p.corners.join(",")} ${tail}`
+				? `imiss-32.png ${p.w}×${p.h}：上透明带 ${(topBand * 100).toFixed(1)}%、下 ${(bottomBand * 100).toFixed(1)}%（旧的方圆底图标是 0% / 0%）｜四角 alpha=${p.corners.join(",")}`
 				: `❌ 取像素失败：${JSON.stringify(faviconProbe)}`,
 		);
 		record(
 			"R-ID-04",
-			"favicon 主体是横向纸飞机（内容包围盒 ≈1.35:1，不是旧方圆底的 1:1）",
+			"小图标（32px）主体是横向纸飞机（内容包围盒 ≈1.35:1，不是 1:1 方块）",
 			!!p && aspect >= 1.2 && aspect <= 1.5 && p.bboxW >= p.w * 0.95,
 			p
 				? `内容包围盒 ${p.bboxW}×${p.bboxH} = ${aspect.toFixed(3)}:1（占画布宽 ${((p.bboxW / p.w) * 100).toFixed(1)}%）`
@@ -3828,8 +3858,8 @@ async function main() {
 		// 按规范 `sizes` 缺省 = `100vw` → 这两个属性报的是**密度校正后的 CSS 像素**
 		// （实测 1440×1080 = 视口尺寸，不是资源像素数，`reports/_logo-navbar-probe.mjs` 里
 		// `decode()` 前后都是这个数）。但**比例**仍等于资源本体的比例（190:256 → 1.347，
-		// 取整成 42:56 后 1.333），所以判据用比例；真实像素由上面那两条 favicon 的
-		// canvas 判据钉住（读的是从服务器取回的那张图的真像素）。
+		// 取整成 42:56 后 1.333），所以判据用比例；真实像素由上面那两条 canvas 判据钉住
+		// （读的是从服务器取回的那张图的真像素）。
 		record(
 			"R-ID-04",
 			"导航栏 Logo 本体是横向纸飞机（固有尺寸 256×190，≈1.35:1）",
@@ -3838,6 +3868,43 @@ async function main() {
 				? `标签固有尺寸 ${ln.attrW}×${ln.attrH} = ${attrAspect.toFixed(3)}:1 ｜ 实际加载（密度校正后，绝对值随视口）${ln.natW}×${ln.natH} = ${natAspect.toFixed(3)}:1 ｜ currentSrc=${ln.currentSrc}`
 				: "❌ 没取到 logo 的自然尺寸（[data-logo-theme] 找不到？）",
 		);
+		// ④ 大图标（iOS 主屏 180 / Android·安装卡 192）= 人物插画：满幅、不透明、方形
+		{
+			const b = faviconProbe?.icon192;
+			const b180 = faviconProbe?.icon180;
+			const opaque = (m) => !!m && m.corners.every((a) => a >= 250) && m.topBand === 0 && m.bottomBand === 0;
+			const full = (m) => !!m && m.bboxW === m.w && m.bboxH === m.h && Math.abs(m.w / m.h - 1) < 0.02;
+			record(
+				"R-ID-04",
+				"大图标（180 / 192）是满幅不透明方图（= 人物插画，与小图标不是同一张）",
+				opaque(b) && full(b) && opaque(b180) && full(b180),
+				b && b180
+					? `imiss-192.png ${b.w}×${b.h} 四角 alpha=${b.corners.join(",")}、上下透明带 ${b.topBand}/${b.bottomBand}、包围盒 ${b.bboxW}×${b.bboxH} ｜ imiss-180.png 四角 alpha=${b180.corners.join(",")}、包围盒 ${b180.bboxW}×${b180.bboxH}`
+					: `❌ 取像素失败：${JSON.stringify(faviconProbe)}`,
+			);
+		}
+		// ⑤ 侧栏头像就是那张人物图，而小图标明显不是它（两条腿：正控 + 负控）
+		{
+			const av = faviconProbe?.avatar;
+			const mad = faviconProbe?.mad ?? {};
+			const same = mad.icon192_vs_avatar;
+			const diff = mad.icon32_vs_icon192;
+			const urlOk = /imiss-avatar/.test(av?.currentSrc ?? av?.src ?? "");
+			record(
+				"R-ID-04",
+				"侧栏资料卡头像是同一张人物图（与 192 大图标同源），小图标则明显不同源",
+				urlOk &&
+					typeof same === "number" &&
+					same < 15 &&
+					typeof diff === "number" &&
+					diff > 40 &&
+					typeof mad.icon180_vs_icon192 === "number" &&
+					mad.icon180_vs_icon192 < 10,
+				av
+					? `头像 ${av.currentSrc}（${av.natW}×${av.natH}）｜8×8 指纹平均差：192 vs 头像 = ${same?.toFixed(1)}（要 < 15）｜32 vs 192 = ${diff?.toFixed(1)}（要 > 40，负控）｜180 vs 192 = ${mad.icon180_vs_icon192?.toFixed(1)}（要 < 10）`
+					: "❌ 页面里没找到资料卡头像（#profile-wrapper img）",
+			);
+		}
 	}
 	record("R-WDG-01", `站点统计只剩 ${EXPECT_STAT_ROWS} 行`, home.statRows === EXPECT_STAT_ROWS, `实际 ${home.statRows} 行`);
 	record("R-WDG-01", "站点统计不含已删文案", EXPECT_ABSENT_STAT_TEXT.every((t) => !(home.statText ?? "").includes(t)), "运行时长/最后活动/天前 均未出现");
