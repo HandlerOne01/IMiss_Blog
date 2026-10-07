@@ -6111,6 +6111,12 @@ async function main() {
 			"身份类逼问（同一会话连问 5 条）：自称词 0 命中，且每条都明确「我是爱弥斯」（发起人 2026-09-27 决定）";
 		const DESC_AGT11 =
 			"降级（后端不可达）必须**一眼可分辨**：面板带 source=fallback + 台词走「接不上话」起头池 + 连续两次不重样 + 不与真答复同形";
+		// ⚠️ v1.62：真机那 3 格（R-AGT-08）的 desc 也抽成常量 —— 它们**在后端没起时也要注册**
+		//    （记 SKIP），"跑"与"跳过"两边的说法必须逐字一致，否则报告里同一件事会有两种说法。
+		const DESC_AGT08_LIVE = "enable:true —— 真机路径真的发起了往返（计数 > 0）并拿到人设化答复";
+		const DESC_AGT08_PERSONA = "答复符合人设口径：无完整域名 / 无表格 / 无加粗 / 无「您」";
+		const DESC_AGT08_RESUME =
+			"interrupt 真机走通：后端反问进气泡 → 用组件给出的约定词续跑 → 拿到答复（收口 或 先答复再反问，两种都合规）";
 
 		// ── ① enable:false：一个网络请求都不发 ──────────────────────────────
 		let offRun = null;
@@ -6145,6 +6151,22 @@ async function main() {
 		await closePetChat();
 
 		// ── ② enable:true：真往返 + 人设口径 + interrupt/resume ─────────────
+		// ⚠️ **v1.62 修的真实缺陷：本段注册的断言条数曾经随后端在不在而变。**
+		//    旧写法是 `if (!probe) { 记 2 条 SKIP } else { 真机 3 格 + 身份类 1 格 + 假后端 2 格 }`
+		//    → 后端没起时那 **4 格根本没注册**（不是记成 SKIP），总数 294 → 290；
+		//    而 `verify:docs` 的「断言条数」门拿**最新一轮** `reports/verify-ui.log` 的汇总行
+		//    去比文档口径（294）→ **后端一挂，门就判红（14/15）**，看着像文档过期，
+		//    其实是环境不齐。这是"判据本身随后端摆动"，与"对 `pnpm dev` 跑会少若干条"
+		//    （产物级检查在 dev 下不适用，见 `isDevServer` 那几处）**不是同一件事**。
+		//    现在的口径（本段 + 块尾的 `UNIT-AGT` 自检一起钉住）：
+		//      · **永远注册同样多的格数**（不随后端在不在变化）；
+		//      · 后端没起时那 4 格（3 条真机 + 1 条身份类）记 **SKIP**
+		//        （`pass=true, skipped=true`：不计入通过、报告里以 `⏭️ [SKIP]` 显形、
+		//        汇总行单独列跳过数），并写清跳过原因（服务没起）与补救命令；
+		//      · 剩下 2 格（页面内假后端 / 死端口）**与 2024 在不在无关，永远真跑**。
+		//    ⛔ 不许为了"凑够格数"把判据写空：后端在跑时这 6 格一条都不少跑，判据本体一字未动。
+		const AGT_E2E_EXPECTED_IDS = ["R-AGT-08", "R-AGT-08", "R-AGT-08", "R-AGT-09", "R-AGT-10", "R-AGT-11"];
+		const agtE2eFrom = results.length;
 		{
 			const probe = await (async () => {
 				try {
@@ -6154,23 +6176,12 @@ async function main() {
 					return false;
 				}
 			})();
-			if (!probe) {
-				// 环境未就绪 ≠ 回归（与 `verify:agent` 的退出码规矩一致：Agent 没起不该让 CI 变红）
-				record(
-					"R-AGT-08",
-					"Agent 在跑时：桌宠真机往返一次（跳过：服务没起）",
-					true,
-					`${LIVE}/ok 不可达 → 本组真往返断言跳过。启动：cd ..\\agent_-for_-blog; langgraph dev`,
-					true,
-				);
-				record(
-					"R-AGT-08",
-					"interrupt → 约定词续跑（跳过：服务没起）",
-					true,
-					"同上",
-					true,
-				);
-			} else {
+			/** 后端没起时那 4 格的统一"跳过原因"：说清原因 + 给出补救命令（判据文案照旧） */
+			const LIVE_SKIP_DETAIL =
+				`${LIVE}/ok 不可达（服务没起）→ 本格按环境未就绪记 SKIP：不计入通过、也不算回归。` +
+				"启动后端：cd ..\\agent_-for_-blog; .venv\\Scripts\\langgraph.exe dev --port 2024 --no-browser（只用 Start-Process 脱离式）；" +
+				"起来后重跑 `pnpm verify:ui:log --base http://localhost:4323` 即可验到本格。";
+			if (probe) {
 				await arm({ enable: true, baseUrl: LIVE, timeoutMs: 60000 });
 				const before = await netCount(LIVE);
 				const live = await askPet("在吗", { timeout: 90000 });
@@ -6195,7 +6206,7 @@ async function main() {
 				const notMock = !MOCK_LINES.some((m) => live.reply.includes(m));
 				record(
 					"R-AGT-08",
-					"enable:true —— 真机路径真的发起了往返（计数 > 0）并拿到人设化答复",
+					DESC_AGT08_LIVE,
 					before === 0 &&
 						after > 0 &&
 						isRealReply(live?.reply, "在吗") &&
@@ -6204,7 +6215,7 @@ async function main() {
 				);
 				record(
 					"R-AGT-08",
-					"答复符合人设口径：无完整域名 / 无表格 / 无加粗 / 无「您」",
+					DESC_AGT08_PERSONA,
 					persona.length === 0,
 					`气泡文本 ${(live?.reply ?? "").length} 字；命中禁项 [${persona.join(", ")}]；整页禁词命中 文本[${leak.hitsText.join(", ")}] body[${leak.hitsPet.join(", ")}]`,
 				);
@@ -6266,7 +6277,7 @@ async function main() {
 					const answeredThenAskedAgain = !!q2?.settled?.resume && q2Reply.length > 100;
 					record(
 						"R-AGT-08",
-						"interrupt 真机走通：后端反问进气泡 → 用组件给出的约定词续跑 → 拿到答复（收口 或 先答复再反问，两种都合规）",
+						DESC_AGT08_RESUME,
 						!!q2?.settled &&
 							q2.settled.busy === false &&
 							isRealReply(q2Reply, dbg1?.resume) &&
@@ -6442,7 +6453,22 @@ async function main() {
 							.join("\n      "),
 					);
 				}
+			} else {
+				// 后端没起 = **环境未就绪，不是回归**（与 `verify:agent` 的退出码规矩一致：
+				// Agent 没起不该让 CI 变红）。⚠️ 但**格数必须一格不少** —— 这 4 格照样注册，
+				// 只是记成 SKIP（`pass=true, skipped=true`）；块尾的 `UNIT-AGT` 把格数钉死，
+				// 任何人删掉其中一格都会判红。
+				record("R-AGT-08", DESC_AGT08_LIVE, true, LIVE_SKIP_DETAIL, true);
+				record("R-AGT-08", DESC_AGT08_PERSONA, true, LIVE_SKIP_DETAIL, true);
+				record("R-AGT-08", DESC_AGT08_RESUME, true, LIVE_SKIP_DETAIL, true);
+				record("R-AGT-09", DESC_AGT09, true, LIVE_SKIP_DETAIL, true);
+			}
 
+			// ── 与真后端无关的两格：**永远真跑**（页面内假后端 `LIVE_FAKE` / 死端口 `DEAD`）──
+			// 为什么它们必须在 `if (probe)` 之外：这两格的场景**本来就不需要 2024**
+			// （`historyFake()` 是页面内内存假后端；`DEAD` 是个没人监听的端口），
+			// 所以后端没起时它们照样跑得出结论 —— 记 SKIP 反而是把"能测的"说成"没测"。
+			{
 				// ── 【发起人 2026-09-27 图证 · 要求 1】"同一句答复被重复上屏"的回归（R-AGT-10）──
 				// 判据就是发起人那句话：**连问两轮，第二问的气泡必须显示第二问的答复**。
 				// 假后端刻意仿真实 langgraph（首快照 = 整份 state，含上一轮答复），
@@ -6546,6 +6572,32 @@ async function main() {
 					}
 				}
 			}
+		}
+
+		// ── R-AGT 端到端段的「格数不变量」自检（v1.62 新增 · 防回归）──────────────
+		// 为什么要有它：本段注册的格数**曾经**随后端在不在而变（后端没起时 4 格一条都不注册
+		// → 总数 294 → 290 → `verify:docs` 的「断言条数」门随后端摆动而假红）。
+		// 这条自检把「格数 + 编号 + 顺序」钉成常量：任何人再往这段里塞一个
+		// `if (后端在)` 的注册分支（哪怕只删掉一格），这里立刻 ❌ 判红，并把
+		// **实际**与**期望**两串原样打出来 —— 它就是那次缺陷的回归测试。
+		// 它为什么**真的能失败**（不是假绿）：判据是拿"这段实际 push 进 `results` 的 id 序列"
+		// 去比常量 `AGT_E2E_EXPECTED_IDS`，两边都来自本次运行，没有 `?.` / 空数组兜底；
+		// 失败时输出形如
+		//   `❌ [UNIT-AGT] R-AGT 端到端段注册的断言格数不随后端在不在变化（恒为 6 格…）`
+		//   `      本段实测 5 格：[R-AGT-08, R-AGT-08, R-AGT-08, R-AGT-09, R-AGT-10]；期望 6 格：[…]`
+		// 并计入 `❌ 失败 1` → 退出码 1（实测注入见 `reports/_count-invariant-report.md`）。
+		// ⚠️ 它自己也是一条功能断言（计入总数），所以总数 294 → **295**（三份文档同步改）。
+		{
+			const agtE2eIds = results
+				.slice(agtE2eFrom)
+				.filter((r) => !r.id.startsWith("INFO"))
+				.map((r) => r.id);
+			record(
+				"UNIT-AGT",
+				`R-AGT 端到端段注册的断言格数不随后端在不在变化（恒为 ${AGT_E2E_EXPECTED_IDS.length} 格、编号与顺序固定）`,
+				same(agtE2eIds, AGT_E2E_EXPECTED_IDS),
+				`本段实测 ${agtE2eIds.length} 格：[${agtE2eIds.join(", ")}]；期望 ${AGT_E2E_EXPECTED_IDS.length} 格：[${AGT_E2E_EXPECTED_IDS.join(", ")}]（INFO 不计入）。⚠️ 后端不在时前 4 格记 ⏭️ SKIP —— SKIP 改的是「跑没跑」，不改「注册几条」，所以功能断言总数（= 三份文档的当前口径）与后端在不在无关`,
+			);
 		}
 		await closePetChat();
 
