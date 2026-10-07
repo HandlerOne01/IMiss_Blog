@@ -6,8 +6,12 @@ export const profileConfig: ProfileConfig = {
 	// 1. public 目录（以 "/" 开头，不优化）："/assets/images/avatar.webp"
 	// 2. src 目录（不以 "/" 开头，自动优化但会增加构建时间，推荐）："assets/images/avatar.webp"
 	// 3. 远程 URL："https://example.com/avatar.jpg"
-	// IMiss Blog：暂用临时 Logo（爱弥斯像素头像，square）当头像，正式头像见阻塞项 B-02
-	avatar: "assets/images/logo/imiss-light.webp",
+	// IMiss Blog：**正式头像 = 爱弥斯人物插画**（发起人 2026-10-07 给的图，v1.64 起）。
+	// 源图 `design/imiss-avatar.png`（486×487）→ `pnpm make:logo` 生成这份 486×486 的 webp。
+	// 与"小图标是纸飞机"的分工一致：导航栏/标签页用纸飞机，**大图标与侧栏头像用人物**
+	// （参考上游作者站的做法）。它同时是 schema.org 的作者 image（见 utils/schema-image.ts）。
+	// ⚠️ 阻塞项 B-02 的"头像"这一半自此关闭；作者名/签名/社交链接仍待发起人给。
+	avatar: "assets/images/avatar/imiss-avatar.webp",
 
 	// 名字
 	// ⚠️ 占位值：真实作者名待发起人提供（阻塞项 B-02）。
