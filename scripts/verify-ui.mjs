@@ -50,24 +50,35 @@ const EXPECT_BANNER_POSITION = "50% 35%";
 // P4-8（v1.47）：第 5 格「链接」曾整组删除 —— 它当时只有两条对上游主题的署名外链
 // （上游主题 / 上游文档站两条署名外链），发起人要求站上不留任何上游字样。
 // `nav-menu-utils.ts:19-21` 在 children 过滤后为 0 时 `return null`，整组自然消失。
-// ⚠️ **v1.57（B-10 关闭）：「链接」整组用发起人自己的 8 条外链重建**，位置回到
+// ⚠️ **v1.57（B-10 关闭）：「链接」整组用发起人自己的外链重建**，位置回到
 //    「我的」与「留言」之间 → 顶层从 5 格变回 **6 格**。这条常量是**单一事实来源**：
-//    `navBarConfig.ts` 里增删任何顶层项，这里都得跟着改（本轮已做注入验证：
-//    临时把「链接」组整块去掉 → 本断言当场判红，明细打出实际顺序）。
+//    `navBarConfig.ts` 里增删任何顶层项，这里都得跟着改（v1.57 与 v1.61 两轮都做过注入验证：
+//    临时把「链接」组里的子项去掉 → 本断言当场判红，明细打出实际顺序）。
+// v1.61：**顶层没动**（仍是这 6 格），变的是第 5 格下拉里的内容（见 EXPECT_LINK_CHILDREN）。
 const EXPECT_TOP_NAV = ["主页", "文章", "学习路线", "我的", "链接", "留言"];
-// v1.57：「链接」下拉的内容 —— 8 条外链，顺序即 `navBarConfig.ts` 里的顺序。
-// ⚠️ 子项名字取短名（「力扣」不是「力扣 LeetCode」），所以这里钉的是**导航里的短名**，
+// v1.61：「链接」下拉的内容 —— **6 条**外链，顺序即 `navBarConfig.ts` 里的顺序，
+// 也就是发起人给清单的顺序（Gitee → GitHub → CSDN → 洛谷 → Boost 搜索引擎 → HTTP 服务器）。
+// ⚠️ 子项名字取短名（「洛谷」不是「洛谷 Luogu」、不含用户名），所以这里钉的是**导航里的短名**，
 //    与书签页那 38 张卡（`EXPECT_BOOKNAV_CARDS` 用全名）**故意不同**，别互相抄。
+// ⚠️ href **逐字**钉死（含两条容易被"顺手改掉"的）：CSDN 只有干净地址、**没有** `?spm=…` 跟踪参数；
+//    「Boost 搜索引擎」是 `http://` + 裸 IP + 非标准端口，**按发起人给的地址原样收录**（改动即判红）。
+//    ⚠️ 但"钉 href"证不了"为什么是这样"（跟踪参数去了、裸 IP 那条留了建议注释），
+//    所以同一块里另有一条**配置层**判据（EXPECT_LINK_RAW_IP_URL / EXPECT_LINK_HTTPS_HINT）兜着。
 const EXPECT_LINK_CHILDREN = [
-	{ name: "DeepSeek", href: "https://chat.deepseek.com/" },
-	{ name: "ChatGPT", href: "https://chatgpt.com/" },
-	{ name: "Claude", href: "https://claude.ai/" },
-	{ name: "GitHub", href: "https://github.com/" },
-	{ name: "洛谷", href: "https://www.luogu.com.cn/" },
-	{ name: "力扣", href: "https://leetcode.cn/" },
-	{ name: "CSDN", href: "https://www.csdn.net/" },
-	{ name: "Hugging Face", href: "https://huggingface.co/" },
+	{ name: "Gitee", href: "https://gitee.com/a2186988646" },
+	{ name: "GitHub", href: "https://github.com/a13824367931-alt" },
+	{ name: "CSDN", href: "https://blog.csdn.net/is_ko_nois_ko" },
+	{ name: "洛谷", href: "https://www.luogu.com.cn/user/1726221" },
+	{ name: "Boost 搜索引擎", href: "http://106.52.158.48:8081/" },
+	{ name: "HTTP 服务器", href: "https://gitee.com/a2186988646/my_server" },
 ];
+// ─── v1.61：「链接」新 6 条的两条"照办的细节"，各自的判据本体 ─────────────────
+// ① 那个裸 IP 的地址是**发起人的选择**（他的站），所以它不是"待修的错"，而是**必须原样在**；
+// ② 同一条上必须留一条"有域名后换 `https://<域名>/`"的建议注释 —— 只钉 URL 的话，
+//    下一个人把注释删掉（或把它换成 https 而不告诉他）两边都不会红，正是 T77 那类判据空过。
+const EXPECT_LINK_RAW_IP_URL = "http://106.52.158.48:8081/";
+// 注释里的建议形态（`https://<域名>/`）；`<域名>` 是字面占位符，不是某个真域名。
+const EXPECT_LINK_HTTPS_HINT = /https:\/\/<域名>\/?/;
 const EXPECT_MY_CHILDREN = [
 	{ name: "动态", href: "/dynamic/" },
 	{ name: "项目", href: "/projects/" },
@@ -3340,32 +3351,53 @@ async function main() {
 	const my = home.navTops.find((t) => t.name === "我的");
 	record("R-NAV-03", "我的子项顺序与链接", !!my && same(my.children, EXPECT_MY_CHILDREN), JSON.stringify(my?.children));
 	record("R-NAV-01~04", "已删除的导航项不再出现", EXPECT_ABSENT_LABELS.every((l) => !home.allLabels.includes(l)), home.allLabels.filter((l) => EXPECT_ABSENT_LABELS.includes(l)).join(",") || "无残留");
-	// ── v1.57（B-10 关闭）：「链接」下拉用发起人自己的 8 条外链重建 ──────────────
+	// ── v1.57（B-10 关闭）「链接」下拉重建；**v1.61 整批换成发起人的 6 条** ────────
 	// 位置由上面那条「顶层导航顺序」钉住（第 5 格、在「我的」与「留言」之间），
-	// 这里钉**内容**：8 条的名字 + href + 顺序，一条不对就红。
-	// ⚠️ 子项名字是**短名**（「力扣」/「洛谷」/「CSDN」），不是书签页那 38 张卡的全名 ——
-	//    两边故意不同（导航栏放不下「力扣 LeetCode」），别把它和 EXPECT_BOOKNAV_CARDS 对齐。
+	// 这里钉**内容**：6 条的名字 + href + 顺序，一条不对就红。
+	// ⚠️ 子项名字是**短名**（「洛谷」/「CSDN」/「Boost 搜索引擎」），不是书签页那 38 张卡的全名 ——
+	//    两边故意不同（导航栏放不下「力扣 LeetCode」那类全名），别把它和 EXPECT_BOOKNAV_CARDS 对齐。
 	{
 		const link = home.navTops.find((t) => t.name === "链接");
 		record(
 			"R-NAV-01~04",
-			"「链接」下拉的 8 条外链（名字 + href + 顺序）与发起人清单一致",
+			"「链接」下拉的 6 条外链（名字 + href + 顺序）与发起人清单一致",
 			!!link && same(link.children, EXPECT_LINK_CHILDREN),
 			`实际 ${JSON.stringify(link?.children ?? null)}`,
 		);
-		// 这 8 条**都不是站内页面**：必须带 external（外链新开页 + 主题的图标/rel 处理），
+		// 这 6 条**都不是站内页面**：必须带 external（外链新开页 + 主题的图标/rel 处理），
 		// 且不许挂 pageKey（挂了会被 siteConfig.pages 过滤掉、整组可能一声不响地消失）。
-		// 这一条同时是"空组"判据的正面版：children 存在且 8 条都在。
+		// 这一条同时是"空组"判据的正面版：children 存在且 6 条都在。
 		const navSrc = await fs.readFile(path.resolve("src/config/navBarConfig.ts"), "utf8");
 		const linkBlock = navSrc.match(/name:\s*"链接",[\s\S]*?\n\t\}\);/)?.[0] ?? "";
 		const externals = (linkBlock.match(/external:\s*true/g) ?? []).length;
 		record(
 			"R-NAV-01~04",
-			"「链接」组 8 条都标了 external: true、且都没有 pageKey",
-			externals === 8 && !/pageKey/.test(linkBlock),
-			`external: true 出现 ${externals} 次（期望 8）｜ 块内含 pageKey=${/pageKey/.test(linkBlock)}`,
+			"「链接」组 6 条都标了 external: true、且都没有 pageKey",
+			externals === 6 && !/pageKey/.test(linkBlock),
+			`external: true 出现 ${externals} 次（期望 6）｜ 块内含 pageKey=${/pageKey/.test(linkBlock)}`,
 		);
-		// 上游署名项的负控（原样保留）：重建后的 8 条里不许混进任何上游字样
+		// ── v1.61 新增：两条"照办的细节"的**配置层**判据（上面钉的是渲染出来的 DOM）──
+		// 为什么光钉 DOM 不够（T77 那类"判据空过"）：`EXPECT_LINK_CHILDREN` 只能证明
+		// "地址长这样"，证明不了"这是照办的结果"—— 例如把 CSDN 的 `?spm=…` 粘回去、
+		// 或者把裸 IP 那条**擅自改成 https 域名**（发起人没让改），前者判红但后者反而"更干净"；
+		// 而"注释里有没有那条 https 建议"更是 DOM 完全看不见的东西。
+		// 这一条因此只看**配置文件里 `url:` 的值**（注释不算，所以注释里可以写明被去掉的 `?spm=`）。
+		// ⚠️ 抓到的块**从 `name: "链接",` 开始**，所以第 1 个 `url:` 是**这一格自己的占位 `"#"`**
+		//    （顶层下拉的触发器）—— 只留 `http(s)://` 开头的，才是那 6 条子项的地址。
+		const linkUrls = [...linkBlock.matchAll(/url:\s*"([^"]+)"/g)]
+			.map((m) => m[1])
+			.filter((u) => /^https?:\/\//.test(u));
+		const dirtyUrls = linkUrls.filter((u) => u.includes("?"));
+		record(
+			"R-NAV-01~04",
+			"「链接」6 条都是干净地址（无查询串）、裸 IP 那条按原样收录且注释里留了 https 建议",
+			linkUrls.length === EXPECT_LINK_CHILDREN.length &&
+				dirtyUrls.length === 0 &&
+				linkUrls.includes(EXPECT_LINK_RAW_IP_URL) &&
+				EXPECT_LINK_HTTPS_HINT.test(linkBlock),
+			`块内 url: ${linkUrls.length} 个（期望 ${EXPECT_LINK_CHILDREN.length}）｜ 带查询串的 ${dirtyUrls.length} 个${dirtyUrls.length ? `：${dirtyUrls.join(",")}` : ""}｜ 裸 IP 那条在=${linkUrls.includes(EXPECT_LINK_RAW_IP_URL)}｜ 注释里有 https 建议=${EXPECT_LINK_HTTPS_HINT.test(linkBlock)}`,
+		);
+		// 上游署名项的负控（原样保留）：重建后的 6 条里不许混进任何上游字样
 		record(
 			"R-NAV-01~04",
 			"重建的「链接」组里没有上游署名项",
@@ -8050,20 +8082,24 @@ async function main() {
 			);
 		}
 
-		// ③ 导航：v1.57 起「链接」组**用发起人自己的 8 条重建**（口径就地翻转），
+		// ③ 导航：v1.57 起「链接」组**用发起人自己的外链重建**（口径就地翻转），
+		//    v1.61 起是**新一批 6 条**（Gitee / GitHub / CSDN / 洛谷 / Boost 搜索引擎 / HTTP 服务器），
 		//    但仍然不许出现"点开是空的分组容器"，也不许混进上游署名项。
 		{
 			const tops = home.navTops || [];
 			// ⚠️ 这条断言在 v1.47~v1.56 期间是反的（"不再有「链接」组"）。翻转的理由与证据：
-			//    v1.57 发起人给出 8 条清单、B-10 关闭 —— 现在**要求它存在且 8 条都在**。
-			//    ⚠️ 判据必须同时看"有没有这一格"与"里面是不是 8 条"：只看前者的话，
+			//    v1.57 发起人给出清单、B-10 关闭 —— 现在**要求它存在且子项数对得上**。
+			//    ⚠️ 判据必须同时看"有没有这一格"与"里面是不是 6 条"：只看前者的话，
 			//    一个 children 被过滤光的空「链接」壳子也能过（而那正是 v1.47 注释里担心的形态）。
+			//    v1.61：条数由 8 → **6**，但**判据形状一字未动**（数量仍与内容表 EXPECT_LINK_CHILDREN 对齐）。
 			const link = tops.find((t) => t.name === "链接");
 			record(
 				"R-NAV-01~04",
-				"「链接」组已按 B-10 重建：在导航里且含 8 条子项",
-				!!link && home.allLabels.includes("链接") && (link.children?.length ?? 0) === 8,
-				`顶层=${JSON.stringify(tops.map((t) => t.name))} ｜ 「链接」子项数=${link?.children?.length ?? 0}`,
+				"「链接」组已按 B-10 重建：在导航里且含 6 条子项",
+				!!link &&
+					home.allLabels.includes("链接") &&
+					(link.children?.length ?? 0) === EXPECT_LINK_CHILDREN.length,
+				`顶层=${JSON.stringify(tops.map((t) => t.name))} ｜ 「链接」子项数=${link?.children?.length ?? 0}（期望 ${EXPECT_LINK_CHILDREN.length}）`,
 			);
 			// "空分组容器"= 触发器 href 是 `#`（下拉）却没有任何子项。
 			// 上游那两条署名外链删掉后，如果 nav-menu-utils 不 return null，这里就会抓到空壳。
