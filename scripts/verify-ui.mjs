@@ -8047,6 +8047,123 @@ async function main() {
 			);
 		}
 
+			// ── ⑨ R-PET-14：点「面板与角色之外」的任意处 → 关框（发起人 2026-10-08 附图）──
+			// 为什么这条是"真问题"而不是锦上添花：`closeChat()` 的入口只有 Esc（手机没键盘）、
+			// Swup 切页与组件内部调用 —— 面板里只有「↓ 最新」与「清空对话」，**没有关闭按钮**，
+			// 手机上打开之后就出不去了（发起人原话：「点按非对话框或非角色之外任意处，对话框就关闭」）。
+			{
+				const realClickAt = async (x, y) => {
+					for (const type of ["mousePressed", "mouseReleased"]) {
+						await cdp.send("Input.dispatchMouseEvent", {
+							type,
+							x: Math.round(x),
+							y: Math.round(y),
+							button: "left",
+							buttons: type === "mousePressed" ? 1 : 0,
+							clickCount: 1,
+						});
+					}
+				};
+				const chatState = async () =>
+					(
+						await cdp.send("Runtime.evaluate", {
+							expression: `(() => {
+								const b = document.getElementById("pet-bubble");
+								const log = b.querySelector(".pet-chat-log");
+								return {
+									open: b.classList.contains("is-chat"),
+									hasLog: !!log,
+									lines: log ? log.querySelectorAll(".pet-chat-line").length : 0,
+									role: b.getAttribute("role"),
+								};
+							})()`,
+							returnByValue: true,
+						})
+					).result.value;
+				/** 找一块"真的是空地"的点：不在面板/宠物里、也不是链接或按钮 */
+				const emptySpot = async () =>
+					(
+						await cdp.send("Runtime.evaluate", {
+							expression: `(() => {
+								const b = document.getElementById("pet-bubble");
+								const pet = document.getElementById("pet");
+								for (let y = 140; y < window.innerHeight - 90; y += 40) {
+									for (let x = 40; x < window.innerWidth - 40; x += 40) {
+										const n = document.elementFromPoint(x, y);
+										if (!n) continue;
+										if (b.contains(n) || pet.contains(n)) continue;
+										if (n.closest("a,button,input,textarea,select,[role=button],[data-pet-act]")) continue;
+										return { x, y, tag: n.tagName, cls: String(n.className || "").slice(0, 48) };
+									}
+								}
+								return null;
+							})()`,
+							returnByValue: true,
+						})
+					).result.value;
+
+				await openPetChat();
+				await sleep(400);
+				const before = await chatState();
+				const spot = await emptySpot();
+				if (spot) await realClickAt(spot.x, spot.y);
+				await sleep(320);
+				const afterOutside = await chatState();
+
+				// 重开 → 点面板**里面**（历史区中央）
+				await openPetChat();
+				await sleep(400);
+				const inside = (
+					await cdp.send("Runtime.evaluate", {
+						expression: `(() => { const r = document.querySelector(".pet-chat-log").getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`,
+						returnByValue: true,
+					})
+				).result.value;
+				await realClickAt(inside.x, inside.y);
+				await sleep(300);
+				const afterInside = await chatState();
+
+				// 再点**角色本體**（这条同时验 `say()` 的 `chatOpen` 闸门：面板不许被台词冲掉）
+				const petBox = (
+					await cdp.send("Runtime.evaluate", {
+						expression: `(() => { const r = document.getElementById("pet-body").getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`,
+						returnByValue: true,
+					})
+				).result.value;
+				await realClickAt(petBox.x, petBox.y);
+				await sleep(340);
+				const afterPet = await chatState();
+				// 收拾干净：后面的 R-AGT 段会自己开框，但不该踩着"已经开着"的状态开始
+				await closePetChat();
+				await sleep(200);
+
+				facts["pet-light-dismiss"] = { before, spot, afterOutside, afterInside, afterPet };
+
+				record(
+					"R-PET-14",
+					"点「面板与角色之外」的任意处 → 聊天框关闭（手机上唯一的关框路径）",
+					before?.open === true &&
+						spot !== null &&
+						afterOutside?.open === false &&
+						afterOutside?.hasLog === false,
+					`框开着=${before?.open} → 真机点空地 (${spot?.x},${spot?.y}·${spot?.tag}) → 框=${afterOutside?.open}、面板 DOM 还在=${afterOutside?.hasLog}（这一点先自证过"不在面板/宠物里、也不是链接或按钮"，避免"点链接切页顺手关框"那种假绿）`,
+				);
+				record(
+					"R-PET-14",
+					"点面板**里面**（历史区）→ 不关框（输入框/历史/两个按钮都不算「点外面」）",
+					afterInside?.open === true && afterInside?.hasLog === true,
+					`点历史区中央后：框=${afterInside?.open}、面板 DOM=${afterInside?.hasLog}、role=${afterInside?.role}（期望 dialog）`,
+				);
+				record(
+					"R-PET-14",
+					"点**角色本體** → 不关框，且面板 DOM 没被台词冲掉（`say()` 的 `chatOpen` 闸门）",
+					afterPet?.open === true &&
+						afterPet?.hasLog === true &&
+						afterPet?.lines === afterInside?.lines,
+					`点她一下之后：框=${afterPet?.open}、面板 DOM=${afterPet?.hasLog}、历史行数 ${afterInside?.lines} → ${afterPet?.lines}（没有闸门的话 \`say()\` 会直接写 \`#pet-bubble.textContent\`，面板当场消失）`,
+				);
+			}
+
 			// ── R-PET-12 手机端显示（发起人 2026-10-08：「手机端我咋没看到桌宠」→ 选 A：显示但缩小）──
 		// 口径变了两件事：① `hideOnMobile` 由 true 改 false；② 手机档缩放**真正生效**。
 		// ② 才是这一轮的真 bug：那段 `@media (max-width: 767px)` 早就写在 pet.css 里，

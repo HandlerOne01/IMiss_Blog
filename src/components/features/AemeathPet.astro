@@ -983,6 +983,13 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			// 缩小 + 还在头顶弹气泡，等于"没关掉，只是变小了但更吵"。
 			// ⚠️ 恢复的那句在 `setMini(false)` **之后**才调，所以它不会被这条挡掉。
 			if (pet.mini) return;
+			// 聊天框开着时也**一个字都不许说**（R-PET-14）：这条台词路径是直接写
+			// `bubble.textContent` 的，而聊天面板就长在 `#pet-bubble` 里 ——
+			// 点一下宠物本體（走 `jump(); say();`）会把整个面板的 DOM **冲掉**：
+			// `chatList` / `chatInput` 当场变成游离节点，之后输入框还在（是引用），
+			// 但历史区再也长不出来、清空按钮也不工作。发起人的口径是「点角色**不**关框」，
+			// 所以这条路径要的是"只跳、不说话"。聊天里的每一句都走 `addLine()`，不经这里。
+			if (chatOpen) return;
 			const msg = text || randomLine();
 			bubble.textContent = msg;
 			const cx = pet.x + w / 2;
@@ -2541,10 +2548,34 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			});
 
 			document.addEventListener("pointermove", onDocMove, { passive: true });
+			/**
+			 * 文档级的"点外面就关"（capture 阶段，R-PET-07 / R-PET-14）
+			 * ============================================================================
+			 * 两件事共用一个监听：**菜单**（R-PET-07 起的口径，一行没改）与**聊天框**
+			 * （R-PET-14，发起人：「**点按非对话框或非角色之外任意处，对话框就关闭**」）。
+			 *
+			 * 聊天框为什么必须由"点外面"来关：`closeChat()` 的入口只有 Esc（手机没键盘）、
+			 * Swup 切页与组件内部调用 —— 面板里只有「↓ 最新」与「清空对话」，**没有关闭按钮**，
+			 * 手机上打开之后就出不去了。
+			 *
+			 * 判据里的两个"例外"都是发起人的口径，不是随手加的：
+			 *   · `bubble.contains(t)` —— 面板自己（含输入框、历史、两个按钮、气泡本体）；
+			 *   · `hit.contains(t)`   —— **角色本人**（点她=逗她玩，不关框）。
+			 * ⚠️ 第二条例外**不能写成 `el.contains(t)`**：`#pet` 是包住气泡的祖先节点，
+			 *    面板也在它里面 → 那样写等于"永远不关"（`el.contains` 恒真）。
+			 *
+			 * ⚠️ capture 阶段是**故意**的：它保证这个判断跑在"菜单项自己的 click 处理器"
+			 *    之前。从菜单点「和爱弥斯聊天」时 `chatOpen` 还是 false → 这里空过 →
+			 *    紧接着菜单的处理器才 `openChat()`，所以"开框那一下"不会被自己关掉。
+			 *    （这也是为什么不能改成冒泡阶段：那时 chat 已经开了，点击会被当场判成"点外面"。）
+			 */
 			document.addEventListener(
 				"click",
 				(e) => {
-					if (menu && !menu.hidden && !menu.contains(e.target as Node)) closeMenu();
+					const t = e.target as Node | null;
+					if (!t) return;
+					if (menu && !menu.hidden && !menu.contains(t)) closeMenu();
+					if (chatOpen && !bubble.contains(t) && !hit.contains(t)) closeChat();
 				},
 				true,
 			);
