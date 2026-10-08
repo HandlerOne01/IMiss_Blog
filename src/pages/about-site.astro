@@ -1,0 +1,39 @@
+---
+/*
+ * IMiss Blog（2026-10-08，发起人要求）：「关于本站」独立成页。
+ * 起因：发起人原话「**在关于我下面加个关于本站，然后把公告跳转后的地方放在关于本站那里，
+ * 现在关于我的文章也放在关于本站**」——原来的 `spec/about.md` 虽然标题写着「关于我」，
+ * 内容其实讲的是**这个站**（站是什么、怎么搭的、有什么功能）→ 整体搬到这一页；
+ * `/about/` 留给发起人之后要给的**新自我介绍**（当前是占位页）。
+ *
+ * 这一页与 `about.astro` 的两点差别：
+ *   ① 渲染的条目是 `spec/about-site`；
+ *   ② **不发 ProfilePage / Person 结构化数据** —— 那是"作者个人页"的语义，挂在这一页上不对
+ *      （`/about/` 仍然保留那一段 JSON-LD）。
+ */
+import { getEntry, render } from "astro:content";
+import Markdown from "@components/common/Markdown.astro";
+import MainGridLayout from "@/layouts/MainGridLayout.astro";
+
+const aboutSitePost = await getEntry("spec", "about-site");
+
+if (!aboutSitePost) {
+	throw new Error("About-site page content not found");
+}
+
+const { Content } = await render(aboutSitePost);
+
+const pageTitle = "关于本站";
+const pageDescription =
+	"IMiss Blog 是什么、为什么做、怎么搭起来的：技术笔记、学习路线、桌宠爱弥斯与站内搜索的来龙去脉。";
+---
+
+<MainGridLayout title={pageTitle} description={pageDescription}>
+    <div class="flex w-full rounded-(--radius-large) overflow-hidden relative min-h-32">
+        <div class="card-base z-10 px-9 py-6 relative w-full ">
+            <Markdown class="mt-2">
+                <Content />
+            </Markdown>
+        </div>
+    </div>
+</MainGridLayout>

@@ -23,7 +23,10 @@ export const announcementConfig: AnnouncementConfig = {
 		// 链接文本
 		text: "了解更多",
 		// 链接 URL
-		url: "/about/",
+		// ⚠️ v1.65 起从 `/about/` 改成 `/about-site/`：发起人 2026-10-08 原话
+		//    「把公告跳转后的地方放在关于本站那里」——公告讲的是"本站有什么"，
+		//    落点自然该是「关于本站」那一页（原来那页的内容也确实讲的是站，已整体搬过去）。
+		url: "/about-site/",
 		// 内部链接
 		external: false,
 	},

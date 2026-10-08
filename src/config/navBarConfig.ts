@@ -92,8 +92,11 @@ const getDynamicNavBarConfig = (): NavBarConfig => {
 			// 番剧（原 AnimeList，仅改名）
 			LinkPresets.MAL,
 
-			// 关于我（从被删除的「关于」父项移到这里，必须是**最后一项**）
+			// 关于我（从被删除的「关于」父项移到这里）
 			LinkPresets.About,
+
+			// 关于本站（v1.65 新增，发起人要求放在「关于我」**下面**；此时「我的」最后一项是它）
+			LinkPresets.AboutSite,
 		],
 	});
 
@@ -268,11 +271,24 @@ export const LinkPresets: Record<string, NavBarLink> = {
 		icon: "material-symbols:menu-book",
 		pageKey: "mal",
 	},
-	// 关于我：从被删除的「关于」父项移入「我的」，且必须是「我的」的最后一项
+	// 关于我：从被删除的「关于」父项移入「我的」
+	// ⚠️ v1.65 起它**不再是最后一项** —— 发起人要求「在关于我下面加个关于本站」。
 	About: {
 		name: "关于我",
 		url: "/about/",
 		icon: "material-symbols:person",
+	},
+	// 关于本站（v1.65 新增）：发起人 2026-10-08 原话「在关于我下面加个关于本站，然后把公告
+	// 跳转后的地方放在关于本站那里，现在关于我的文章也放在关于本站」——
+	// ① 位置：紧跟在「关于我」**下面**（「我的」的最后一项）；
+	// ② 内容：原来是 `spec/about.md` 那篇（标题写着关于我、内容其实讲的是这个站）整体搬过来；
+	// ③ 公告卡的「了解更多」也改指这一页（见 `announcementConfig.ts` 的 `link.url`）；
+	// ④ **没有 `pageKey`**：`siteConfig.pages` 里没有对应开关，所以它总是显示
+	//    （要加开关就得同时动 config/types/sitemap/llms.txt 四处，本轮没做，发起人要开关再说）。
+	AboutSite: {
+		name: "关于本站",
+		url: "/about-site/",
+		icon: "material-symbols:info",
 	},
 };
 
