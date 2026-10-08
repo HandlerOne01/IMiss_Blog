@@ -16,6 +16,15 @@
  * 样式：`src/styles/pet.css`（**不是**组件的 scoped style —— JS 动态创建的星屑节点
  *   拿不到 Astro 的 scope 属性，样式会静默失效，见该文件头注释）。
  *
+ * ⚠️ R-PET-12 / R-PET-13（发起人 2026-10-08，手机端"看不见她"那一轮）：
+ *   ① **手机端显示**：`hideOnMobile` 由 true 改 false，并在 `pet.css` 里补上真正的手机档缩放。
+ *      原来那段媒体查询是**死的** —— 组件内联写 `--pet-scale`，内联变量赢过媒体查询，
+ *      手机拿到的一直是桌面档。现在组件只内联"桌面档 / 手机档 / mini 系数"三个值，
+ *      由 CSS 决定哪个生效（详见 `pet.css` 顶部那段注释）。
+ *   ② **菜单改版**：删「说句话」入口、「和爱弥斯聊天」提到第一项、末项变「关闭」；
+ *      关闭 = 缩成很小一只（`miniFactor`，比待机还小），双击她本體恢复。
+ *      迷你期间**闭嘴**（不气泡、不自动活动、不进待机画面）—— 她要的就是"降到最低存在感"。
+ *
  * ⚠️ R-PET-10（发起人 2026-09-26 第四轮反馈，两张图）踩到的两件事，改动集中在这两处：
  *   ① 「**点击落下去之后没有真的落下去啊**」——「落下去」= `setMode("ground", smooth)`，
  *      它只是把 `airborne` **立起来**，真正让宠物掉下去的是 `step()` 里的重力积分，
@@ -36,8 +45,16 @@
 import { petConfig } from "@/config";
 import "@/styles/pet.css";
 
-const { enable, hideOnMobile, mobileBreakpoint, scale, zIndex, movement } =
-	petConfig;
+const {
+	enable,
+	hideOnMobile,
+	mobileBreakpoint,
+	scale,
+	mobileScale,
+	miniFactor,
+	zIndex,
+	movement,
+} = petConfig;
 
 /**
  * 解析期的"这台设备要不要桌宠"判断（R-PET-01）。
@@ -74,7 +91,8 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				id="pet"
 				data-pet
 				data-pet-mode={movement.mode}
-				style={`--pet-scale:${scale};z-index:${zIndex}`}
+				data-pet-mini="0"
+				style={`--pet-scale-desktop:${scale};--pet-scale-mobile:${mobileScale};--pet-mini-factor:${miniFactor};z-index:${zIndex}`}
 			>
 				<p class="pet-bubble" id="pet-bubble" role="status" aria-live="polite"></p>
 				<span
@@ -99,13 +117,19 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			    摆位的最后一关是 `placeMenu()` 里的 `elementFromPoint` 抽样（见该函数注释）；
 			    这里是"换边躲开遮挡"，不是"抬高 z-index 压过去"。
 
-			    菜单项（R-PET-08 / R-PET-09）：说句话 / 「落下去」·「飘起来」（**按当前档位二选一显示**）
-			    / 和爱弥斯聊天。发起人两轮反馈各删了两项：
+			    菜单项（R-PET-08 / R-PET-09 / R-PET-13）：
+			      和爱弥斯聊天 ·「落下去」/「飘起来」（按当前档位二选一显示）· 关闭
+			    发起人三轮反馈的增删：
 			      · R-PET-08：「（跟过来、睡一会儿）**这两个没有鸟用啊**」→ 两个入口删除，
 			        `walkTo()` 与 `waiting` **本体都还在用**（键盘 ←/→ 走 `walkTo()`；
 			        45 秒无操作超时进 `waiting`），所以只删入口、不删能力。
 			      · R-PET-09：「**还有跳一跳的功能也删了，左键点击就能跳所以按键没有必要**」→
 			        「跳一下」入口删除（`jump()` 本体还在：左键单击与键盘 Enter 都调它）。
+			      · R-PET-13（本轮）：「**把说句话交互删掉，然后把和爱弥斯聊天放在第一个，
+			        然后最后一个变成关闭**」→ 删「说句话」入口（`say()` 本体仍在：左键单击、
+			        键盘 Enter、切档、出场问候都调它）；聊天提到第一项；
+			        新增末项「关闭」= 缩小成很小一只（`setMini(true)`，双击恢复）。
+			        该项**文案随状态变**（正常「关闭」/ 迷你「叫醒她」），由 `syncMenuMode()` 写。
 			    「落下去」/「飘起来」**两个按钮都渲染**（不是条件渲染）：切档时只翻 `hidden`，
 			    不用重建节点；谁显示谁隐藏由 `syncMenuMode()` 按 `pet.mode` 决定。 */}
 			<div
@@ -116,12 +140,9 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				style={`z-index:${zIndex + 1}`}
 				hidden
 			>
-				<button type="button" role="menuitem" data-pet-act="say">
-					说句话
+				<button type="button" role="menuitem" data-pet-act="chat">
+					和爱弥斯聊天
 				</button>
-				{/* R-PET-09：「跳一下」菜单项已按发起人要求删除（左键单击宠物就能跳）。
-				    ⚠️ `jump()` 不是死代码：左键单击（onPointerUp）与键盘 Enter 都在调它，
-				    键盘那条是为 `role="button"` 留的无障碍激活路径（与左键单击完全等价）。 */}
 				{/* 落下去 / 飘起来 的语义见文件头 frontmatter 注释（模板注释会进产物，T85） */}
 				<button type="button" role="menuitem" data-pet-act="drop">
 					落下去
@@ -129,8 +150,8 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				<button type="button" role="menuitem" data-pet-act="rise">
 					飘起来
 				</button>
-				<button type="button" role="menuitem" data-pet-act="chat">
-					和爱弥斯聊天
+				<button type="button" role="menuitem" data-pet-act="mini" aria-pressed="false">
+					关闭
 				</button>
 			</div>
 		</>
@@ -175,6 +196,8 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		// R-PET-08：「落下去」/「飘起来」按档位二选一显示，同步在 syncMenuMode() 里
 		const dropItem = menu.querySelector<HTMLElement>('[data-pet-act="drop"]');
 		const riseItem = menu.querySelector<HTMLElement>('[data-pet-act="rise"]');
+		// R-PET-13：菜单末项「关闭 / 叫醒她」（开合项，文案由 syncMenuMode() 写）
+		const miniItem = menu.querySelector<HTMLElement>('[data-pet-act="mini"]');
 
 		const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 		const PET_KEY = "imiss.pet.pos";
@@ -334,6 +357,11 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			poseLoop: false,
 			/** 当前运动模式（R-PET-06），运行期可被 `__imissSetMode()` 改（验收脚本用） */
 			mode: MODE,
+			/**
+			 * 「关闭」档是否生效（R-PET-13）：true = 缩成很小一只 + 闭嘴 + 不自动活动。
+			 * 它**不是** `enable: false` —— 节点一直在，双击就回来（见 `setMini()`）。
+			 */
+			mini: false,
 			/** 悬浮基准线（宠物中心不摆动时的 y）；拖放 / 飞行落位 / 缩放后重新锚定 */
 			hoverBase: 0,
 			/** 悬浮相位（弧度，逐帧累加）：重新锚定时归零，正弦正好为 0 → 不跳变 */
@@ -816,6 +844,13 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		}
 
 		function decide(now: number): void {
+			// 「关闭」档（R-PET-13）：迷你期间不自动做任何事，并把计时器顶到无穷大 ——
+			// 这条是**唯一**的调度咽喉，任何别的路径（换主题的庆祝、恢复时的 nextAt 重排）
+			// 把 nextAt 改回有限值，也会在这里重新被按住。
+			if (pet.mini) {
+				pet.nextAt = Number.POSITIVE_INFINITY;
+				return;
+			}
 			// 固定模式：不自动做任何事（发起人要的就是"固定、不给飞"）
 			if (pet.mode === "fixed") {
 				pet.nextAt = Number.POSITIVE_INFINITY;
@@ -944,6 +979,10 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		}
 
 		function say(text?: string): void {
+			// 「关闭」档闭嘴（R-PET-13）：迷你期间一句台词都不冒 ——
+			// 缩小 + 还在头顶弹气泡，等于"没关掉，只是变小了但更吵"。
+			// ⚠️ 恢复的那句在 `setMini(false)` **之后**才调，所以它不会被这条挡掉。
+			if (pet.mini) return;
 			const msg = text || randomLine();
 			bubble.textContent = msg;
 			const cx = pet.x + w / 2;
@@ -1420,6 +1459,57 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			setState("waiting");
 		}
 
+		/**
+		 * 「关闭」档（R-PET-13）
+		 * ============================================================================
+		 * 发起人原话：「**最后一个变成关闭，但关闭不是完全关闭，会变成很小一只，比待机还小，
+		 * 双击后仍能变回爱弥斯**」。所以它是一个**缩放档**，不是 `enable: false`：
+		 *   · 缩放本身走 CSS（`.pet[data-pet-mini="1"]` → `--pet-mini` = `petConfig.miniFactor`），
+		 *     JS 只翻一个属性；尺寸不写死，靠 `measure()` 重新量真实 `offsetWidth`；
+		 *   · 缩放会改 `w/h`，所以**脚底锚点要重新对齐**：先记住"底边"，量完再把底边放回去。
+		 *     不这么做的话，`fixed` 档（y 是左上角）缩一半就等于"人原地向上蹿半个身位"；
+		 *   · 迷你期间闭嘴、不自动活动、不进待机画面（三处分别是 `say()` / `decide()` / 45 秒巡检）；
+		 *   · 双击她本體 = `setMini(false)`（`onPointerUp` 的双击分支），恢复后再挥一下爪。
+		 * ⚠️ 这个函数**同时是"关"和"开"**：菜单末项与双击调的是同一个它，不要另写一份恢复逻辑，
+		 *    否则"关"和"开"的锚点算法迟早会漂成两套。
+		 */
+		function setMini(on: boolean): void {
+			if (pet.mini === on) return;
+			const bottom = pet.y + h; // 缩放前的底边（脚底），量完要放回这个位置
+			pet.mini = on;
+			if (el) el.dataset.petMini = on ? "1" : "0";
+			if (on) {
+				closeChat(); // 关掉聊天框：迷你档不该还挂着一个 340px 的面板
+				cancelFlight(false);
+				pet.walking = false;
+				pet.busyUntil = 0;
+				clearTimeout(sayTimer);
+				bubble.classList.remove("is-pop");
+				bubble.textContent = ""; // 收起头上的那句话
+				setState("idle");
+				pet.nextAt = Number.POSITIVE_INFINITY;
+			} else {
+				setState("waving", 1900); // 回来了：挥一下爪
+				pet.nextAt =
+					pet.mode === "fixed"
+						? Number.POSITIVE_INFINITY
+						: performance.now() + (pet.mode === "float" ? nextFlyDelay() : 1800);
+			}
+			measure();
+			if (!pet.airborne && pet.mode !== "ground") {
+				// 贴地档由 measure() 直接落到新的 floorY（底边天然不变），这两档要手动对齐底边
+				pet.y = clampY(bottom - h);
+				if (pet.mode === "float") {
+					pet.hoverBase = clampAirY(pet.y);
+					pet.hoverPhase = 0;
+				}
+			}
+			applyTransform();
+			syncMenuMode(); // 末项文案跟着状态走（关闭 / 叫醒她）
+			placeMenu();
+			placeChat();
+		}
+
 		function onPointerDown(e: PointerEvent): void {
 			if (e.button !== 0 && e.pointerType === "mouse") return;
 			// 用户一动手（拖动或单击）就中断本次飞行（R-PET-06）
@@ -1516,11 +1606,16 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				const now = performance.now();
 				if (now - pet.lastClick < 320) {
 					pet.lastClick = 0;
+					// R-PET-13：迷你时双击 = 把她叫回来（发起人：「双击后仍能变回爱弥斯」）。
+					// 恢复与"两下"的庆祝共用同一段（星星 + review），只是台词不同 ——
+					// 单击（下面那条 else）在迷你期间仍是"跳一下"，只是气泡被 say() 挡掉了。
+					const back = pet.mini;
+					if (back) setMini(false);
 					setState("review", REVIEW_HOLD);
 					pet.nextAt = now + 1200;
 					const r = hit?.getBoundingClientRect();
 					if (r) spark(r.left + r.width / 2, r.top + r.height * 0.42, 10);
-					say("两下！那我也高兴一下。");
+					say(back ? "……我回来了。" : "两下！那我也高兴一下。");
 				} else {
 					pet.lastClick = now;
 					jump();
@@ -1793,12 +1888,20 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		 * 悬浮/固定档 → 显示「落下去」（可以把宠物放回地面）；贴地档 → 显示「飘起来」
 		 * （否则一旦落下去就再也回不到悬浮，发起人会陷进死路）。
 		 * ⚠️ 显隐会改变菜单高度 → 尺寸缓存必须作废，否则 `placeMenu()` 会拿旧高度算摆位。
+		 *
+		 * R-PET-13：末项「关闭」是**开合项**，文案与 `aria-pressed` 跟着 `pet.mini` 走
+		 * （正常「关闭」/ 迷你「叫醒她」）。为什么让文案变：双击能恢复这件事**没有任何视觉提示**，
+		 * 只留一个"关闭"会让人以为她真的没了；换文案等于把回程路写在菜单上。
 		 */
 		function syncMenuMode(): void {
 			if (!menu) return;
 			const ground = pet.mode === "ground";
 			if (dropItem) dropItem.hidden = ground;
 			if (riseItem) riseItem.hidden = !ground;
+			if (miniItem) {
+				miniItem.textContent = pet.mini ? "叫醒她" : "关闭";
+				miniItem.setAttribute("aria-pressed", pet.mini ? "true" : "false");
+			}
 			menuW = 0;
 			menuH = 0;
 		}
@@ -2215,6 +2318,9 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 
 			// 无操作超时 → 屏幕待机（判定通过后交给 doze()，与调试钩子共用同一段逻辑）
 			window.setInterval(() => {
+				// R-PET-13：迷你档不进待机画面 —— 她已经"很小一只"了，
+				// 再切成电子幽灵待机图反而比现在更显眼（与"降存在感"的初衷相反）。
+				if (pet.mini) return;
 				if (pet.asleep || pet.dragging || pet.airborne || chatOpen) return;
 				if (performance.now() - pet.lastActive < sleepAfter) return;
 				doze();
@@ -2287,12 +2393,15 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				__imissFlyNow?: () => boolean;
 				__imissSetMode?: (m: PetMovementMode) => PetMovementMode;
 				__imissSleepNow?: () => PetStateName;
+				/** R-PET-13：「关闭」档的开合钩子（传 true = 关闭，false = 叫醒，不传 = 取反） */
+				__imissMiniNow?: (on?: boolean) => boolean;
 				__imissPetDebug?: () => {
 					mode: PetMovementMode;
 					x: number;
 					y: number;
 					flying: boolean;
 					reduce: boolean;
+					mini: boolean;
 				};
 				/** 对话状态探针（R-AGT-04 的断言用）：只读，返回当前快照，**不改任何行为** */
 				__imissChatDebug?: () => {
@@ -2316,12 +2425,20 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				doze();
 				return pet.state;
 			};
+			// R-PET-13：「关闭」档（缩小成很小一只）的钩子。和上面几个同一个惯例 ——
+			// 调的是**菜单末项与双击都走的那一个 `setMini()`**，不绕过行为、不直接改属性，
+			// 所以断言验的是"真的缩了"（`measure()` 量出来的真实 offsetWidth）。
+			dbg.__imissMiniNow = (on) => {
+				setMini(on ?? !pet.mini);
+				return pet.mini;
+			};
 			dbg.__imissPetDebug = () => ({
 				mode: pet.mode,
 				x: Math.round(pet.x),
 				y: Math.round(pet.y),
 				flying: pet.flight !== null,
 				reduce,
+				mini: pet.mini,
 			});
 			// R-AGT-04：把"待续跑"这条状态**只读地**暴露出来。
 			// 为什么要它：`interrupt` 的续跑词是适配层按后端问句推出来的（`replyForAsk`），
@@ -2389,9 +2506,9 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				closeMenu();
 				wake();
 				switch (btn.dataset.petAct) {
-					case "say":
-						say();
-						break;
+					// R-PET-13：「说句话」入口已按发起人要求删除（原话："把说句话交互删掉"）。
+					// `say()` **不是死代码**：左键单击、键盘 Enter、切档应答、出场问候、
+					// 双击恢复都还在调它，只是不再单独占一个菜单项（单击宠物本来就会说话）。
 					// R-PET-08：「落下去」= 切到贴地档 + **真的掉下去**。
 					// `setMode(mode, smooth=true)` 不瞬移：位置不动，交给 `startFall()` 起手、
 					// 由 step() 里贴地档那段重力积分一路落到 `floorY`（与拖动松手同一条路径）。
@@ -2407,6 +2524,12 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 						break;
 					case "chat":
 						openChat();
+						break;
+					// R-PET-13：「关闭」= 开合项（缩成很小一只 / 叫醒她）。
+					// 它是**唯一**的菜单入口，但走的不是旁路 —— 与双击共用同一个 `setMini()`。
+					case "mini":
+						setMini(!pet.mini);
+						say(pet.mini ? undefined : "那我先躲一会儿，双击我就回来。");
 						break;
 					// 「跟过来」（原 `walkTo(pet.cursorX …)`）与「睡一会儿」（原 `pet.asleep = true;
 					// setState("waiting")`）两个入口已按发起人要求删除（R-PET-08，原话："这两个没有鸟用"）。
@@ -2486,6 +2609,11 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				measure();
 				if (pet.dragging) return;
 				closeChat();
+				// R-PET-13：迷你档不挥手也不出声（切页不该把她叫醒），只把菜单贴回去
+				if (pet.mini) {
+					placeMenu();
+					return;
+				}
 				setState("waving", 1600);
 				pet.busyUntil = performance.now() + 1600;
 				pet.nextAt = performance.now() + 2000;

@@ -90,6 +90,22 @@ export interface PetConfig {
 	mobileBreakpoint: number;
 	/** 精灵缩放，0.6 ~ 1.5（1 = 单格 144×156 的原始像素） */
 	scale: number;
+	/**
+	 * 手机档缩放（视口 ≤ `mobileBreakpoint - 1` 时生效），0.4 ~ 1.5
+	 *
+	 * ⚠️ 与 `scale` 是**两档并存**，不是二选一：组件把两个值都写成 CSS 变量
+	 * （`--pet-scale-desktop` / `--pet-scale-mobile`），由 `pet.css` 的媒体查询
+	 * 决定哪一档盖到 `--pet-scale-active`。以前组件只写一个内联 `--pet-scale`，
+	 * 内联变量赢过媒体查询，于是 `pet.css` 里那段手机档规则一直不生效。
+	 */
+	mobileScale: number;
+	/**
+	 * 「关闭」档的比例系数（0 < x < 1，默认 0.5）
+	 *
+	 * 菜单最后一项「关闭」**不是真的关闭**，而是把当前档位再乘上这个系数
+	 * （比待机还小一只），双击她本體恢复原档位。见 prd.md R-PET-12。
+	 */
+	miniFactor: number;
 	/** 首次出场靠哪一侧（"random" 则随机） */
 	startSide: "left" | "right" | "random";
 	/** 层级：必须**低于**浮动按钮与弹层（R-PET-05），模板里返回顶部是 100 上下 */

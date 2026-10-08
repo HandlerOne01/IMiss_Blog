@@ -21,8 +21,32 @@
 	top: 0;
 	width: max-content;
 	will-change: transform;
-	--pet-scale: 0.86;
+	/* ── 缩放为什么是三层变量（R-PET-12 / R-PET-13）─────────────────────────
+	   历史坑：这里原来只有一层 `--pet-scale`，组件又把它写成**内联变量**
+	   （`style="--pet-scale:0.86"`）。下面那条 `@media (max-width: 767px)` 想把它改成
+	   0.62 —— 但**内联变量赢过任何选择器**（含媒体查询），于是手机档从来没生效过，
+	   手机拿到的一直是桌面缩放。
+	   现在拆成三层，各管一件事，谁都不会互相压：
+	     · `--pet-scale-desktop` / `--pet-scale-mobile`：**组件内联写**，来自
+	       `petConfig.scale` / `petConfig.mobileScale`（只有它俩是内联的，天经地义）；
+	     · `--pet-scale-active`：**本文件选档**——默认取桌面档，媒体查询命中时换成手机档；
+	     · `--pet-mini`：**「关闭」档的比例系数**，正常是 1，`data-pet-mini="1"` 时
+	       变成 `--pet-mini-factor`（组件从 `petConfig.miniFactor` 内联写进来）。
+	   于是"最终缩放" = `--pet-scale` = 当前档 × mini 系数，下面所有 `calc()` 一个字不用改。
+	   ⚠️ 媒体查询里的 767 必须等于 `petConfig.mobileBreakpoint - 1`；`verify:ui` 有一条断言
+	      专门卡这个等式（R-PET-12），改一处不改另一处会直接变红。 */
+	--pet-scale-desktop: 0.86;
+	--pet-scale-mobile: 0.62;
+	--pet-mini-factor: 1;
+	--pet-scale-active: var(--pet-scale-desktop);
+	--pet-mini: 1;
+	--pet-scale: calc(var(--pet-scale-active) * var(--pet-mini));
 	--pet-shadow: 1;
+}
+
+/* 「关闭」档（R-PET-13）：不是真的关掉，只是缩成很小一只 —— 比待机还小一半 */
+.pet[data-pet-mini="1"] {
+	--pet-mini: var(--pet-mini-factor);
 }
 
 /* 真正可点、可拖、可聚焦的是这一层；外层 .pet 只管定位 */
@@ -587,9 +611,13 @@ html[data-pet-off="1"] .pet-menu {
 	display: none;
 }
 
+/* R-PET-12：手机档（发起人 2026-10-08「手机端我咋没看到桌宠」→ 选 A：显示但缩小降存在感）。
+   这段以前就在，但被组件的内联 `--pet-scale` 压死、从来没生效过 —— 现在它只改
+   `--pet-scale-active`（组件不内联这个名），所以真的能盖住桌面档。
+   ⚠️ 767 = `petConfig.mobileBreakpoint`(768) − 1，改一边必须改另一边（有断言卡着）。 */
 @media (max-width: 767px) {
 	.pet {
-		--pet-scale: 0.62;
+		--pet-scale-active: var(--pet-scale-mobile);
 	}
 
 	.pet-bubble {

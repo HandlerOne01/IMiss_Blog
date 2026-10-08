@@ -441,6 +441,16 @@ const COLLECT = `(() => {
         // R-PET-06：三档运动模式（float / fixed / ground）与"正在飞"标记，都由组件写进 DOM
         mode: el.dataset.petMode || null,
         flying: el.dataset.petFlying === "1",
+        // R-PET-12 / R-PET-13：缩放三件套 —— 手机档有没有真的盖过桌面档、mini 系数有没有生效。
+        // 只量精灵宽度分不出"哪一档在生效"（两个系数都能算出一个数），所以把三个自定义属性
+        // 原样采下来交叉核对：active 就是 CSS 选出来的那一档（桌面档 / 手机档）。
+        mini: el.dataset.petMini === "1",
+        miniAttr: el.getAttribute("data-pet-mini"),
+        scaleVars: (() => {
+          const v = getComputedStyle(el);
+          const g = (n) => (v.getPropertyValue(n) || "").trim();
+          return { desktop: g("--pet-scale-desktop"), mobile: g("--pet-scale-mobile"), active: g("--pet-scale-active"), miniFactor: g("--pet-mini-factor") };
+        })(),
         // 位置事实：transform 用来判"有没有动/有没有在悬浮"，bottomGap 用来判"离地多高"
         transform: getComputedStyle(el).transform,
         bottomGap: Math.round(window.innerHeight - r.bottom),
@@ -2328,8 +2338,27 @@ async function main() {
 			menuCases390.push(await menuProbe("390 贴右边缘(380,400)", 380, 400));
 			menuCases390.push(await menuProbe("390 下部(250,760)", 250, 760));
 			facts["pet-menu-390"] = menuCases390;
-			// 两侧都放不下：390 宽把宠物拖到正中那一小段（宠物 124px + 菜单 132px > 390 − 2×8 − 2×10）
-			facts["pet-menu-narrow-both"] = await menuProbe("390 正中(200,760)", 200, 760);
+			// 两侧都放不下：把宠物拖到正中那一小段（宠物 + 菜单 132px × 2 + 边距 > 视口宽）。
+			// ⚠️ R-PET-12 起宠物在窄视口走**手机档**缩放（0.62 → 精灵 89px），原来那个 390 宽的
+			//    前提**不再成立**：89 + 132×2 + 边距 = 394，只比 390 宽 4px —— 实测左余 137px >
+			//    菜单宽 132，"几何上无解"变成"其实放得下"，菜单老实贴左边才是对的（本轮就是这么判红的）。
+			//    所以这一条换到 **360×800**（iPhone SE/8 那一档真机宽度）：差 34px，前提稳，
+			//    量完再复位回 390 —— 后面的截图与"窄视口断言不是空过"都按 390 写。
+			await cdp.send("Emulation.setDeviceMetricsOverride", {
+				width: 360,
+				height: 800,
+				deviceScaleFactor: 1,
+				mobile: false,
+			});
+			await sleep(450);
+			facts["pet-menu-narrow-both"] = await menuProbe("360 正中(180,700)", 180, 700);
+			await cdp.send("Emulation.setDeviceMetricsOverride", {
+				width: 390,
+				height: 844,
+				deviceScaleFactor: 1,
+				mobile: false,
+			});
+			await sleep(350);
 			facts["pet-menu-390-pet"] = { exists: p.exists, off: p.off, display: p.display };
 			const narrowShot = await cdp.send("Page.captureScreenshot", { format: "png" });
 			await fs.writeFile(path.join(OUT_DIR, "pet-menu-390.png"), Buffer.from(narrowShot.data, "base64"));
@@ -2344,9 +2373,26 @@ async function main() {
 			await snap("pet-menu-restore");
 		}
 
-		// ⑧ 菜单动作：说句话（保留项）
-		await clickMenu("say");
-		await sleep(160);
+		// ⑧ 台词气泡（R-PET-13 改口径）：「说句话」菜单入口已按发起人要求删除
+		//    （原话："把说句话交互删掉"）—— 但"点她一下会说话"这条**没有消失**：
+		//    左键单击宠物本體仍会弹台词气泡（与「跳一下」同一个入口）。
+		//    ⚠️ 先手动清空气泡：出场问候的文本会**一直留在** textContent 里（`say()` 的定时器
+		//    只摘 `is-pop` 类），不清的话这条断言会被 4 秒前那句问候喂饱、恒真。
+		await cdp.send("Runtime.evaluate", {
+			expression: `(() => {
+				const bubble = document.getElementById("pet-bubble");
+				bubble.textContent = "";
+				bubble.classList.remove("is-pop");
+				const el = document.getElementById("pet-body");
+				const r = el.getBoundingClientRect();
+				const o = { bubbles: true, cancelable: true, pointerId: 41, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, button: 0 };
+				el.dispatchEvent(new PointerEvent("pointerdown", o));
+				el.dispatchEvent(new PointerEvent("pointerup", o));
+				return "clicked";
+			})()`,
+			returnByValue: true,
+		});
+		await sleep(180);
 		await snap("pet-act-say");
 
 		// ⑧a R-PET-09：菜单里的「跳一下」已删（左键单击就能跳）；并且**跳的时候不要动** ——
@@ -2558,19 +2604,31 @@ async function main() {
 		// 矩形中心；两种现场各跑一遍；再补一条 ⑧b 没有的"落地之后要**一直**贴地"
 		// （⑧b 一落地就 break，看不到之后的巡检/自动活动会不会把它拉回悬浮）。
 		{
-			const realMouse = (type, x, y, button) =>
+			const realMouse = (type, x, y, button, clickCount = 1) =>
 				cdp.send("Input.dispatchMouseEvent", {
 					type,
 					x: Math.round(x),
 					y: Math.round(y),
 					button,
 					buttons: type === "mousePressed" ? (button === "right" ? 2 : 1) : 0,
-					clickCount: 1,
+					clickCount,
 				});
 			const realClick = async (x, y, button) => {
 				await realMouse("mouseMoved", x, y, "none");
 				await realMouse("mousePressed", x, y, button);
 				await realMouse("mouseReleased", x, y, button);
+			};
+			/**
+			 * 真实双击（R-PET-13 用）：两对 press/release 挨在一起（间隔远小于组件的 320ms 判据）。
+			 * ⚠️ 必须用**真鼠标事件**而不是 `PointerEvent` 直接派发 —— 组件判双击看的是
+			 * `onPointerUp` 里的两次时间戳，而"真机双击会不会真的走到那条分支"才是要验的事。
+			 */
+			const realDblClick = async (x, y) => {
+				await realMouse("mouseMoved", x, y, "none");
+				for (const n of [1, 2]) {
+					await realMouse("mousePressed", x, y, "left", n);
+					await realMouse("mouseReleased", x, y, "left", n);
+				}
 			};
 			/** 宠物中心（真实右键的落点） */
 			const petCenter = async () =>
@@ -2786,6 +2844,75 @@ async function main() {
 					physical: Object.keys(states).filter((n) => !mood.includes(n)),
 					reviewHold: Number(/const REVIEW_HOLD\s*=\s*(\d+)/.exec(compSrc)?.[1] ?? 0),
 				};
+			}
+
+			// ⑦ R-PET-13「关闭」档（本轮发起人：「**最后一个变成关闭，但关闭不是完全关闭，
+			//    会变成很小一只，比待机还小，双击后仍能变回爱弥斯**」）
+			// ==========================================================================
+			// 全走真机路径：真右键开菜单 → 点**可见**的「关闭」→ 量她真的变小（精灵真实像素
+			// + CSS 变量两道证据）→ 迷你时单击**不说话也不误恢复** → 真双击 → 量她真的变回来。
+			// 为什么不看 `data-pet-mini` 一个属性就完事：那是"我改了属性"，不是"她变小了"；
+			// 尺寸来自 `measure()` 读的真实 `offsetWidth`，脚底锚点则证明"缩小不是往上蹿"。
+			{
+				const miniProbe = async () =>
+					(
+						await cdp.send("Runtime.evaluate", {
+							expression: `(() => {
+								const el = document.getElementById("pet");
+								const sprite = document.getElementById("pet-sprite");
+								const menu = document.getElementById("pet-menu");
+								const item = menu.querySelector('[data-pet-act="mini"]');
+								const bubble = document.getElementById("pet-bubble");
+								const r = el.getBoundingClientRect();
+								const sr = sprite.getBoundingClientRect();
+								const v = getComputedStyle(el);
+								return {
+									mini: el.dataset.petMini, state: el.dataset.petState || null,
+									spriteW: Math.round(sr.width), spriteH: Math.round(sr.height),
+									top: Math.round(r.top), bottom: Math.round(r.bottom),
+									label: (item?.textContent || "").trim(), pressed: item?.getAttribute("aria-pressed"),
+									items: [...menu.querySelectorAll("[data-pet-act]")].map((b) => b.textContent.trim()),
+									bubbleText: (bubble?.textContent || "").trim(),
+									vars: { desktop: (v.getPropertyValue("--pet-scale-desktop") || "").trim(),
+										mobile: (v.getPropertyValue("--pet-scale-mobile") || "").trim(),
+										active: (v.getPropertyValue("--pet-scale-active") || "").trim(),
+										miniFactor: (v.getPropertyValue("--pet-mini-factor") || "").trim(),
+										scale: (v.getPropertyValue("--pet-scale") || "").trim() },
+								};
+							})()`,
+							returnByValue: true,
+						})
+					).result.value;
+				const miniBox = async () =>
+					(
+						await cdp.send("Runtime.evaluate", {
+							expression: `(() => { const r = document.getElementById("pet-body").getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; })()`,
+							returnByValue: true,
+						})
+					).result.value;
+
+				const beforeMini = await miniProbe();
+				const miniOpen = await realMenuClick("关闭");
+				await sleep(360);
+				const closedMini = await miniProbe();
+				const miniShot = await cdp.send("Page.captureScreenshot", { format: "png" });
+				await fs.writeFile(path.join(OUT_DIR, "pet-mini-1440.png"), Buffer.from(miniShot.data, "base64"));
+
+				// 迷你时**单击**（不是双击）：不许说话（气泡为空），也不许被误当成"叫醒"
+				const c1 = await miniBox();
+				await realClick(c1.cx, c1.cy, "left");
+				await sleep(260);
+				const singleMini = await miniProbe();
+				await sleep(420); // 让这一次点击的时间戳过期，下面的双击才是"从零开始的两下"
+
+				const c2 = await miniBox();
+				await realDblClick(c2.cx, c2.cy);
+				await sleep(320);
+				const restoredMini = await miniProbe();
+				const backShot = await cdp.send("Page.captureScreenshot", { format: "png" });
+				await fs.writeFile(path.join(OUT_DIR, "pet-mini-back-1440.png"), Buffer.from(backShot.data, "base64"));
+
+				facts["pet-mini"] = { before: beforeMini, open: miniOpen, closed: closedMini, single: singleMini, restored: restoredMini };
 			}
 		}
 
@@ -3206,9 +3333,19 @@ async function main() {
 		const reduced1 = await snap("pet-reduced-1");
 		await sleep(900);
 		await snap("pet-reduced-2");
-		// 点击仍要有反应（气泡出来）
+		// 点击仍要有反应（气泡出来）—— ⚠️ R-PET-13：「说句话」菜单入口已按发起人要求删除，
+		// 这条改走**左键单击宠物**这条真实路径（pointerdown + pointerup、无移动，与 ⑧ 同一手法）。
+		// 旧写法 `querySelector('[data-pet-act="say"]').click()` 在该项被删后会命中 null 并抛
+		// TypeError，静默表现成"气泡是空的" —— 看起来像功能坏了，其实只是判据没跟着改。
 		await cdp.send("Runtime.evaluate", {
-			expression: `document.querySelector('[data-pet-act="say"]').click(); "say"`,
+			expression: `(() => {
+				const el = document.getElementById("pet-body");
+				const r = el.getBoundingClientRect();
+				const o = { bubbles: true, cancelable: true, pointerId: 43, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, button: 0 };
+				el.dispatchEvent(new PointerEvent("pointerdown", o));
+				el.dispatchEvent(new PointerEvent("pointerup", o));
+				return "clicked";
+			})()`,
 			returnByValue: true,
 		});
 		await sleep(200);
@@ -4569,11 +4706,15 @@ async function main() {
 			boot?.sprite?.bgSize === "800% 900%" && boot?.sprite?.img === true,
 			`bgSize=${boot?.sprite?.bgSize} 用图集=${boot?.sprite?.img}`,
 		);
+		// ⚠️ R-PET-12（本轮）**推翻了**这条的原口径：原来断言的是"390 宽看不到桌宠（hideOnMobile）"，
+		//    发起人在手机上打开站点后问「手机端我咋没看到桌宠」，选了"显示但缩小 + 降存在感"，
+		//    于是 `hideOnMobile: false` —— 这条断言必须跟着改口径，否则会拿旧事实卡新行为。
+		//    新口径拆成两问：① 手机上她**在**（不是被解析期脚本藏掉）；② 用的是**手机档**缩放。
 		record(
-			"R-PET-01",
-			"移动端 390 不显示桌宠（hideOnMobile）",
-			mobile?.off === true && mobile.hidden === true,
-			`petOff=${mobile?.off} display=${mobile?.display}`,
+			"R-PET-12",
+			"移动端 390 冷启动能看到桌宠（hideOnMobile=false：不再是解析期就被藏掉）",
+			mobile?.exists === true && mobile?.off === false && mobile.hidden === false,
+			`petOff=${mobile?.off} display=${mobile?.display} 精灵=${mobile?.sprite?.w}×${mobile?.sprite?.h}`,
 		);
 
 		// 九状态：这里挑"每条触发路径"各验一次（idle/running-right/failed/waiting/running/review/jumping/waving）
@@ -4645,17 +4786,18 @@ async function main() {
 		}
 		record(
 			"R-PET-02",
-			"右键菜单项齐全且**已删掉「跟过来」「睡一会儿」**（含「和爱弥斯聊天」）",
-			same(facts["pet-menu"].pet.menu.items, ["说句话", "落下去", "飘起来", "和爱弥斯聊天"]) &&
-				same(facts["pet-menu"].pet.menu.itemsVisible, ["说句话", "落下去", "和爱弥斯聊天"]) &&
+			"右键菜单项齐全（顺序=聊天 / 落下去·飘起来 / 关闭；「跟过来」「睡一会儿」「跳一下」「说句话」都已删）",
+			same(facts["pet-menu"].pet.menu.items, ["和爱弥斯聊天", "落下去", "飘起来", "关闭"]) &&
+				same(facts["pet-menu"].pet.menu.itemsVisible, ["和爱弥斯聊天", "落下去", "关闭"]) &&
 				facts["pet-menu"].pet.menu.hidden === false,
 			`DOM 全部项=${JSON.stringify(facts["pet-menu"].pet.menu.items)}（悬浮档实显=${JSON.stringify(facts["pet-menu"].pet.menu.itemsVisible)}）`,
 		);
 		record(
 			"R-PET-02",
-			"「说句话」会弹出台词气泡",
-			(st("pet-act-say") !== null && (facts["pet-act-say"].pet.bubble.text || "").length > 4) === true,
-			`气泡="${facts["pet-act-say"].pet.bubble.text}"`,
+			"左键单击宠物 → 弹出台词气泡（「说句话」菜单项删掉后，说话这条路径仍在）",
+			(st("pet-act-say") !== null && (facts["pet-act-say"].pet.bubble.text || "").length > 4) === true &&
+				facts["pet-act-say"].pet.bubble.pop === true,
+			`气泡="${facts["pet-act-say"].pet.bubble.text}"（is-pop=${facts["pet-act-say"].pet.bubble.pop}）`,
 		);
 		record(
 			"R-PET-02",
@@ -5142,9 +5284,9 @@ async function main() {
 		record(
 			"R-PET-08",
 			"「落下去」/「飘起来」按档位二选一显示（悬浮档→落下去，贴地档→飘起来）",
-			same(drop?.openItems, ["说句话", "落下去", "和爱弥斯聊天"]) &&
-				same(drop?.before?.itemsVisible, ["说句话", "落下去", "和爱弥斯聊天"]) &&
-				same(rise?.openItems, ["说句话", "飘起来", "和爱弥斯聊天"]) &&
+			same(drop?.openItems, ["和爱弥斯聊天", "落下去", "关闭"]) &&
+				same(drop?.before?.itemsVisible, ["和爱弥斯聊天", "落下去", "关闭"]) &&
+				same(rise?.openItems, ["和爱弥斯聊天", "飘起来", "关闭"]) &&
 				drop?.menuWasHidden === true &&
 				rise?.menuWasHidden === true,
 			`悬浮档实显=${JSON.stringify(drop?.before?.itemsVisible)}（打开时=${JSON.stringify(drop?.openItems)}）；落下去之后实显=${JSON.stringify(rise?.openItems)}（menu.hidden 打开前后=${drop?.menuWasHidden}/${rise?.menuWasHidden}）`,
@@ -5234,19 +5376,19 @@ async function main() {
 		// ⑦ 窄视口两侧都放不下（390 宽、宠物在正中）→ 取空间更大的一侧 + 四边仍在视口内
 		record(
 			"R-PET-08",
-			"两侧都放不下时取空间更大的一侧（390 正中·几何上无解，但四边仍在视口内、菜单仍可见）",
+			"两侧都放不下时取空间更大的一侧（360 正中·几何上无解，但四边仍在视口内、菜单仍可见）",
 			(narrowBoth?.menu?.side === "left" || narrowBoth?.menu?.side === "right") &&
 				narrowBoth?.inside === true &&
 				narrowBoth?.hitIsMenu === true &&
 				narrowBoth?.roomRight < narrowBoth?.menu?.w &&
 				narrowBoth?.roomLeft < narrowBoth?.menu?.w &&
 				narrowBoth?.expectSide === narrowBoth?.menu?.side,
-			`390 正中（宠物 [${narrowBoth?.pet?.l},${narrowBoth?.pet?.r}]）：右余 ${narrowBoth?.roomRight}px / 左余 ${narrowBoth?.roomLeft}px（菜单宽 ${narrowBoth?.menu?.w}）→ 贴${narrowBoth?.menu?.side}（期望${narrowBoth?.expectSide}），菜单 [${narrowBoth?.menu?.l},${narrowBoth?.menu?.r}]，与宠物重叠 ${narrowBoth?.overlapArea}px²`,
+			`360 正中（宠物 [${narrowBoth?.pet?.l},${narrowBoth?.pet?.r}]）：右余 ${narrowBoth?.roomRight}px / 左余 ${narrowBoth?.roomLeft}px（菜单宽 ${narrowBoth?.menu?.w}）→ 贴${narrowBoth?.menu?.side}（期望${narrowBoth?.expectSide}），菜单 [${narrowBoth?.menu?.l},${narrowBoth?.menu?.r}]，与宠物重叠 ${narrowBoth?.overlapArea}px²`,
 		);
 		record(
 			"R-PET-08",
-			"菜单项字面与发起人反馈一致：已删「跟过来」「睡一会儿」，新增「落下去」「飘起来」",
-			same(facts["pet-menu"]?.pet?.menu?.items, ["说句话", "落下去", "飘起来", "和爱弥斯聊天"]),
+			"菜单项字面与发起人反馈一致：聊天排第一、末项「关闭」（说句话 / 跟过来 / 睡一会儿 / 跳一下都已删）",
+			same(facts["pet-menu"]?.pet?.menu?.items, ["和爱弥斯聊天", "落下去", "飘起来", "关闭"]),
 			`右键菜单 DOM 全部项=${JSON.stringify(facts["pet-menu"]?.pet?.menu?.items)}（悬浮档实显 ${JSON.stringify(facts["pet-menu"]?.pet?.menu?.itemsVisible)}）`,
 		);
 	}
@@ -5260,8 +5402,8 @@ async function main() {
 			"右键菜单里的「跳一下」已删除（左键单击宠物就能跳）",
 			Array.isArray(j?.mid1?.allItems) &&
 				!j.mid1.allItems.includes("跳一下") &&
-				same(j.mid1.allItems, ["说句话", "落下去", "飘起来", "和爱弥斯聊天"]) &&
-				same(j?.mid1?.items, ["说句话", "落下去", "和爱弥斯聊天"]),
+				same(j.mid1.allItems, ["和爱弥斯聊天", "落下去", "飘起来", "关闭"]) &&
+				same(j?.mid1?.items, ["和爱弥斯聊天", "落下去", "关闭"]),
 			`菜单 DOM 全部项=${JSON.stringify(j?.mid1?.allItems)}（跳前 ${JSON.stringify(j?.before?.allItems)}）；悬浮档实显=${JSON.stringify(j?.mid1?.items)}`,
 		);
 		// ② 左键单击 → 跳（真实 pointerdown/pointerup；这是"左键点击就能跳"的证据）
@@ -7782,15 +7924,18 @@ async function main() {
 			// ── ⑥ 窄屏兜底：两侧都放不下 → 改走宠物上下方（明确兜底，不是静默溢出）────
 			{
 				await arm({ enable: true, baseUrl: LIVE_FAKE, timeoutMs: 20000 }, rpet11Fake({ answers: ["窄屏兜底的答复。"] }));
-				await cdp.send("Emulation.setDeviceMetricsOverride", { width: 620, height: 700, deviceScaleFactor: 1, mobile: false });
+				// ⚠️ R-PET-12 起窄视口走**手机档**缩放（精灵 89px 而不是 124px），原来那个 620 宽的
+				// 前提下两侧各剩 ~247px，**已经 ≥ 配置的 minWidth(236)** —— 面板并排完全放得下，
+				// "兜底到上下方"自然不触发（本轮就是这么判红的）。换到 **520×700**：两侧各 ~197px < 236。
+				await cdp.send("Emulation.setDeviceMetricsOverride", { width: 520, height: 700, deviceScaleFactor: 1, mobile: false });
 				await sleep(600);
-				// 把宠物拖到**正中**：620 宽下两侧各剩 ~230px < 配置的 minWidth(236) → 只能上下摆
+				// 把宠物拖到**正中**：520 宽下两侧各剩 ~197px < 配置的 minWidth(236) → 只能上下摆
 				await cdp.send("Runtime.evaluate", {
 					expression: `(() => {
 						const el = document.getElementById("pet-body");
 						const r = el.getBoundingClientRect();
 						const sx = r.left + r.width / 2, sy = r.top + r.height / 2;
-						const tx = 310, ty = ${Math.round(700 * 0.5)};
+						const tx = 260, ty = ${Math.round(700 * 0.5)};
 						const o = { bubbles: true, pointerId: 31, button: 0 };
 						el.dispatchEvent(new PointerEvent("pointerdown", { ...o, clientX: sx, clientY: sy }));
 						el.dispatchEvent(new PointerEvent("pointermove", { ...o, clientX: sx + 6, clientY: sy + 6 }));
@@ -7805,17 +7950,17 @@ async function main() {
 				await sleep(400);
 				const narrow = await chatPanel();
 				const shot = await cdp.send("Page.captureScreenshot", { format: "png" });
-				await fs.writeFile(path.join(OUT_DIR, "pet-chat-narrow-fallback-620.png"), Buffer.from(shot.data, "base64"));
+				await fs.writeFile(path.join(OUT_DIR, "pet-chat-narrow-fallback-520.png"), Buffer.from(shot.data, "base64"));
 				const sideRoom = { left: (narrow?.pet?.l ?? 0) - 18, right: (narrow?.viewport?.w ?? 0) - 8 - ((narrow?.pet?.r ?? 0) + 10) };
 				record(
 					"R-PET-11",
-					"窄屏（620×700、宠物居中）两侧都低于 minWidth → 明确兜底到宠物**上方/下方**，四边仍在视口内、不压宠物",
+					"窄屏（520×700、宠物居中）两侧都低于 minWidth → 明确兜底到宠物**上方/下方**，四边仍在视口内、不压宠物",
 					["above", "below"].includes(narrow?.side) &&
 						narrow?.insideViewport === true &&
 						narrow?.panel?.w >= 300 &&
 						narrow?.panel?.h >= 200 &&
 						narrow?.petOverlap === false,
-					`620×700 下宠物在 (${narrow?.pet?.l},${narrow?.pet?.t})：左侧可用 ~${sideRoom.left}px、右侧可用 ~${sideRoom.right}px（都 < 配置 minWidth ${cfgNum("minWidth")}）→ 实际 side=**${narrow?.side}**；面板 ${narrow?.panel?.w}×${narrow?.panel?.h} 在 (${narrow?.panel?.l},${narrow?.panel?.t})-(${narrow?.panel?.r},${narrow?.panel?.b})，四边在视口内=${narrow?.insideViewport}、与宠物重叠=${narrow?.petOverlap}（高度按"宠物上方/下方剩多少"压过，所以没盖住宠物）；截图 reports/screenshots/pet-chat-narrow-fallback-620.png`,
+					`520×700 下宠物在 (${narrow?.pet?.l},${narrow?.pet?.t})：左侧可用 ~${sideRoom.left}px、右侧可用 ~${sideRoom.right}px（都 < 配置 minWidth ${cfgNum("minWidth")}）→ 实际 side=**${narrow?.side}**；面板 ${narrow?.panel?.w}×${narrow?.panel?.h} 在 (${narrow?.panel?.l},${narrow?.panel?.t})-(${narrow?.panel?.r},${narrow?.panel?.b})，四边在视口内=${narrow?.insideViewport}、与宠物重叠=${narrow?.petOverlap}（高度按"宠物上方/下方剩多少"压过，所以没盖住宠物）；截图 reports/screenshots/pet-chat-narrow-fallback-520.png`,
 				);
 				await closePetChat();
 				await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -7902,7 +8047,120 @@ async function main() {
 			);
 		}
 
-		// ── ⑤⑥ 状态联动与复位（真机，`data-pet-state` 逐次采样）─────────────
+			// ── R-PET-12 手机端显示（发起人 2026-10-08：「手机端我咋没看到桌宠」→ 选 A：显示但缩小）──
+		// 口径变了两件事：① `hideOnMobile` 由 true 改 false；② 手机档缩放**真正生效**。
+		// ② 才是这一轮的真 bug：那段 `@media (max-width: 767px)` 早就写在 pet.css 里，
+		//    但组件内联写 `--pet-scale`，**内联变量赢过媒体查询** → 手机拿到的一直是桌面档。
+		// 所以这里既要验"看到的尺寸"，也要验"两个数值源头是一致的"。
+		const petCfgSrc = await fs.readFile(path.resolve("src/config/petConfig.ts"), "utf8");
+		const petCssSrc = await fs.readFile(path.resolve("src/styles/pet.css"), "utf8");
+		const petCompSrc = await fs.readFile(path.resolve("src/components/features/AemeathPet.astro"), "utf8");
+		const petNum = (re) => Number(re.exec(petCfgSrc)?.[1] ?? 0);
+		const CFG = {
+			scale: petNum(/^\s*scale:\s*([\d.]+)/m),
+			mobileScale: petNum(/mobileScale:\s*([\d.]+)/),
+			miniFactor: petNum(/miniFactor:\s*([\d.]+)/),
+			breakpoint: petNum(/mobileBreakpoint:\s*(\d+)/),
+		};
+		// CSS 里那条媒体查询的断点（必须等于 mobileBreakpoint − 1，且它选的确实是手机档）
+		const CSS_BP = Number(
+			/@media \(max-width:\s*(\d+)px\)\s*\{\s*\.pet\s*\{\s*--pet-scale-active:\s*var\(--pet-scale-mobile\)/.exec(petCssSrc)?.[1] ?? 0,
+		);
+		{
+			const desk = facts["pet-boot"]?.pet;
+			const mob = facts["pet-390"]?.pet;
+			const mobResize = facts["pet-menu-narrow-boot"]?.pet;
+			const expectDesk = Math.round(144 * CFG.scale);
+			const expectMob = Math.round(144 * CFG.mobileScale);
+			record(
+				"R-PET-12",
+				"缩放档位与断点的两个源头一致（CSS 断点 = petConfig.mobileBreakpoint − 1，且选的是手机档变量）",
+				CFG.breakpoint === 768 && CSS_BP === CFG.breakpoint - 1 && CFG.mobileScale > 0 && CFG.mobileScale < CFG.scale,
+				`petConfig：breakpoint=${CFG.breakpoint}、scale=${CFG.scale}、mobileScale=${CFG.mobileScale}；pet.css 媒体查询断点=${CSS_BP}（期望 ${CFG.breakpoint - 1}）`,
+			);
+			record(
+				"R-PET-12",
+				`手机端 390 冷启动用**手机档**缩放（${expectMob}px），不是桌面档（${expectDesk}px）`,
+				mob?.exists === true &&
+					mob?.off === false &&
+					mob?.sprite?.w === expectMob &&
+					mob?.scaleVars?.active === String(CFG.mobileScale) &&
+					desk?.sprite?.w === expectDesk &&
+					desk?.scaleVars?.active === String(CFG.scale),
+				`390 冷启动：精灵 ${mob?.sprite?.w}×${mob?.sprite?.h}px（--pet-scale-active=${mob?.scaleVars?.active}）；1440 对照：精灵 ${desk?.sprite?.w}×${desk?.sprite?.h}px（--pet-scale-active=${desk?.scaleVars?.active}）`,
+			);
+			record(
+				"R-PET-12",
+				"窗口由 1440 缩到 390（resize 路径，不刷新）→ 缩放立刻切到手机档",
+				mobResize?.scaleVars?.active === String(CFG.mobileScale) && mobResize?.sprite?.w === expectMob,
+				`缩窄后（同一页面会话）：--pet-scale-active=${mobResize?.scaleVars?.active}、精灵 ${mobResize?.sprite?.w}px；内联两档 --pet-scale-desktop=${mobResize?.scaleVars?.desktop} / --pet-scale-mobile=${mobResize?.scaleVars?.mobile}`,
+			);
+			// R-PET-01 的移动端分支现在**默认不触发**（hideOnMobile=false），但开关本身不许被拆掉：
+			// 它是"解析期就决定要不要启动脚本"的唯一入口，拆了以后改成 true 会静默失效。
+			record(
+				"R-PET-01",
+				"移动端隐藏开关仍接在解析期脚本上（hideOnMobile=false 恒不触发，机制未丢）",
+				/\$\{hideOnMobile\}&&window\.matchMedia/.test(petCompSrc) && mob?.off === false,
+				`组件里解析期脚本仍按 hideOnMobile 插值（当前 false → 390 下 petOff=${mob?.off}，人还在）`,
+			);
+		}
+
+		// ── R-PET-13「关闭」档（发起人：「最后一个变成关闭，但关闭不是完全关闭，会变成很小一只，
+		//    比待机还小，双击后仍能变回爱弥斯」）────────────────────────────────────
+		// 全走真机路径（真右键开菜单 → 点可见的「关闭」→ 真双击），判据落在**真实像素**上：
+		//   · 变小 = 精灵宽度 124 → 62px（= 144 × 0.86 × 0.5），与 miniFactor 对得上；
+		//   · "比待机还小" = mini 档是桌面档的 0.5 倍，而待机（waiting）用的就是桌面档缩放；
+		//   · 脚底不动 = 缩放前后 rect.bottom 不变（原地变小，不是往上蹿半个身位）。
+		{
+			const m = facts["pet-mini"];
+			const expectMini = Math.round(144 * CFG.scale * CFG.miniFactor);
+			record(
+				"R-PET-13",
+				"菜单末项是「关闭」且顺序按发起人要求（聊天第一、关闭最后）",
+				same(m?.before?.items, ["和爱弥斯聊天", "落下去", "飘起来", "关闭"]) &&
+					m?.before?.label === "关闭" &&
+					m?.before?.pressed === "false" &&
+					m?.open?.target?.text === "关闭" &&
+					m?.open?.target?.topHit === "self",
+				`菜单项=${JSON.stringify(m?.before?.items)}；末项文案「${m?.before?.label}」aria-pressed=${m?.before?.pressed}；真机点中的是「${m?.open?.target?.text}」（命中=${m?.open?.target?.topHit}）`,
+			);
+			record(
+				"R-PET-13",
+				`点「关闭」→ 真的变小（${expectMini}px = 144 × ${CFG.scale} × ${CFG.miniFactor}），节点没被删也没藏`,
+				m?.closed?.mini === "1" &&
+					m?.closed?.spriteW === expectMini &&
+					m?.closed?.spriteW < (m?.before?.spriteW ?? 0) * 0.55 &&
+					CFG.miniFactor > 0 &&
+					CFG.miniFactor < 1 &&
+					m?.closed?.vars?.miniFactor === String(CFG.miniFactor),
+				`精灵 ${m?.before?.spriteW}×${m?.before?.spriteH} → ${m?.closed?.spriteW}×${m?.closed?.spriteH}px（data-pet-mini=${m?.closed?.mini}、--pet-mini-factor=${m?.closed?.vars?.miniFactor}；待机 waiting 用桌面档，所以这只必然更小）`,
+			);
+			record(
+				"R-PET-13",
+				"缩小时脚底锚点不动（缩小是原地变小，底边不向上蹿）",
+				Math.abs((m?.closed?.bottom ?? -999) - (m?.before?.bottom ?? 0)) <= 2 &&
+					(m?.closed?.bottom ?? 0) > (m?.closed?.top ?? 0),
+				`底边 ${m?.before?.bottom}px → ${m?.closed?.bottom}px（Δ=${(m?.closed?.bottom ?? 0) - (m?.before?.bottom ?? 0)}px，容差 2px）；top ${m?.before?.top} → ${m?.closed?.top}`,
+			);
+			record(
+				"R-PET-13",
+				"迷你期间闭嘴：单击不说话（气泡仍为空），也没被误当成「叫醒她」",
+				m?.single?.bubbleText === "" && m?.single?.mini === "1" && m?.single?.label === "叫醒她",
+				`迷你时单击后：气泡「${m?.single?.bubbleText}」（期望空）、data-pet-mini=${m?.single?.mini}、末项文案「${m?.single?.label}」`,
+			);
+			record(
+				"R-PET-13",
+				"真双击 → 变回爱弥斯（回到桌面档尺寸、末项文案回到「关闭」、并说一句）",
+				m?.restored?.mini === "0" &&
+					m?.restored?.spriteW === m?.before?.spriteW &&
+					m?.restored?.label === "关闭" &&
+					m?.restored?.pressed === "false" &&
+					(m?.restored?.bubbleText ?? "").length > 0,
+				`双击后：精灵 ${m?.restored?.spriteW}×${m?.restored?.spriteH}px（恢复前 ${m?.closed?.spriteW}px、原始 ${m?.before?.spriteW}px）、data-pet-mini=${m?.restored?.mini}、气泡「${m?.restored?.bubbleText}」`,
+			);
+		}
+
+	// ── ⑤⑥ 状态联动与复位（真机，`data-pet-state` 逐次采样）─────────────
 		{
 			// 用死端口跑这一组：**请求一定会失败**，于是"思考态 → failed → 复位"这条链
 			// 每次都能在几秒内跑完，比拿真后端赌"答复快不快"稳定得多。
