@@ -51,7 +51,10 @@ function formatNumber(num: number): string {
 
 // IMiss Blog（R-WDG-01）：原来这里还有「运行时长」与「最后活动」两项，
 // 已按需求删除。顺带删掉了只服务这两项的 getActivityDate / lastActivityDate /
-// lastPostDate / todayText，以及文件末尾那段 <script is:inline>——
+// lastPostDate / todayText，以及文件末尾那段内联 script ——
+// ⚠️ 这里不许写出那个标签的字面量（尖括号 + script）：Vite 8 的依赖预打包扫描器会把 .astro
+// 注释里的它当成真脚本块开始标记、把后面这串中文当 JS 解析 → PARSE_ERROR → 跳过预打包 →
+// dev 模块请求卡到 60 秒超时（2026-10-08 实测，ARCH.md §14.3 T89）。
 // 那段脚本靠 data-stat-id="running-days" / "last-update" 两个字符串字面量定位 DOM，
 // 只删数组不删脚本会留下死代码，只删脚本不删数组则页面会一直显示初始值 0，两边必须一起删。
 // 相关的 i18n key（siteStatsRunningDays / siteStatsLastUpdate / siteStatsDaysAgo）

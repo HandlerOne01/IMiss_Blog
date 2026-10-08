@@ -32,9 +32,14 @@ const wallpaperPosition = state.isFullscreenMode
 	: backgroundWallpaper.banner?.position;
 
 /**
- * 手动换壁纸（R-BG-05，本站新增）：两侧隐藏交互区 + 按住横向拖动换图。
- * 脚本必须在这里拼成字符串（`<script is:inline>` 里的 `${}` 不会被 Astro 求值，
- * 见 ARCH §14.3 T28）。
+ * 手动换壁纸（R-BG-05，本站新增）：桌面两侧隐藏交互区（hover / Tab 聚焦才淡出箭头）；
+ * 鼠标与触屏按住横向拖动超过阈值就换图（同一套 pointer 手势，复用下面脚本里的 changeToSlide()：
+ * 循环、懒实例化、淡入过渡、防连点都已处理好，这段只把用户意图翻译成 ±1）。
+ * 脚本必须在这里拼成字符串（内联 script 标签里的插值不会被 Astro 求值，见 ARCH §14.3 T28）。
+ * ⚠️ 这段说明里**不许写出那个标签的字面量**（尖括号 + script）：Vite 8 的依赖预打包扫描器
+ * 会把 .astro 注释里的它当成真脚本块开始标记、把后面这串中文当 JS 解析 → PARSE_ERROR →
+ * 整轮 `Skipping dependency pre-bundling` → dev 的模块请求卡到 60 秒超时
+ * （2026-10-08 实测，ARCH.md §14.3 T89）。
  */
 const manualSwitch = backgroundWallpaper.banner?.manualSwitch;
 const manualSwitchScript = `(function initManualSwitch() {
@@ -593,7 +598,7 @@ const manualSwitchScript = `(function initManualSwitch() {
                 startAutoPlay();
             }
 
-            // 暴露给 R-BG-05 的手动换图脚本：它在**另一个** <script> 里，拿不到这里的闭包。
+            // 暴露给 R-BG-05 的手动换图脚本：它在**另一个**内联 script 块里，拿不到这里的闭包。
             // 只暴露这两个：换图（复用循环/懒实例化/过渡/防连点）与"当前可见的幻灯片"。
             window.__imissChangeToSlide = changeToSlide;
             window.__imissGetVisibleSlides = getVisibleSlides;
@@ -618,13 +623,7 @@ const manualSwitchScript = `(function initManualSwitch() {
         </>
     )}
 
-    {/* ── 手动换壁纸（R-BG-05，本站新增）────────────────────────────────
-        桌面：两侧隐藏交互区（hover / Tab 聚焦才淡出箭头）
-        鼠标与触屏：按住横向拖动超过阈值就换图（同一套 pointer 手势）
-        复用上面那个脚本里的 changeToSlide()（它已经处理好循环、懒实例化、
-        淡入过渡与防连点），所以这段只做"把用户意图翻译成 ±1"。
-        ⚠️ 脚本内容在 frontmatter 里拼成字符串再 set:html —— `<script is:inline>`
-        里的 `${}` **不会被 Astro 求值**（ARCH §14.3 T28，P3 踩过一次）。 */}
+    {/* 手动换壁纸（R-BG-05）：说明见 frontmatter 注释（模板注释会进产物，T85） */}
     {manualSwitch?.enable && state.hasMultipleImages && (
     <script is:inline data-swup-ignore-script set:html={manualSwitchScript} />
     )}

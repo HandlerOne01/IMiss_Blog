@@ -41,9 +41,23 @@ const { enable, hideOnMobile, mobileBreakpoint, scale, zIndex, movement } =
 
 /**
  * 解析期的"这台设备要不要桌宠"判断（R-PET-01）。
- * 写成 frontmatter 里的字符串再 set:html，而不是把表达式塞进 <script is:inline> 里——
+ * 写成 frontmatter 里的字符串再 set:html，而不是把表达式塞进内联 script 标签里 ——
  * 后者在 `is:inline` 下不会被当成 Astro 表达式处理（实测：变量没被插值，
  * 而且 TS 还会报"变量声明未使用"）。
+ * ⚠️ 这里**不许写出那个标签的字面量**（尖括号 + script）：Vite 8 的依赖预打包扫描器会把
+ *    .astro 注释里的它当成真的脚本块开始标记，把后面这串中文注释当 JS 解析 →
+ *    `PARSE_ERROR` → 整轮 `Skipping dependency pre-bundling` → dev 的模块请求卡到 60 秒超时
+ *    （2026-10-08 实测，见 `ARCH.md` §14.3 **T89**）。
+ */
+/*
+ * 右键菜单里「落下去 / 飘起来」两项的语义（R-PET-09 起只剩这两项）：
+ *   落下去 = 切到贴地档但**不瞬移**（复用拖动松手那条重力路径落到底，startFall）；
+ *   飘起来 = 反向回到悬浮档（复用 startFlight 的缓动插值竖直飘上悬浮基准线）。
+ *   悬浮/固定档显示「落下去」，贴地档显示「飘起来」，否则落下去就回不来了。
+ * ⚠️ 这段说明原先写在模板的 JSX 注释里 —— 模板注释会**原样进产物**（T85），
+ *    已挪到 frontmatter（构建期用，不进产物）。
+ * ⚠️ 写这类说明时**别把注释的起止定界符写进正文**：本轮就因为在块注释里写了那对定界符，
+ *    让注释提前闭合、Astro 编译器报 `Unexpected token`（T88 第二次复发，2026-10-08）。
  */
 const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(max-width: ${mobileBreakpoint - 1}px)").matches){document.documentElement.dataset.petOff="1";}}catch(e){}})();`;
 ---
@@ -108,9 +122,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				{/* R-PET-09：「跳一下」菜单项已按发起人要求删除（左键单击宠物就能跳）。
 				    ⚠️ `jump()` 不是死代码：左键单击（onPointerUp）与键盘 Enter 都在调它，
 				    键盘那条是为 `role="button"` 留的无障碍激活路径（与左键单击完全等价）。 */}
-				{/* 落下去 = 切到贴地档，但**不瞬移**：复用拖动松手那条重力路径落到底（startFall）；
-				    飘起来 = 反向回到悬浮档，复用 startFlight 的缓动插值竖直飘上悬浮基准线。
-				    悬浮/固定档显示「落下去」，贴地档显示「飘起来」——否则落下去就回不来了。 */}
+				{/* 落下去 / 飘起来 的语义见文件头 frontmatter 注释（模板注释会进产物，T85） */}
 				<button type="button" role="menuitem" data-pet-act="drop">
 					落下去
 				</button>
