@@ -87,6 +87,8 @@ const EXPECT_MY_CHILDREN = [
 	{ name: "轻小说", href: "/vndb/" },
 	{ name: "番剧", href: "/myanimelist/" },
 	{ name: "关于我", href: "/about/" },
+	// v1.65：「关于本站」按发起人要求加在「关于我」**下面**（内容 = 原 about.md 那篇整体搬过来）
+	{ name: "关于本站", href: "/about-site/" },
 ];
 const EXPECT_ABSENT_LABELS = ["社交", "友链", "哔哩哔哩", "番组计划", "打赏", "关于"];
 // ─── v1.57：书签导航页（R-BOOKNAV-01 ~ 04）的单一事实来源 ────────────────────
@@ -251,7 +253,8 @@ const REMOVED_FEED_ROUTES = ["/rss/", "/atom/", "/rss.xml", "/atom.xml"];
 // R-PATH-01：v1.41 起 /roadmap/ 顶上导航第 3 格，必须进 ALLOWED_ROUTES 才能被"路由 200"那一趟扫到
 // ⚠️ Task 4（P2R-6）已把三条 `/rank/*` 摘掉 —— 排行整条删除（R-PATH-06），它们不再是"保留页面"，
 //    改由新断言钉住相反的事实：四个旧地址"返回 404 / 不在 sitemap / llms.txt 里也没有残渣"。
-const ALLOWED_ROUTES = ["/", "/about/", "/guestbook/", "/vndb/", "/myanimelist/", "/booknav/", "/dynamic/", "/projects/", "/gallery/", "/archive/", "/roadmap/"];
+// v1.65：新增 `/about-site/`（关于本站）—— 进了这张表才会被"路由都要 200"那一趟扫到。
+const ALLOWED_ROUTES = ["/", "/about/", "/about-site/", "/guestbook/", "/vndb/", "/myanimelist/", "/booknav/", "/dynamic/", "/projects/", "/gallery/", "/archive/", "/roadmap/"];
 // 这里是"待建路由"的登记处：说好要建但还没建的路由写在这里，只记录状态、不参与"通过/失败"计数
 //（否则"功能没做"会被算成 ✅）—— 别再退回"catch 住就算过"的假绿写法。
 const KNOWN_PENDING_ROUTES = [];
@@ -1460,6 +1463,22 @@ async function main() {
 					: ""
 			}；首页 dist/index.html ${annHomeCards} 张卡、含整句 ${annHomeCardsWithFull} 张；${scanNote}`,
 		);
+
+		// ── v1.65：公告卡里那个「了解更多」按钮的落点（发起人要求改到「关于本站」）─────────
+		// 发起人原话：「把公告跳转后的地方放在关于本站那里」。判据两条腿：
+		//   ① 首页**每一张**公告卡切片内都有 `href="/about-site/"`；
+		//   ② 反面 —— 卡片里**不再**出现指向 `/about/` 的链接（否则"两处都改/只改一处"都会溜过去）。
+		{
+			const homeCards = announcementCardsOf(await (await fetch(`${BASE}/`)).text());
+			const withAboutSite = homeCards.filter((c) => /href="\/about-site\/"/.test(c)).length;
+			const withOldAbout = homeCards.filter((c) => /href="\/about\/"/.test(c)).length;
+			record(
+				"R-NAV-04",
+				"公告卡「了解更多」指向关于本站（v1.65 起；不再指向 /about/）",
+				homeCards.length > 0 && withAboutSite === homeCards.length && withOldAbout === 0,
+				`首页公告卡 ${homeCards.length} 张：指向 /about-site/ 的 ${withAboutSite} 张、仍指向 /about/ 的 ${withOldAbout} 张`,
+			);
+		}
 	}
 
 	// ── P4-8（v1.51）：搜索索引里也搜不到上游字样（补上最后一个盲区）────────────
@@ -1672,6 +1691,8 @@ async function main() {
 		{ name: "myanimelist-1440", path: "/myanimelist/", width: 1440, height: 900, mobile: false },
 		{ name: "vndb-1440", path: "/vndb/", width: 1440, height: 900, mobile: false },
 		{ name: "about-1440", path: "/about/", width: 1440, height: 900, mobile: false },
+		// v1.65：「关于本站」新页（内容是原 about.md 那篇整体搬过来的）——采集它的事实 + 截图
+		{ name: "about-site-1440", path: "/about-site/", width: 1440, height: 900, mobile: false },
 		// v1.57（B-10）：书签导航页 —— 整页换内容后必须有断言看着（此前一条都没有），
 		// booknav: true → 额外采集分组/卡片/图标降级事实（COLLECT_BOOKNAV）。
 		// 用 1440×1400 是因为 38 张卡分 6 组铺下来很高，900 高的整页截图会把下面的组切掉。
@@ -4068,15 +4089,25 @@ async function main() {
 	record("R-CMT-02", "留言页副标题已改成本站口吻", (facts["guestbook-1440"].bodyText ?? "").includes("评论区接好之前"), "");
 	record("R-NAV-03", "番剧页显示未配置卡片", (facts["myanimelist-1440"].bodyText ?? "").includes("番剧数据源还没配置"), "");
 	record("R-NAV-03", "轻小说页显示未配置卡片", (facts["vndb-1440"].bodyText ?? "").includes("轻小说数据源还没配置"), "");
-	// R-NAV-04 原来只看 bodyText.length > 100（几乎恒真）。改成检查页面上有真实内容标志：
-	// 关于页里有作者资料名（profileConfig.name）或「关于」字样，并且正文文字量合理。
+	// R-NAV-04 原来只看 bodyText.length > 100（几乎恒真）。改成检查页面上有真实内容标志。
+	// ⚠️ v1.65 拆分：那篇「标题写着关于我、内容其实讲这个站」的文章整体搬到了 `/about-site/`，
+	//    `/about/` 现在是**等发起人给新自我介绍**的占位页 —— 所以判据也跟着分两条：
+	//    ① 关于本站页要有真内容（长度 + 逐字短语双门槛）；
+	//    ② 关于我页仍可达、且**确实是占位态**（含占位文案 + 指向关于本站的入口）。
 	{
+		const siteText = facts["about-site-1440"].bodyText ?? "";
+		record(
+			"R-NAV-04",
+			"关于本站页可访问且有真实内容（原 about.md 那篇已整体搬过来）",
+			siteText.length > 800 && siteText.includes("关于本站") && siteText.includes("学习路线") && siteText.includes("Astro"),
+			`正文长度 ${siteText.length}｜含「关于本站」=${siteText.includes("关于本站")}｜含「学习路线」=${siteText.includes("学习路线")}｜含「Astro」=${siteText.includes("Astro")}`,
+		);
 		const aboutText = facts["about-1440"].bodyText ?? "";
 		record(
 			"R-NAV-04",
-			"关于我页可访问且有真实内容",
-			aboutText.length > 200 && (aboutText.includes("关于") || aboutText.includes("IMiss")),
-			`正文长度 ${aboutText.length}`,
+			"关于我页仍是可访问的占位页（新自我介绍待发起人提供）",
+			aboutText.includes("这一页还在整理") && aboutText.includes("关于本站"),
+			`正文长度 ${aboutText.length}｜含占位文案=${aboutText.includes("这一页还在整理")}｜指向关于本站=${aboutText.includes("关于本站")}`,
 		);
 	}
 
@@ -8366,23 +8397,65 @@ async function main() {
 			return { ok: !hasHidden, why: `出现 ${occurrences} 次，容器开标签=${openTag.slice(0, 110)}` };
 		};
 
-		// ① /projects/：集合清空后仍可达、渲染真空态文案、且没有任何条目名
+		// ① /projects/：v1.65 起**集合里有内容了**（发起人 2026-10-08 要求写两个项目）
+		//    所以这条判据从"渲染空态"**就地翻成**"确实列出这两张卡、且字段逐条对得上"。
+		//    ⚠️ 为什么不能只看"没有空态"：那样"页面渲染成空白"也会绿 —— 必须正向钉住卡片内容。
+		//    反面清单（上游条目名零残留）保留。
 		{
 			const res = await fetch(`${BASE}/projects/`);
 			const html = await res.text();
-			const empty = emptyStateIsVisible(html, "暂无项目");
+			const emptyGone = !html.includes("暂无项目");
 			const leftover = REMOVED_ENTRY_NAMES.filter((n) => html.includes(n));
+			// 两张卡的四个字段：标题 / 状态文案 / 外链 href / 详情链接（逐字来自两份 md 的 frontmatter）
+			const EXPECT_PROJECTS = [
+				{
+					title: "仿 muduo 实现的高并发服务器",
+					status: "已发布",
+					links: ["https://gitee.com/a2186988646/my_server"],
+					detail: "/projects/my-server/",
+				},
+				{
+					title: "基于正倒排索引的 Boost 搜索引擎",
+					status: "已发布",
+					links: ["https://gitee.com/a2186988646/search_engine", "http://106.52.158.48:8081/"],
+					detail: "/projects/boost-search-engine/",
+				},
+			];
+			const cardCount = (html.match(/class="project-card/g) || []).length;
+			const missing = [];
+			for (const p of EXPECT_PROJECTS) {
+				if (!html.includes(p.title)) missing.push(`标题「${p.title}」`);
+				if (!html.includes(p.status)) missing.push(`状态「${p.status}」`);
+				for (const l of p.links) if (!html.includes(l)) missing.push(`外链 ${l}`);
+				if (!html.includes(p.detail)) missing.push(`详情链接 ${p.detail}`);
+			}
 			record(
 				"R-ID-10",
-				"/projects/ 仍可达且渲染空态「暂无项目」（不是筛选无结果的 hidden 元素）",
-				res.status === 200 && empty.ok,
-				`HTTP ${res.status}，可见空态=${empty.ok}（${empty.why}）`,
+				`/projects/ 列出 ${EXPECT_PROJECTS.length} 个项目卡片（标题/状态/外链/详情链接逐条对得上），空态已消失`,
+				res.status === 200 && cardCount === EXPECT_PROJECTS.length && missing.length === 0 && emptyGone,
+				`HTTP ${res.status}｜卡片 ${cardCount} 张（期望 ${EXPECT_PROJECTS.length}）｜「暂无项目」空态已消失=${emptyGone}${missing.length ? `｜❌ 缺：${missing.join("、")}` : "｜四类字段全部命中"}`,
 			);
 			record(
 				"R-ID-10",
 				"/projects/ 不出现任何已删除的上游项目名",
 				leftover.length === 0,
 				leftover.join("、") || "无残留",
+			);
+			// 两个**新**项目详情页：可达 + 正文里有各自的正文特征串（钉住"详情页真的渲染了文章"）
+			const newDetails = [];
+			for (const [u, needle] of [
+				["/projects/my-server/", "多 Reactor"],
+				["/projects/boost-search-engine/", "倒排"],
+			]) {
+				const r = await fetch(`${BASE}${u}`);
+				const t = await r.text();
+				newDetails.push(`${u}=${r.status}${t.includes(needle) ? "✓正文" : "✗正文缺「" + needle + "」"}`);
+			}
+			record(
+				"R-ID-10",
+				"两个新项目详情页可达且正文渲染出来（各含自己的技术特征串）",
+				newDetails.every((s) => s.includes("=200") && s.includes("✓正文")),
+				newDetails.join(" ｜ "),
 			);
 		}
 
@@ -8416,7 +8489,8 @@ async function main() {
 				galleryDetail.join(" "),
 			);
 		}
-		// ②b 两个上游项目的详情路由：同上（`projects` 集合已空 → getStaticPaths 不产出任何页）
+		// ②b 两个上游项目的详情路由：v1.65 起 `projects` 集合**有内容了**，但**上游那两条**依旧必须 404
+		//     （集合里只有发起人自己的两个项目；上游示例没有回来）
 		{
 			const projDetail = [];
 			for (const u of ["/projects/firefly/", "/projects/example-project/"]) {
