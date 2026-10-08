@@ -309,6 +309,7 @@
 	display: none;
 }
 
+
 /* 历史区：块级流（不是滚动容器，理由见上面那段注释） */
 .pet-chat-log {
 	padding: 9px 10px 0;

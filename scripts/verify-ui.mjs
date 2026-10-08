@@ -2846,10 +2846,10 @@ async function main() {
 				};
 			}
 
-			// ⑦ R-PET-13「关闭」档（本轮发起人：「**最后一个变成关闭，但关闭不是完全关闭，
+			// ⑦ R-PET-13 迷你档（本轮发起人：「**最后一个变成关闭，但关闭不是完全关闭，
 			//    会变成很小一只，比待机还小，双击后仍能变回爱弥斯**」）
 			// ==========================================================================
-			// 全走真机路径：真右键开菜单 → 点**可见**的「关闭」→ 量她真的变小（精灵真实像素
+			// 全走真机路径：真右键开菜单 → 点**可见**的「缩小」→ 量她真的变小（精灵真实像素
 			// + CSS 变量两道证据）→ 迷你时单击**不说话也不误恢复** → 真双击 → 量她真的变回来。
 			// 为什么不看 `data-pet-mini` 一个属性就完事：那是"我改了属性"，不是"她变小了"；
 			// 尺寸来自 `measure()` 读的真实 `offsetWidth`，脚底锚点则证明"缩小不是往上蹿"。
@@ -2892,7 +2892,7 @@ async function main() {
 					).result.value;
 
 				const beforeMini = await miniProbe();
-				const miniOpen = await realMenuClick("关闭");
+				const miniOpen = await realMenuClick("缩小");
 				await sleep(360);
 				const closedMini = await miniProbe();
 				const miniShot = await cdp.send("Page.captureScreenshot", { format: "png" });
@@ -4786,9 +4786,9 @@ async function main() {
 		}
 		record(
 			"R-PET-02",
-			"右键菜单项齐全（顺序=聊天 / 落下去·飘起来 / 关闭；「跟过来」「睡一会儿」「跳一下」「说句话」都已删）",
-			same(facts["pet-menu"].pet.menu.items, ["和爱弥斯聊天", "落下去", "飘起来", "关闭"]) &&
-				same(facts["pet-menu"].pet.menu.itemsVisible, ["和爱弥斯聊天", "落下去", "关闭"]) &&
+			"右键菜单项齐全（顺序=聊天 / 落下去·飘起来 / 缩小；「跟过来」「睡一会儿」「跳一下」「说句话」都已删）",
+			same(facts["pet-menu"].pet.menu.items, ["和爱弥斯聊天", "落下去", "飘起来", "缩小"]) &&
+				same(facts["pet-menu"].pet.menu.itemsVisible, ["和爱弥斯聊天", "落下去", "缩小"]) &&
 				facts["pet-menu"].pet.menu.hidden === false,
 			`DOM 全部项=${JSON.stringify(facts["pet-menu"].pet.menu.items)}（悬浮档实显=${JSON.stringify(facts["pet-menu"].pet.menu.itemsVisible)}）`,
 		);
@@ -5284,9 +5284,9 @@ async function main() {
 		record(
 			"R-PET-08",
 			"「落下去」/「飘起来」按档位二选一显示（悬浮档→落下去，贴地档→飘起来）",
-			same(drop?.openItems, ["和爱弥斯聊天", "落下去", "关闭"]) &&
-				same(drop?.before?.itemsVisible, ["和爱弥斯聊天", "落下去", "关闭"]) &&
-				same(rise?.openItems, ["和爱弥斯聊天", "飘起来", "关闭"]) &&
+			same(drop?.openItems, ["和爱弥斯聊天", "落下去", "缩小"]) &&
+				same(drop?.before?.itemsVisible, ["和爱弥斯聊天", "落下去", "缩小"]) &&
+				same(rise?.openItems, ["和爱弥斯聊天", "飘起来", "缩小"]) &&
 				drop?.menuWasHidden === true &&
 				rise?.menuWasHidden === true,
 			`悬浮档实显=${JSON.stringify(drop?.before?.itemsVisible)}（打开时=${JSON.stringify(drop?.openItems)}）；落下去之后实显=${JSON.stringify(rise?.openItems)}（menu.hidden 打开前后=${drop?.menuWasHidden}/${rise?.menuWasHidden}）`,
@@ -5387,8 +5387,8 @@ async function main() {
 		);
 		record(
 			"R-PET-08",
-			"菜单项字面与发起人反馈一致：聊天排第一、末项「关闭」（说句话 / 跟过来 / 睡一会儿 / 跳一下都已删）",
-			same(facts["pet-menu"]?.pet?.menu?.items, ["和爱弥斯聊天", "落下去", "飘起来", "关闭"]),
+			"菜单项字面与发起人反馈一致：聊天排第一、末项「缩小」（v1.69 前写作「关闭」；说句话 / 跟过来 / 睡一会儿 / 跳一下都已删）",
+			same(facts["pet-menu"]?.pet?.menu?.items, ["和爱弥斯聊天", "落下去", "飘起来", "缩小"]),
 			`右键菜单 DOM 全部项=${JSON.stringify(facts["pet-menu"]?.pet?.menu?.items)}（悬浮档实显 ${JSON.stringify(facts["pet-menu"]?.pet?.menu?.itemsVisible)}）`,
 		);
 	}
@@ -5402,8 +5402,8 @@ async function main() {
 			"右键菜单里的「跳一下」已删除（左键单击宠物就能跳）",
 			Array.isArray(j?.mid1?.allItems) &&
 				!j.mid1.allItems.includes("跳一下") &&
-				same(j.mid1.allItems, ["和爱弥斯聊天", "落下去", "飘起来", "关闭"]) &&
-				same(j?.mid1?.items, ["和爱弥斯聊天", "落下去", "关闭"]),
+				same(j.mid1.allItems, ["和爱弥斯聊天", "落下去", "飘起来", "缩小"]) &&
+				same(j?.mid1?.items, ["和爱弥斯聊天", "落下去", "缩小"]),
 			`菜单 DOM 全部项=${JSON.stringify(j?.mid1?.allItems)}（跳前 ${JSON.stringify(j?.before?.allItems)}）；悬浮档实显=${JSON.stringify(j?.mid1?.items)}`,
 		);
 		// ② 左键单击 → 跳（真实 pointerdown/pointerup；这是"左键点击就能跳"的证据）
@@ -8222,9 +8222,9 @@ async function main() {
 			);
 		}
 
-		// ── R-PET-13「关闭」档（发起人：「最后一个变成关闭，但关闭不是完全关闭，会变成很小一只，
+		// ── R-PET-13 迷你档（发起人：「最后一个变成关闭，但关闭不是完全关闭，会变成很小一只，
 		//    比待机还小，双击后仍能变回爱弥斯」）────────────────────────────────────
-		// 全走真机路径（真右键开菜单 → 点可见的「关闭」→ 真双击），判据落在**真实像素**上：
+		// 全走真机路径（真右键开菜单 → 点可见的「缩小」→ 真双击），判据落在**真实像素**上：
 		//   · 变小 = 精灵宽度 124 → 62px（= 144 × 0.86 × 0.5），与 miniFactor 对得上；
 		//   · "比待机还小" = mini 档是桌面档的 0.5 倍，而待机（waiting）用的就是桌面档缩放；
 		//   · 脚底不动 = 缩放前后 rect.bottom 不变（原地变小，不是往上蹿半个身位）。
@@ -8233,17 +8233,17 @@ async function main() {
 			const expectMini = Math.round(144 * CFG.scale * CFG.miniFactor);
 			record(
 				"R-PET-13",
-				"菜单末项是「关闭」且顺序按发起人要求（聊天第一、关闭最后）",
-				same(m?.before?.items, ["和爱弥斯聊天", "落下去", "飘起来", "关闭"]) &&
-					m?.before?.label === "关闭" &&
+				"菜单末项是「缩小」且顺序按发起人要求（聊天第一、缩小最后；v1.69 改的字面）",
+				same(m?.before?.items, ["和爱弥斯聊天", "落下去", "飘起来", "缩小"]) &&
+					m?.before?.label === "缩小" &&
 					m?.before?.pressed === "false" &&
-					m?.open?.target?.text === "关闭" &&
+					m?.open?.target?.text === "缩小" &&
 					m?.open?.target?.topHit === "self",
 				`菜单项=${JSON.stringify(m?.before?.items)}；末项文案「${m?.before?.label}」aria-pressed=${m?.before?.pressed}；真机点中的是「${m?.open?.target?.text}」（命中=${m?.open?.target?.topHit}）`,
 			);
 			record(
 				"R-PET-13",
-				`点「关闭」→ 真的变小（${expectMini}px = 144 × ${CFG.scale} × ${CFG.miniFactor}），节点没被删也没藏`,
+				`点「缩小」→ 真的变小（${expectMini}px = 144 × ${CFG.scale} × ${CFG.miniFactor}），节点没被删也没藏`,
 				m?.closed?.mini === "1" &&
 					m?.closed?.spriteW === expectMini &&
 					m?.closed?.spriteW < (m?.before?.spriteW ?? 0) * 0.55 &&
@@ -8267,10 +8267,10 @@ async function main() {
 			);
 			record(
 				"R-PET-13",
-				"真双击 → 变回爱弥斯（回到桌面档尺寸、末项文案回到「关闭」、并说一句）",
+				"真双击 → 变回爱弥斯（回到桌面档尺寸、末项文案回到「缩小」、并说一句）",
 				m?.restored?.mini === "0" &&
 					m?.restored?.spriteW === m?.before?.spriteW &&
-					m?.restored?.label === "关闭" &&
+					m?.restored?.label === "缩小" &&
 					m?.restored?.pressed === "false" &&
 					(m?.restored?.bubbleText ?? "").length > 0,
 				`双击后：精灵 ${m?.restored?.spriteW}×${m?.restored?.spriteH}px（恢复前 ${m?.closed?.spriteW}px、原始 ${m?.before?.spriteW}px）、data-pet-mini=${m?.restored?.mini}、气泡「${m?.restored?.bubbleText}」`,

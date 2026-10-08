@@ -21,8 +21,9 @@
  *      原来那段媒体查询是**死的** —— 组件内联写 `--pet-scale`，内联变量赢过媒体查询，
  *      手机拿到的一直是桌面档。现在组件只内联"桌面档 / 手机档 / mini 系数"三个值，
  *      由 CSS 决定哪个生效（详见 `pet.css` 顶部那段注释）。
- *   ② **菜单改版**：删「说句话」入口、「和爱弥斯聊天」提到第一项、末项变「关闭」；
- *      关闭 = 缩成很小一只（`miniFactor`，比待机还小），双击她本體恢复。
+ *   ② **菜单改版**：删「说句话」入口、「和爱弥斯聊天」提到第一项、末项变「缩小」（v1.69 改的字面，
+ *      之前叫「关闭」—— 名字不准，她没被关掉）；
+ *      缩小 = 缩成很小一只（`miniFactor`，比待机还小），双击她本體恢复。
  *      迷你期间**闭嘴**（不气泡、不自动活动、不进待机画面）—— 她要的就是"降到最低存在感"。
  *
  * ⚠️ R-PET-10（发起人 2026-09-26 第四轮反馈，两张图）踩到的两件事，改动集中在这两处：
@@ -118,7 +119,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			    这里是"换边躲开遮挡"，不是"抬高 z-index 压过去"。
 
 			    菜单项（R-PET-08 / R-PET-09 / R-PET-13）：
-			      和爱弥斯聊天 ·「落下去」/「飘起来」（按当前档位二选一显示）· 关闭
+			      和爱弥斯聊天 ·「落下去」/「飘起来」（按当前档位二选一显示）· 缩小
 			    发起人三轮反馈的增删：
 			      · R-PET-08：「（跟过来、睡一会儿）**这两个没有鸟用啊**」→ 两个入口删除，
 			        `walkTo()` 与 `waiting` **本体都还在用**（键盘 ←/→ 走 `walkTo()`；
@@ -128,8 +129,9 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			      · R-PET-13（本轮）：「**把说句话交互删掉，然后把和爱弥斯聊天放在第一个，
 			        然后最后一个变成关闭**」→ 删「说句话」入口（`say()` 本体仍在：左键单击、
 			        键盘 Enter、切档、出场问候都调它）；聊天提到第一项；
-			        新增末项「关闭」= 缩小成很小一只（`setMini(true)`，双击恢复）。
-			        该项**文案随状态变**（正常「关闭」/ 迷你「叫醒她」），由 `syncMenuMode()` 写。
+			        新增末项 = 缩小成很小一只（`setMini(true)`，双击恢复）。
+			        该项**文案随状态变**（正常「缩小」（v1.69 前写作「关闭」）/ 迷你「叫醒她」），
+			        由 `syncMenuMode()` 写。
 			    「落下去」/「飘起来」**两个按钮都渲染**（不是条件渲染）：切档时只翻 `hidden`，
 			    不用重建节点；谁显示谁隐藏由 `syncMenuMode()` 按 `pet.mode` 决定。 */}
 			<div
@@ -151,7 +153,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 					飘起来
 				</button>
 				<button type="button" role="menuitem" data-pet-act="mini" aria-pressed="false">
-					关闭
+					缩小
 				</button>
 			</div>
 		</>
@@ -197,7 +199,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		const dropItem = menu.querySelector<HTMLElement>('[data-pet-act="drop"]');
 		const riseItem = menu.querySelector<HTMLElement>('[data-pet-act="rise"]');
 		// R-PET-13：菜单末项「关闭 / 叫醒她」（开合项，文案由 syncMenuMode() 写）
-		const miniItem = menu.querySelector<HTMLElement>('[data-pet-act="mini"]');
+		const miniItem = menu.querySelector<HTMLElement>('[data-pet-act="mini"]'); // 文案：「缩小」/「叫醒她」
 
 		const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 		const PET_KEY = "imiss.pet.pos";
@@ -1512,7 +1514,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				}
 			}
 			applyTransform();
-			syncMenuMode(); // 末项文案跟着状态走（关闭 / 叫醒她）
+			syncMenuMode(); // 末项文案跟着状态走（缩小 / 叫醒她）
 			placeMenu();
 			placeChat();
 		}
@@ -1896,9 +1898,12 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		 * （否则一旦落下去就再也回不到悬浮，发起人会陷进死路）。
 		 * ⚠️ 显隐会改变菜单高度 → 尺寸缓存必须作废，否则 `placeMenu()` 会拿旧高度算摆位。
 		 *
-		 * R-PET-13：末项「关闭」是**开合项**，文案与 `aria-pressed` 跟着 `pet.mini` 走
-		 * （正常「关闭」/ 迷你「叫醒她」）。为什么让文案变：双击能恢复这件事**没有任何视觉提示**，
-		 * 只留一个"关闭"会让人以为她真的没了；换文案等于把回程路写在菜单上。
+		 * R-PET-13：末项是**开合项**，文案与 `aria-pressed` 跟着 `pet.mini` 走
+		 * （正常「缩小」/ 迷你「叫醒她」）。为什么让文案变：双击能恢复这件事**没有任何视觉提示**，
+		 * 只留一个按钮会让人以为她真的没了；换文案等于把回程路写在菜单上。
+		 * ⚠️ v1.69 改过一次**字面**：发起人看着菜单说「**关闭变成缩小，其他不变，就改个前端文字**」
+		 *    —— 「关闭」这个名字从一开始就不准（她没有被关掉，只是变小了），改文案不动行为。
+		 *    断言跟着改的是**字面**，不是口径。
 		 */
 		function syncMenuMode(): void {
 			if (!menu) return;
@@ -1906,7 +1911,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			if (dropItem) dropItem.hidden = ground;
 			if (riseItem) riseItem.hidden = !ground;
 			if (miniItem) {
-				miniItem.textContent = pet.mini ? "叫醒她" : "关闭";
+				miniItem.textContent = pet.mini ? "叫醒她" : "缩小";
 				miniItem.setAttribute("aria-pressed", pet.mini ? "true" : "false");
 			}
 			menuW = 0;
@@ -1974,6 +1979,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		 * **历史留在内存数组里，DOM 按它重建**（单一事实来源，不会出现"DOM 多一条、数组没有"）。
 		 * 面板结构（自上而下，也就是"历史在上、输入框在下"这条需求的落点）：
 		 *   `.pet-chat-head`   常驻标题 + 「回到最新」（往回翻时才出现）+ 「清空对话」
+		 *                        （**没有**关闭按钮：退出去靠 R-PET-14 的"点外面"与 Esc，见下）
 		 *   `.pet-chat-log`    历史区（`role="log" aria-live="polite"`：新行会被读屏播报）
 		 *     └ `.pet-chat-line…` 逐条；末尾是 `.pet-chat-thinking`（思考中指示）
 		 *   `.pet-chat`        输入框 + 发送（**最后一个子节点**，见 CSS 的 sticky bottom）
@@ -2005,6 +2011,10 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			clear.textContent = "清空对话";
 			clear.title = "清掉这次会话里看得见的聊天记录";
 			clear.addEventListener("click", () => clearConversation());
+			// ⚠️ 面板里**没有**关闭按钮（发起人 2026-10-08：先说"×"这个可以有，随后明确
+			//    「**不加叉键，那个功能不要了**」）。所以"怎么退出去"这件事全部由
+			//    R-PET-14 的**点外面关框**承担（Esc 与切页是另外两条老路径）——
+			//    谁要再加这个按钮，先问过他，别"顺手补一个"。
 			head.append(title, chatJump, clear);
 
 			chatList = document.createElement("div");
@@ -2532,7 +2542,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 					case "chat":
 						openChat();
 						break;
-					// R-PET-13：「关闭」= 开合项（缩成很小一只 / 叫醒她）。
+					// R-PET-13：「缩小」= 开合项（缩成很小一只 / 叫醒她）。v1.69 前这项写作「关闭」。
 					// 它是**唯一**的菜单入口，但走的不是旁路 —— 与双击共用同一个 `setMini()`。
 					case "mini":
 						setMini(!pet.mini);
