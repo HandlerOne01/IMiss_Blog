@@ -1,18 +1,28 @@
 ---
 import { Icon } from "astro-icon/components";
-import CoverImage from "@/components/common/CoverImage.astro";
-import { siteConfig } from "@/config";
 import I18nKey from "@/i18n/i18nKey";
 import { i18n } from "@/i18n/translation";
 import { formatDateToYYYYMMDD } from "@/utils/date-utils";
 import { getProjectStatusMeta, resolveLinkIcon } from "@/utils/projects-utils";
 import { url } from "@/utils/url-utils";
 
+/*
+ * IMiss Blog（2026-10-08，发起人要求）：**项目卡片去掉封面图模块，只留纯文字**。
+ * 原来的结构是"上面一张 2:1 封面（没有封面时显示火箭占位图）+ 下面文字"，
+ * 发起人看过渲染结果后要求删掉封面模块 —— 于是这里：
+ *   · 删掉整块封面 `<a>`（含 CoverImage / 火箭占位 / 悬停遮罩）
+ *   · **把状态徽标从封面上挪到文字区**（它原来挂在封面右上角，封面没了不能一起丢）
+ *   · 标题、日期、标签、简介、外链按钮、"查看详情"全部保留
+ *   · 随之删掉只为封面服务的 `image` / `basePath` 解构与 `coverClass` 计算
+ *     （两个 prop 仍在 `Props` 里保留，调用方照传无害；详情页顶部仍会用 frontmatter 的 `image`）
+ * ⚠️ 这条改动**没有新增断言**：`verify:ui` 对项目页的判据是"可达 / 卡片数与字段 / 详情页"，
+ *    不含封面 —— 要钉"卡片无封面"需要另写判据（记在 `reports/_pause-handoff.md` 的待办里）。
+ */
 interface Props {
 	id: string;
 	title: string;
 	description?: string;
-	image: string;
+	image?: string;
 	basePath?: string;
 	tags?: string[];
 	published?: Date;
@@ -24,8 +34,6 @@ const {
 	id,
 	title,
 	description,
-	image,
-	basePath = "/",
 	tags,
 	published,
 	status,
@@ -41,14 +49,6 @@ const statusMeta = status ? getProjectStatusMeta(status) : null;
 const maxTags = 2;
 const visibleTags = (tags || []).slice(0, maxTags);
 const hiddenTagCount = (tags || []).length - visibleTags.length;
-
-// 网格封面是否撑满贴边，跟随文章列表设置（postListLayout.grid.coverFullWidth）
-const gridCoverFullWidth =
-	siteConfig.postListLayout.grid.coverFullWidth ?? false;
-
-const coverClass = gridCoverFullWidth
-	? "project-card-image group relative block aspect-2/1 overflow-hidden"
-	: "project-card-image group relative block aspect-2/1 overflow-hidden mx-4 mt-4 rounded-xl";
 ---
 
 <div
@@ -56,48 +56,25 @@ const coverClass = gridCoverFullWidth
   data-status={status || ""}
   data-tags={tags?.join(",") || ""}
 >
-  <!-- 封面（在上） -->
-  <a href={detailUrl} aria-label={title} class={coverClass}>
-    {image ? (
-      <CoverImage
-        src={image}
-        basePath={basePath}
-        alt={title}
-        class="w-full h-full transition-transform duration-300 group-hover:scale-110"
-        preview={false}
-      />
-    ) : (
-      <div class="w-full h-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
-        <Icon name="material-symbols:rocket-launch" class="text-gray-400 text-6xl" />
-      </div>
-    )}
-    <!-- 悬浮：变暗 + 箭头（同文章列表网格模式） -->
-    <div class="absolute inset-0 pointer-events-none z-10 transition group-hover:bg-black/30" />
-    <div class="absolute inset-0 pointer-events-none z-20 flex items-center justify-center">
-      <Icon
-        name="material-symbols:chevron-right-rounded"
-        class="transition opacity-0 scale-50 group-hover:opacity-100 group-hover:scale-100 text-white text-5xl"
-      />
-    </div>
-    <!-- 状态徽标覆盖在封面右上角 -->
-    {statusMeta && (
-      <span
-        class={`absolute top-3 right-3 z-30 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium backdrop-blur-md ${statusMeta.coverClassName}`}
-      >
-        {statusMeta.icon && <Icon name={statusMeta.icon} class="text-sm" />}
-        {statusMeta.label}
-      </span>
-    )}
-  </a>
-
-  <!-- 内容（在下） -->
+  <!-- 内容（纯文字：2026-10-08 起不再渲染封面模块） -->
   <div class="post-card-content p-4 flex flex-col flex-1 min-h-0">
-    <a
-      href={detailUrl}
-      class="post-card-title font-bold text-[1.35rem] leading-[1.75rem] text-black/90 dark:text-white/90 line-clamp-1 hover:text-(--primary) transition-colors flex-1 min-w-0"
-    >
-      {title}
-    </a>
+    <!-- 标题行：标题 + 状态徽标（徽标原先挂在封面右上角，封面删掉后挪到这里） -->
+    <div class="flex items-start gap-2">
+      <a
+        href={detailUrl}
+        class="post-card-title font-bold text-[1.35rem] leading-[1.75rem] text-black/90 dark:text-white/90 line-clamp-1 hover:text-(--primary) transition-colors flex-1 min-w-0"
+      >
+        {title}
+      </a>
+      {statusMeta && (
+        <span
+          class={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap ${statusMeta.className}`}
+        >
+          {statusMeta.icon && <Icon name={statusMeta.icon} class="text-sm" />}
+          {statusMeta.label}
+        </span>
+      )}
+    </div>
 
     <!-- 时间 + 标签-->
     <div class="flex flex-wrap items-center gap-x-4 gap-y-2 mt-1">
