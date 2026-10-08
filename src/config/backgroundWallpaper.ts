@@ -4,9 +4,11 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 	// 壁纸模式："banner" 横幅壁纸，"fullscreen" 全屏壁纸，"overlay" 覆盖透明，"none" 纯色背景无壁纸
 	mode: "banner",
 	// 是否启用背景视频播放，配置后将在导航栏显示视频播放按钮
-	// ⚠️ IMiss Blog：视频还没做，先关闭（配合下面被注释的 playerUrl）。
-	//    若只注释 playerUrl 却把这里留 true，导航栏会出现一个点了没反应的按钮——
-	//    Navbar 的渲染条件只看 playerEnable && mode !== "none"，不看 playerUrl（ARCH.md §14.3 T6）。
+	// ⚠️ IMiss Blog：**保持关闭**——这是模板自带的"导航栏按钮切换的覆盖播放器"
+	//    （`BackgroundPlayer.astro` + `src.playerUrl`），与 v1.70 新增的**动态壁纸**
+	//    （`video.*`，壁纸本身就是视频、进站即播）是两回事。那套要开着的话，导航栏会多一个
+	//    播放按钮、点开是覆盖在壁纸上的播放器 —— 发起人没要这个。
+	//    （历史：原来视频还没做，所以关着；现在视频有了，但走的是"常驻壁纸"这条路。）
 	playerEnable: false,
 	/**
 	 * 背景图片配置
@@ -22,56 +24,130 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 	 *
 	 * 如果只使用一张图片或者使用随机图API，推荐直接使用字符串格式：
 	 * desktop: "https://t.alcy.cc/pc",   // 随机图API
-	 * desktop: "assets/images/DesktopWallpaper/imiss-d1.webp", // 单张图片
+	 * desktop: "assets/images/banner-my.webp", // 单张图片（自己的图片放 src/assets 下）
 	 *
 	 * mobile: "https://t.alcy.cc/mp", // 随机图API
-	 * mobile: "assets/images/MobileWallpaper/imiss-m1.webp", // 单张图片
+	 * mobile: "assets/images/banner-my-mobile.webp", // 单张图片
 	 *
 	 * 支持配置多张图片（数组），每次刷新页面随机显示一张：
 	 * desktop: [
-	 * "assets/images/DesktopWallpaper/imiss-d1.webp",
-	 * "assets/images/DesktopWallpaper/imiss-d2.webp",
+	 * "assets/images/banner-my-1.webp",
+	 * "assets/images/banner-my-2.webp",
 	 * ],
 	 *
 	 * mobile:[
-	 *   "assets/images/MobileWallpaper/imiss-m1.webp",
-	 *   "assets/images/MobileWallpaper/imiss-m2.webp",
+	 *   "assets/images/banner-my-m1.webp",
+	 *   "assets/images/banner-my-m2.webp",
 	 * ],
+	 *
+	 * ⚠️ IMiss Blog（v1.70）：上面这些是**模板自带说明**（路径格式仍然有效），但本站现在两个数组
+	 *    都是空的 —— 壁纸走下面的 `video`（动态壁纸）。要把图片壁纸装回来就填这两个数组、
+	 *    并把 `video.enable` 关掉。
 	 */
 	src: {
-		// 桌面背景图片（支持单张或多张随机）
-		// ⚠️ IMiss Blog（R-BG-01，P3 落地）：换成发起人给的 4 张爱弥斯图。
-		//    **原图直出，不做任何重编码**：我一开始转了一道 webp q82、Astro 又压一道 q85，
-		//    两代有损压缩叠起来细看发糊（原图 201KB → 我的 webp 143KB，尺寸没变，差的全是细节）。
-		//    现在原图（1916×821 / 181~251KB）直接放 src/assets，**压缩只交给 Astro 做一次**，
-		//    壁纸的 quality 提到 95（见 WallpaperSection.astro）。
-		//    转换脚本 `scripts/convert-wallpaper.mjs` 现在只做"复制改名"，不再重编码。
-		//    素材仍是 2.33:1 / 1916 宽 → 2560 宽屏会放大，正式方案是视频（R-BG-02）。
-		desktop: [
-			"assets/images/DesktopWallpaper/imiss-d1.jpg",
-			"assets/images/DesktopWallpaper/imiss-d2.jpg",
-			"assets/images/DesktopWallpaper/imiss-d3.jpg",
-			"assets/images/DesktopWallpaper/imiss-d4.jpg",
-		],
-		// 移动背景图片（支持单张或多张随机）
-		// 移动端**复用同一批原图**：ImageWrapper 在移动端只请求 640/828 宽的变体，
-		// Astro 会按需生成小图，所以没必要再存一份 1600 宽的中间产物（那又多一代压缩）
-		mobile: [
-			"assets/images/DesktopWallpaper/imiss-d1.jpg",
-			"assets/images/DesktopWallpaper/imiss-d2.jpg",
-			"assets/images/DesktopWallpaper/imiss-d3.jpg",
-			"assets/images/DesktopWallpaper/imiss-d4.jpg",
-		],
-		// 背景视频播放地址
-		// 支持单个视频路径（字符串）或多个视频循环（数组，参考上面壁纸配置）
-		// 支持远程视频URL，本地视频请放在 public/assets/videos/ 目录下
-		//
-		// ⚠️ IMiss Blog（R-BG-02，P3 落地）：视频还没做，先**注释掉 playerUrl**。
-		//    原来的值是模板作者的远程视频（第三方 CDN 上的 `…_<上游主题名>.mp4`），本站不该依赖它：
-		//    ① 那是别人的资源；② 访客会白下十几 MB；③ 有 playerUrl 但 playerEnable 关着时，
-		//    导航栏会留下一个点了没反应的播放按钮（见 ARCH.md §6.1 第 5 条）。
-		//    视频产出后填 "/assets/videos/imiss-hero.mp4"，并把 playerEnable 改回 true。
+		/**
+		 * ⚠️ **v1.70（R-BG-06）：静态壁纸图片已全部删除，这里故意是空数组。**
+		 * 发起人 2026-10-09 交来 5 个动态壁纸并要求「**动态壁纸替换掉原有的静态图片**，
+		 * 删掉图1（动态壁纸替换所有静态图片）」——所以壁纸现在是下面 `video.playlist` 里那套视频，
+		 * 原来那 4 张 `assets/images/DesktopWallpaper/imiss-d{1..4}.jpg` 已从仓库删掉。
+		 *
+		 * 留着这两个空数组是为了**模板契约**：`getBackgroundImages()` 仍然读它们，
+		 * 组件在 `video.enable === false` 时会退回静态图片那套分支（把视频关掉、图片填回来即可复原）。
+		 * 别把它们删掉、也别往里面放回图片 —— 两套壁纸同时开会互相压。
+		 */
+		desktop: [],
+		// 移动端同样走视频（同一份原画，不另存小图：发起人要求不压缩）
+		mobile: [],
+		// 背景视频播放地址（模板自带的"导航栏按钮切换的覆盖播放器"，见 playerEnable —— 保持关闭不用）
 		// playerUrl: "/assets/videos/imiss-hero.mp4",
+	},
+	/**
+	 * 动态壁纸（R-BG-06 / R-BG-07，v1.70 新增）
+	 * ============================================================================
+	 * 素材：发起人 2026-10-09 给的 `D:\…\Desktop\视频` 下 5 个 mp4（**全部原画**：
+	 *   2944×1248 / 2.36:1 超宽 / 10 秒 / 24~31.4fps / 单文件 8~13.5 MB，合计 **51.34 MB**）。
+	 *   这些文件**按字节原样**放在 `public/assets/wallpaper/`：不转码、不重封装、不压缩
+	 *   （原话：「**不可压缩我的动态壁纸大小和画质，这是原则，不能动，我要原画**」）。
+	 *   字节与 sha256 的核对见 `reports/_wallpaper-import.mjs` 与 `reports/_wallpaper-assets.json`。
+	 *
+	 * 无限循环（发起人：「**请注意首尾帧以达到无限循环要求**」）：
+	 *   实测（`reports/_wp-probe.json`，取首帧与末帧的平均绝对差，并与"1 秒正常运动量"对比）：
+	 *     chuangbian 2.66 vs 4.18｜xingye 3.07 vs 2.57｜hupan 5.31 vs 9.34
+	 *     ｜xishoutai 3.72 vs 9.62｜taluo 4.94 vs 10.55
+	 *   5 个片子的**接缝差都 ≤ 它自己 1 秒的正常运动量**（xingye 那支画面本身极静，绝对量 0.19%
+	 *   的像素有差异），所以 `loop` 硬切回第一帧**看不出接缝**，不需要交叉淡化。
+	 *
+	 * 裁切（发起人：「**能不裁就不裁**；要裁时**人物在展示中心**，手机端**脸必须全露**」
+	 *   +「全屏壁纸**展示完整**的动态壁纸」+ 参考 firefly.cuteleaf.cn 的取景框）：
+	 *   · 横幅用 `cover`（框比 2.36:1 更方，必然要裁）→ 每项的 `focus` 是**人物锚点**，
+	 *     页面里的脚本按**当前框的宽高比**反算 `object-position`，把这个点顶到框中心；
+	 *   · 全屏用 `contain`（**一个像素都不裁**，完整展示）→ 2.36:1 的片子在 16:9 屏上
+	 *     上下会留白，用同帧的模糊放大版垫底（`letterbox: "blur"`）。
+	 *   ⚠️ `focus` 的取值是**实测**来的，不是拍的：`reports/_wp-probe.mjs` 用肤色蒙版 +
+	 *      12×6 边缘密度网格定位人物，再逐帧目视核对（`reports/_wp-frames/`）。
+	 */
+	video: {
+		enable: true,
+		/**
+		 * 有序清单 —— **数组顺序就是展示顺序**（以后加壁纸往这里加一项即可）。
+		 * `order: "first"` 时进站放第一项；把想先看的挪到第一位即可换默认壁纸。
+		 * ⚠️ 为什么第一个是「窗边少女」：他是从「手机端看不到爱弥斯」那轮开始让我改壁纸的，
+		 *    原来那张静态图就是"窗边/床边的粉发少女"，这支配色最接近；而且它最小（8.3 MB），
+		 *    首访最快。**这只是我的选择，要换顺序改数组即可**（已在他的汇报里写明）。
+		 */
+		playlist: [
+			{
+				src: "/assets/wallpaper/chuangbian.mp4",
+				name: "窗边少女",
+				poster: "/assets/wallpaper/chuangbian-poster.webp",
+				focus: { x: 0.41, y: 0.36 },
+				focusAnchorY: 0.45,
+			},
+			{
+				src: "/assets/wallpaper/xingye.mp4",
+				name: "星夜少女",
+				poster: "/assets/wallpaper/xingye-poster.webp",
+				focus: { x: 0.37, y: 0.37 },
+				focusAnchorY: 0.45,
+			},
+			{
+				src: "/assets/wallpaper/hupan.mp4",
+				name: "湖畔少女",
+				poster: "/assets/wallpaper/hupan-poster.webp",
+				focus: { x: 0.44, y: 0.39 },
+				focusAnchorY: 0.45,
+			},
+			{
+				src: "/assets/wallpaper/xishoutai.mp4",
+				name: "洗手台少女",
+				poster: "/assets/wallpaper/xishoutai-poster.webp",
+				// 这一支画面里有两个"人"：镜中的正脸（x≈0.30）与镜前本人的背影（x≈0.62）。
+				// 锚点取**镜中那张脸** —— 发起人的硬要求是"手机端脸必须全露"，背影不算脸。
+				focus: { x: 0.3, y: 0.34 },
+				focusAnchorY: 0.45,
+			},
+			{
+				src: "/assets/wallpaper/taluo.mp4",
+				name: "塔罗占卜",
+				poster: "/assets/wallpaper/taluo-poster.webp",
+				focus: { x: 0.49, y: 0.3 },
+				focusAnchorY: 0.45,
+				// 预留示例：以后做"按时间排序"时，这一支可以挂夜间档
+				// timeRange: ["18:00", "06:00"],
+			},
+		],
+		// 当前口径：固定第一项（验收可复现）。另外三档是给"以后"留的（见类型注释）
+		order: "first",
+		// 横幅：裁切 + 人物居中（2.36:1 的片子塞进 3.35:1 / 0.71:1 的框，不裁不可能）
+		bannerFit: "cover",
+		// 全屏：完整展示，一个像素都不裁（发起人原话）
+		fullscreenFit: "contain",
+		// 完整展示时上下留白 → 用同一帧的模糊放大版垫底（观感连续，不是黑边）
+		letterbox: "blur",
+		// 减少动态：只显示海报，不播视频（与桌宠/樱花同一条无障碍口径）
+		respectReducedMotion: true,
+		// 手动换壁纸（两侧箭头 / 拖动）时的淡入时长
+		fadeMs: 260,
 	},
 	// 横幅壁纸和全屏壁纸共享配置
 	common: {

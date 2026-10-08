@@ -5,6 +5,7 @@ import BackgroundPlayer from "@/components/features/BackgroundPlayer.astro";
 import BannerHomeTextOverlay from "@/components/layout/BannerHomeTextOverlay.astro";
 import BannerPostMetaOverlay from "@/components/layout/BannerPostMetaOverlay.astro";
 import { backgroundWallpaper } from "@/config";
+import "@/styles/wallpaper-video.css";
 import type {
 	BannerPostMeta,
 	BannerVisibilityState,
@@ -41,6 +42,218 @@ const wallpaperPosition = state.isFullscreenMode
  * 整轮 `Skipping dependency pre-bundling` → dev 的模块请求卡到 60 秒超时
  * （2026-10-08 实测，ARCH.md §14.3 T89）。
  */
+/* ── 动态壁纸（R-BG-06 / R-BG-07，v1.70）───────────────────────────────
+   壁纸现在是一段 <video>：发起人 2026-10-09 交来 5 个原画 mp4，要求
+   「动态壁纸替换掉原有的静态图片」「首尾帧要能无限循环」「能不裁就不裁，要裁时人物在展示中心
+   （手机端脸必须全露）」「全屏展示完整的动态壁纸」「不可压缩，我要原画」。
+   逐条怎么落的见 `src/config/backgroundWallpaper.ts` 的 `video` 注释与 ARCH §7.8。 */
+const videoConf = backgroundWallpaper.video;
+const videoItems = videoConf?.enable ? (videoConf.playlist ?? []) : [];
+const videoOn = videoItems.length > 0;
+/** 首个（也是 `order: "first"` 时实际会显示的那个）：markup 里直接写进 <video>，浏览器第一帧就开始拉流 */
+const videoFirst = videoItems[0];
+/**
+ * 内联脚本只用这几个字段 —— 整份配置塞进去没有意义，还会把 focus 之外的实现细节漏进产物。
+ * ⚠️ 这段必须**在 frontmatter 里拼成字符串**再 set:html：内联标签体里的 `{表达式}`
+ *    不会被 Astro 求值（ARCH §14.3 T28）。
+ */
+const videoData = {
+	items: videoItems.map((it) => ({
+		src: it.src,
+		poster: it.poster,
+		name: it.name,
+		fx: it.focus.x,
+		fy: it.focus.y,
+		anchorY: it.focusAnchorY ?? 0.45,
+	})),
+	order: videoConf?.order ?? "first",
+	fits: {
+		banner: videoConf?.bannerFit ?? "cover",
+		fullscreen: videoConf?.fullscreenFit ?? "contain",
+	},
+	respectReducedMotion: videoConf?.respectReducedMotion !== false,
+	fadeMs: Number(videoConf?.fadeMs ?? 260),
+};
+const videoScript = `(function initVideoWallpaper() {
+	var DATA = ${JSON.stringify(videoData)};
+	var layer = document.getElementById("wallpaper-video-layer");
+	var video = document.getElementById("wallpaper-video");
+	if (!layer || !video || !DATA.items.length) return;
+	var root = document.documentElement;
+	var idx = 0;
+
+	function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+	function mode() { return root.dataset.wallpaperMode || "banner"; }
+	function currentItem() { return DATA.items[idx]; }
+
+	/**
+	 * 按**当前框的宽高比**反算 object-position，把人物锚点顶到框里该在的位置。
+	 * 为什么不能把 object-position 写死在 CSS 里：同一个视频要喂给四种框 ——
+	 * 手机横幅 390×549（0.71:1，横向只剩三成宽）、桌面首页横幅 1440×720（2:1，横向裁 15%）、
+	 * 非首页横幅 1440×495（2.9:1，改成纵向裁）、全屏（1.6:1，contain 不裁）。
+	 * 一个百分比不可能同时对上四者，所以每换一次框就算一次。
+	 */
+	function applyFit() {
+		var it = currentItem();
+		var r = layer.getBoundingClientRect();
+		var cw = r.width, ch = r.height;
+		var iw = video.videoWidth, ih = video.videoHeight;
+		if (!iw || !ih || !cw || !ch) return;
+		var fit = DATA.fits[mode()] || "cover";
+		video.style.objectFit = fit;
+		layer.dataset.fit = fit;
+		if (fit !== "cover") {
+			video.style.objectPosition = "50% 50%";
+			layer.dataset.objectPosition = "50% 50%";
+			layer.dataset.visibleW = String(iw);
+			layer.dataset.visibleH = String(ih);
+			layer.dataset.focusX = String(it.fx);
+			layer.dataset.focusY = String(it.fy);
+			return;
+		}
+		var s = Math.max(cw / iw, ch / ih);
+		var visW = Math.min(iw, cw / s);
+		var visH = Math.min(ih, ch / s);
+		var left = clamp(it.fx * iw - visW / 2, 0, Math.max(0, iw - visW));
+		var top = clamp(it.fy * ih - visH * it.anchorY, 0, Math.max(0, ih - visH));
+		var px = iw > visW ? (left / (iw - visW)) * 100 : 50;
+		var py = ih > visH ? (top / (ih - visH)) * 100 : 50;
+		var pos = px.toFixed(2) + "% " + py.toFixed(2) + "%";
+		video.style.objectPosition = pos;
+		// 这几条 dataset 是**给验收脚本读的事实**：不写出来，"人物在展示中心"就只能靠肉眼
+		layer.dataset.objectPosition = pos;
+		layer.dataset.focusX = String(it.fx);
+		layer.dataset.focusY = String(it.fy);
+		layer.dataset.visibleW = String(Math.round(visW));
+		layer.dataset.visibleH = String(Math.round(visH));
+		layer.dataset.focusAtX = String(Math.round((left + visW / 2) / iw * 1000) / 10);
+		layer.dataset.focusAtY = String(Math.round((top + visH * it.anchorY) / ih * 1000) / 10);
+	}
+
+	/** 播（或被策略/浏览器拦下）。拦下不是错误：海报帧会一直显示 */
+	function pump() {
+		// 降级一：系统偏好减少动态（R-BG-02 的第 1 种）
+		var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+		if (DATA.respectReducedMotion && reduce) {
+			layer.dataset.playing = "0";
+			layer.dataset.playReason = "reduced-motion";
+			try { video.pause(); } catch (e) {}
+			return;
+		}
+		// 降级二：省流量模式（R-BG-02 的第 2 种）。原画一支 8~13.5 MB，用户开了省流量就别自动下。
+		// 用 navigator.connection.saveData（Chrome/Edge/安卓 Chrome 支持；不支持的浏览器读不到，等于不降级）
+		var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+		if (conn && conn.saveData) {
+			layer.dataset.playing = "0";
+			layer.dataset.playReason = "save-data";
+			try { video.pause(); } catch (e) {}
+			return;
+		}
+		// 降级三：页面切到后台（第 3 种）——由下面的 visibilitychange 负责，这里只管"前台该播"
+		if (document.hidden) {
+			layer.dataset.playing = "0";
+			layer.dataset.playReason = "hidden";
+			try { video.pause(); } catch (e) {}
+			return;
+		}
+		layer.dataset.playReason = "";
+		var p = video.play();
+		if (p && p.catch) p.catch(function () { layer.dataset.playing = "0"; layer.dataset.playReason = "autoplay-blocked"; });
+	}
+	video.addEventListener("playing", function () { layer.dataset.playing = "1"; layer.dataset.playReason = ""; });
+	video.addEventListener("loadedmetadata", applyFit);
+	video.addEventListener("loadeddata", function () { layer.dataset.ready = "1"; });
+
+	function syncFacts() {
+		var it = currentItem();
+		root.dataset.wallpaperIndex = String(idx);
+		root.dataset.wallpaperCount = String(DATA.items.length);
+		root.dataset.wallpaperSrc = it.src;
+		// ⚠️ 这里的反斜杠要写**两层**：这段代码是拼在模板字符串里产出的，两个反斜杠加斜杠求值后
+		//    才是「反斜杠 + 斜杠」。写成单层会被字符串吃掉，产物里变成提前闭合的正则 + 浏览器里
+		//    一个 SyntaxError（本轮踩到）。同理 .mp4 那个点的反斜杠也要写两层，否则「点」会变成
+		//    「任意字符」—— 那条不报错，只是悄悄换了语义。
+		layer.dataset.slug = it.src.replace(/^.*\\//, "").replace(/\\.mp4$/, "");
+		layer.dataset.name = it.name;
+		layer.dataset.index = String(idx);
+	}
+
+	/** 换一张（dir = ±1 或绝对下标由 step/call 决定）；animate=false 只用于初始化 */
+	function load(i, animate) {
+		var next = (i + DATA.items.length) % DATA.items.length;
+		if (next === idx && layer.dataset.ready === "1") return;
+		idx = next;
+		syncFacts();
+		var it = currentItem();
+		var paint = function () {
+			video.poster = it.poster;
+			video.src = it.src;
+			video.load();
+			applyFit();
+			pump();
+		};
+		var back = document.querySelector(".wallpaper-video-letterbox");
+		if (back) back.style.backgroundImage = "url(" + it.poster + ")";
+		if (animate && DATA.fadeMs > 0) {
+			layer.style.setProperty("--wp-video-fade", DATA.fadeMs + "ms");
+			layer.classList.add("is-fading");
+			window.setTimeout(function () { paint(); layer.classList.remove("is-fading"); }, DATA.fadeMs);
+		} else {
+			paint();
+		}
+	}
+
+	/**
+	 * 进站放哪一个。发起人说的「以后按**背景时间**排序」就落在这里：
+	 * 「order: "time"」 的匹配逻辑还没做（那需要 timeRange 与"现在的时段"两边都定口径），
+	 * 现在它和 "first" 一样落第一项 —— **留了入口，没假装实现**。
+	 */
+	function pickFirst() {
+		if (DATA.order === "random") return Math.floor(Math.random() * DATA.items.length);
+		if (DATA.order === "sequence") return Math.floor(Date.now() / 86400000) % DATA.items.length;
+		return 0;
+	}
+
+	// 初始化：markup 里已经把第一项写进 <video> 了，这里只补事实/取景/播放策略
+	idx = pickFirst();
+	syncFacts();
+	layer.dataset.ready = layer.dataset.ready || "0";
+	applyFit();
+	pump();
+	if (idx !== 0) load(idx, false);
+
+	// 给"手动换壁纸"（两侧箭头 / 拖动）用的入口：与轮播那套 __imissChangeToSlide 同构
+	window.__imissWallpaperVideo = {
+		count: DATA.items.length,
+		current: function () { return idx; },
+		step: function (dir) { load(idx + dir, true); return idx; },
+		items: DATA.items.map(function (x) { return x.name; }),
+	};
+
+	// 框变了就重算（旋屏 / 拉窗口 / 切模式）
+	var t = 0;
+	function reflow() {
+		if (t) window.clearTimeout(t);
+		t = window.setTimeout(function () { applyFit(); }, 120);
+	}
+	window.addEventListener("resize", reflow);
+	window.addEventListener("orientationchange", reflow);
+	// 切后台就停、回前台再播（省电；R-BG-02 的第 3 种降级）
+	document.addEventListener("visibilitychange", function () {
+		if (document.hidden) {
+			layer.dataset.playing = "0";
+			layer.dataset.playReason = "hidden";
+			try { video.pause(); } catch (e) {}
+		} else {
+			pump();
+		}
+	});
+	window.addEventListener("wallpaperModeChange", function () { window.setTimeout(applyFit, 60); });
+	// Swup 切页不重建壁纸区，但内容高度变了会影响框高 → 补一次
+	document.addEventListener("astro:page-load", reflow);
+})();`;
+/* 手动换壁纸（R-BG-05）的配置：两侧隐藏交互区 + 拖动换图
+   （v1.70 起同样服务于"多段动态壁纸"——判据与入口见下面 canSwitch / switchBy） */
 const manualSwitch = backgroundWallpaper.banner?.manualSwitch;
 const manualSwitchScript = `(function initManualSwitch() {
 	var container = document.getElementById('banner-images-container');
@@ -69,12 +282,27 @@ const manualSwitchScript = `(function initManualSwitch() {
 		}
 		return out;
 	}
-	function canSwitch() {
-		return isBannerMode() && visibleSlides().length > 1;
+	/** 视频壁纸（R-BG-06）：壁纸只有一张"幻灯片"，但清单可能有多段视频 */
+	function videoPlayer() {
+		return window.__imissWallpaperVideo && window.__imissWallpaperVideo.count > 1 ? window.__imissWallpaperVideo : null;
 	}
-	/** 把 ±1 交给模板现成的换图函数（循环 / 懒实例化 / 过渡 / 防连点都在那边） */
+	function wallpaperCount() {
+		var vp = videoPlayer();
+		return vp ? vp.count : visibleSlides().length;
+	}
+	function canSwitch() {
+		return isBannerMode() && wallpaperCount() > 1;
+	}
+	/** 把 ±1 交给模板现成的换图函数（循环 / 懒实例化 / 过渡 / 防连点都在那边）；
+	    视频模式下交给壁纸层的 step()（它自己做淡出→换源→淡入） */
 	function switchBy(dir) {
-		if (!canSwitch() || !window.__imissChangeToSlide) return false;
+		if (!canSwitch()) return false;
+		var vp = videoPlayer();
+		if (vp) {
+			vp.step(dir);
+			return true;
+		}
+		if (!window.__imissChangeToSlide) return false;
 		var slides = visibleSlides();
 		var cur = 0;
 		for (var i = 0; i < slides.length; i++) {
@@ -160,8 +388,32 @@ const manualSwitchScript = `(function initManualSwitch() {
 <!-- Wallpaper - 如果允许切换则始终渲染，否则只渲染当前模式 -->
 {(state.isWallpaperSwitchable || state.isBannerMode || state.isFullscreenMode || state.isOverlayMode) && (
 <div id="wallpaper-wrapper" class="absolute z-10 w-full overflow-hidden" style="--overlay-opacity: ${backgroundWallpaper.overlay?.opacity ?? 0.8}; --overlay-z-index: ${backgroundWallpaper.overlay?.zIndex ?? -1}; --overlay-blur: ${backgroundWallpaper.overlay?.blur ?? 0}px;">
-<!-- 背景图片显示 -->
-    {state.hasMultipleImages ? (
+<!-- 背景显示：v1.70 起**优先视频**（R-BG-06）。视频开着时一张静态图都不渲染；
+     把 `video.enable` 关掉才会回到下面那两套图片分支（模板原逻辑一字未动）。 -->
+    {videoOn ? (
+    <div class="relative h-full w-full" id="banner-images-container" data-wallpaper-kind="video">
+        <div class="wallpaper-video-layer" id="wallpaper-video-layer" data-fit="cover" data-letterbox={videoConf?.letterbox ?? "blur"}>
+            {/* contain 留白时的垫底：同一帧的模糊放大版（不是黑边；cover 模式下被 CSS 关掉） */}
+            <div class="wallpaper-video-letterbox" aria-hidden="true" style={`background-image:url(${videoFirst.poster})`}></div>
+            {/* 原画直出：不转码不压缩（R-BG-06）。muted 是自动播放的硬前提；
+                loop 的底气是"首尾帧实测差 ≤ 自身 1 秒运动量"（见配置注释）。
+                aria-hidden：它是纯装饰，读屏不该念它 */}
+            <video
+                id="wallpaper-video"
+                class="wallpaper-video"
+                src={videoFirst.src}
+                poster={videoFirst.poster}
+                muted
+                loop
+                playsinline
+                autoplay
+                preload="auto"
+                aria-hidden="true"
+                tabindex="-1"
+            ></video>
+        </div>
+    </div>
+    ) : state.hasMultipleImages ? (
     /* 轮播模式：渲染所有图片为 slide-item */
     <div class:list={["relative h-full w-full bg-(--page-bg)", `effect-${state.bannerCarouselEffect}`]} id="banner-images-container"
          style={`z-index: 5; --carousel-interval: ${state.bannerCarouselInterval}ms`}
@@ -612,7 +864,7 @@ const manualSwitchScript = `(function initManualSwitch() {
           节点跨页常驻，脚本只在启动时绑一次
         · z-30 高于 dim(10) 与 overlay(20)：箭头不会被 0.2 的暗罩压灰
         · 只有"这一侧有多张图"时才渲染；JS 还会在运行时再确认一次（getVisibleSlides） */}
-    {(state.isBannerMode || state.isWallpaperSwitchable) && backgroundWallpaper.banner?.manualSwitch?.enable && backgroundWallpaper.banner.manualSwitch.zones && (backgroundImages.desktop.length > 1 || backgroundImages.mobile.length > 1) && (
+    {(state.isBannerMode || state.isWallpaperSwitchable) && backgroundWallpaper.banner?.manualSwitch?.enable && backgroundWallpaper.banner.manualSwitch.zones && (videoItems.length > 1 || backgroundImages.desktop.length > 1 || backgroundImages.mobile.length > 1) && (
         <>
             <button type="button" class="banner-switch-zone is-prev" data-banner-switch="-1" aria-label="上一张壁纸" title="上一张壁纸">
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -623,8 +875,12 @@ const manualSwitchScript = `(function initManualSwitch() {
         </>
     )}
 
+    {/* 动态壁纸的取景与播放策略（R-BG-06 / R-BG-07）：说明见 frontmatter 注释
+        （模板注释会进产物，T85；这段单独成块，方便与壁纸 markup 一起读到） */}
+    {videoOn && <script is:inline data-swup-ignore-script set:html={videoScript} />}
+
     {/* 手动换壁纸（R-BG-05）：说明见 frontmatter 注释（模板注释会进产物，T85） */}
-    {manualSwitch?.enable && state.hasMultipleImages && (
+    {manualSwitch?.enable && (videoItems.length > 1 || state.hasMultipleImages) && (
     <script is:inline data-swup-ignore-script set:html={manualSwitchScript} />
     )}
 

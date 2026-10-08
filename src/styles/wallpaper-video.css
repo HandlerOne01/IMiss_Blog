@@ -1,0 +1,79 @@
+/* ============================================================================
+ * 动态壁纸（R-BG-06 / R-BG-07，v1.70）
+ * ============================================================================
+ * 壁纸层现在是一段 `<video>`（发起人 2026-10-09 交来的 5 个原画 mp4），不再是静态图。
+ * 这个文件只管"怎么把它画好"；尺寸与层级仍然由 `#wallpaper-wrapper` 那套既有规则决定，
+ * 所以这里**不碰布局**，只做三件事：
+ *   ① 让视频铺满容器（`width/height:100%` + `object-fit` 由 JS 按模式写）
+ *   ② `contain` 留白时的垫底（同帧模糊放大版，观感连续而不是黑边）
+ *   ③ 首次可见前的淡入（避免"先白一块再出画面"）
+ *
+ * ⚠️ `object-position` **不在这里写死**：横幅框的宽高比随断点变（手机 65vh 的高框会横向裁掉七成），
+ *    要靠 `initialWallpaperVideoScript` 按当前框反算 —— 见 `WallpaperSection.astro` 里那段注释。
+ * ========================================================================== */
+
+.wallpaper-video-layer {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+	/* 壁纸底色：视频/海报还没到之前先垫一层深色，避免白闪 */
+	background: var(--page-bg);
+}
+
+.wallpaper-video {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	display: block;
+	/* object-fit / object-position 由脚本按模式与人物锚点写内联样式 */
+	object-fit: cover;
+	object-position: 50% 45%;
+	/* 视频是 LCP 元素：不要淡入（淡入会把已经能看的画面又藏半秒） */
+	opacity: 1;
+	background: transparent;
+	pointer-events: none;
+}
+
+/* 换壁纸（两侧箭头 / 拖动）时的淡出：只有 JS 主动加这个类才有过渡 */
+.wallpaper-video-layer.is-fading .wallpaper-video {
+	opacity: 0;
+	transition: opacity var(--wp-video-fade, 260ms) ease;
+}
+
+/* `contain` 模式：视频完整可见，留白处用**同一帧的模糊放大版**垫底（不是黑边） */
+.wallpaper-video-letterbox {
+	position: absolute;
+	inset: -6%;
+	background-position: center;
+	background-size: cover;
+	filter: blur(42px) saturate(1.15) brightness(0.72);
+	transform: scale(1.08);
+	pointer-events: none;
+}
+
+/* 留白垫底只在 contain 下出现；cover 时它纯属浪费（还把 GPU 拉满） */
+.wallpaper-video-layer[data-fit="cover"] .wallpaper-video-letterbox {
+	display: none;
+}
+
+/* `solid` 口径：不要模糊垫底 */
+.wallpaper-video-layer[data-letterbox="solid"] .wallpaper-video-letterbox {
+	display: none;
+	background: none;
+}
+
+/* 减少动态 / 自动播放被拒：只显示海报（视频元素本身就是 poster 的画面，无需额外处理），
+   这里只把"看起来在播"的迹象收敛掉：不显示任何播放控件 */
+@media (prefers-reduced-motion: reduce) {
+	.wallpaper-video-layer.is-fading .wallpaper-video {
+		transition: none;
+	}
+}
+
+/* 打印时不印壁纸（与桌宠同口径） */
+@media print {
+	.wallpaper-video-layer {
+		display: none !important;
+	}
+}

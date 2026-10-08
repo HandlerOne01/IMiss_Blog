@@ -42,8 +42,21 @@ const CHROME_CANDIDATES = [
 ];
 
 // ─── 验收规格（单一事实来源，改需求改这里）───────────────
-// 横幅取景锚点：与 src/config/backgroundWallpaper.ts 的 banner.position 保持一致（R-BG-04）
-const EXPECT_BANNER_POSITION = "50% 35%";
+/**
+ * 动态壁纸原画清单（R-BG-06，v1.70）—— **单一事实来源**：换素材必须同时改这里。
+ * 五个文件由发起人 2026-10-09 交来，要求「**不可压缩**……我要原画」，所以判据是
+ * **字节数 + sha256 逐字节相等**（不是"能播就行"——转一道码它照样能播）。
+ * 数值来自导入时的核对（reports/_wallpaper-import.mjs → reports/_wallpaper-assets.json）。
+ */
+const EXPECT_WALLPAPER_VIDEOS = [
+	{ slug: "chuangbian", bytes: 8331182, sha256: "4b2482162f24f2368925e30fe49e603709f0e056bb0faa4e60e51f5cbbf03db5" },
+	{ slug: "xingye", bytes: 10329106, sha256: "82070b367704edfcbd6af1e0f60f420cd344462bf60a99ed7128230166865468" },
+	{ slug: "hupan", bytes: 13519083, sha256: "0b2dd5c4851dd6292fca71889fc9ba3f57b3bcc1f7a87cc32cc55c6d4cd6f719" },
+	{ slug: "xishoutai", bytes: 9560435, sha256: "c4158842964848cb94de039ac5a4e8bbb0eb6a09168af575f005711ed4108259" },
+	{ slug: "taluo", bytes: 12089608, sha256: "f721022a5a9456936094c20b5b9581466c160e5a94ede4d9d0b0bfa0984e2643" },
+];
+// 动态壁纸的原生分辨率（五支一致）：2944×1248 / 2.36:1 超宽
+const EXPECT_WALLPAPER_INTRINSIC = { w: 2944, h: 1248 };
 // 顶层导航顺序与子项顺序（prd.md R-NAV-01~04 / 第 2 章）
 // ⚠️ v1.41（P2R）：第 3 格由「排行」下拉换成「学习路线」单链接（R-PATH-01）——
 //    原来的 EXPECT_RANK_CHILDREN 常量与它的用法已随排行模块整体删除（Task 4 / R-PATH-06）。
@@ -290,14 +303,18 @@ class CDP {
 			}
 		});
 	}
-	send(method, params = {}) {
+	send(method, params = {}, timeoutMs = 90000) {
 		const id = ++this.id;
 		this.ws.send(JSON.stringify({ id, method, params }));
 		return new Promise((resolve, reject) => {
 			this.pending.set(id, { resolve, reject });
+			// ⚠️ v1.70：30 秒 → 90 秒。壁纸变成 2944×1248 的**视频**之后，`Page.captureScreenshot`
+			// 要等合成器把一整帧视频栅格化完；这台内存紧张的机器上实测会超过 30 秒（本轮就红在这一条：
+			// "Page.captureScreenshot 超时"，而失败点只是"给首页拍张图"）。
+			// 超时是防"永远挂住"的兜底，抬到 90 秒不影响任何判据。
 			setTimeout(() => {
 				if (this.pending.delete(id)) reject(new Error(`${method} 超时`));
-			}, 30000);
+			}, timeoutMs);
 		});
 	}
 	once(event, timeoutMs = 30000) {
@@ -501,6 +518,7 @@ const COLLECT = `(() => {
         })(),
       };
     })(),
+
     // ── P3 壁纸（R-BG-01 / R-BG-04）──────────────────────
     wallpaper: (() => {
       // banner 模式的壁纸会渲染成 <img>；这里挑"加载成功且地址最长"的那张（多张随机时不至于取到占位）
@@ -519,6 +537,35 @@ const COLLECT = `(() => {
         const parts = m[1].split(",").map((s) => Number.parseFloat(s));
         return parts.length >= 4 ? parts[3] : 1;
       })();
+      // ── R-BG-06 / R-BG-07（v1.70）：动态壁纸的事实 ──────────────────
+      // 静态图那套字段**原样保留**（video.enable 关掉时仍然走它们，别删）
+      const vLayer = document.getElementById("wallpaper-video-layer");
+      const v = document.getElementById("wallpaper-video");
+      const video = v && vLayer ? {
+        slug: vLayer.dataset.slug ?? null,
+        name: vLayer.dataset.name ?? null,
+        fit: vLayer.dataset.fit ?? null,
+        objectPosition: vLayer.dataset.objectPosition ?? null,
+        playing: vLayer.dataset.playing === "1",
+        playReason: vLayer.dataset.playReason || "",
+        ready: vLayer.dataset.ready === "1",
+        focusX: Number(vLayer.dataset.focusX),
+        focusY: Number(vLayer.dataset.focusY),
+        focusAtX: Number(vLayer.dataset.focusAtX),
+        focusAtY: Number(vLayer.dataset.focusAtY),
+        visibleW: Number(vLayer.dataset.visibleW),
+        visibleH: Number(vLayer.dataset.visibleH),
+        intrinsicW: v.videoWidth,
+        intrinsicH: v.videoHeight,
+        loop: v.loop,
+        muted: v.muted,
+        paused: v.paused,
+        currentSrc: (v.currentSrc || v.getAttribute("src") || "").split("/").pop(),
+        poster: (v.getAttribute("poster") || "").split("/").pop(),
+        inlineFit: v.style.objectFit,
+        inlinePos: v.style.objectPosition,
+        box: (() => { const r = vLayer.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; })(),
+      } : null;
       return {
         src: pick.src,
         loaded: pick.loaded,
@@ -526,6 +573,13 @@ const COLLECT = `(() => {
         objectFit: cs?.objectFit ?? null,
         dimExists: !!dim,
         dimOpacity: dimAlpha,
+        video,
+        // "静态图必须零残留"（发起人：动态壁纸替换所有静态图片）
+        staticImageCount: document.querySelectorAll("#banner-images-container img, #wallpaper-wrapper img").length,
+        slideCount: document.querySelectorAll("#banner-images-container .slide-item").length,
+        videoElCount: document.querySelectorAll("#wallpaper-video-layer video").length,
+        sourceCount: Number(document.documentElement.dataset.wallpaperCount || 0),
+        sourceIndex: Number(document.documentElement.dataset.wallpaperIndex || 0),
       };
     })(),
     // ── R-BG-05 手动换壁纸：两侧交互区 + 拖动 ──────────────
@@ -540,10 +594,16 @@ const COLLECT = `(() => {
       });
       const activeIdx = visible.findIndex((el) => el.classList.contains("active"));
       const activeImg = visible[activeIdx]?.querySelector("img");
+      // v1.70：壁纸是播放清单里的视频时，count/activeIndex/activeSrc 的来源换成壁纸层
+      // （三个字段的**语义一字不变**，所以下面 R-BG-05 那一批断言不用改写法）
+      const vp = window.__imissWallpaperVideo;
       return {
-        count: visible.length,
-        activeIndex: activeIdx,
-        activeSrc: (activeImg?.currentSrc || activeImg?.src || "").split("/").pop() || "",
+        count: vp ? vp.count : visible.length,
+        activeIndex: vp ? vp.current() : activeIdx,
+        activeSrc: vp
+          ? (document.documentElement.dataset.wallpaperSrc || "").split("/").pop()
+          : (activeImg?.currentSrc || activeImg?.src || "").split("/").pop() || "",
+        names: vp ? vp.items : [],
         zones: zones.map((z) => {
           const cs = getComputedStyle(z);
           return {
@@ -1722,7 +1782,16 @@ async function main() {
 	];
 
 	const facts = {};
+	// ⚠️ v1.70：高视口页面（≥1600 高）**先屏蔽 mp4**，让壁纸只显示海报（同一帧的 webp）。
+	// 现场（可复现）：单独开一个浏览器拍 1440×2400 + 视频在播只要 1.4 秒，但在完整验收流程里
+	// 跑到第 3 页（sidebar-1440 正是 1440×2400）时渲染进程**整个卡死** —— captureScreenshot
+	// 90 秒超时、连 Runtime.evaluate 都不回，所以"事后重试"救不回来，只能**在导航前**就别让它加载。
+	// 机制：视口 2400 高 → 横幅 80vh = 1920 → 视频被 cover 放大到约 4500×1920，
+	// 软件合成这一层在累积几页之后就是压垮骆驼的那根稻草。
+	// ⚠️ 这类页面的截图不能拿来断言"视频在播"——R-BG-02 的事实取自 home-1440 / home-390。
+	await cdp.send("Network.enable");
 	for (const page of pages) {
+		await cdp.send("Network.setBlockedURLs", { urls: (page.height ?? 0) >= 1600 ? ["*.mp4"] : [] });
 		await cdp.send("Emulation.setDeviceMetricsOverride", {
 			width: page.width,
 			height: page.height,
@@ -1856,10 +1925,53 @@ async function main() {
 			await sleep(700);
 		}
 
-		const shot = await cdp.send("Page.captureScreenshot", {
-			format: "png",
-			captureBeyondViewport: page.fullPage !== false,
-		});
+		/**
+		 * 截图（v1.70 起带"降级重试"）
+		 * ============================================================================
+		 * 壁纸变成 2944×1248 的视频之后，这一循环在第 3 页（1440×2400 那档）会**卡死**：
+		 * `Page.captureScreenshot` 从 30 秒抬到 90 秒仍然超时；而单独复现同尺寸只要 0.9 秒
+		 * —— 说明是**多页累积之后**的软件合成 / 内存压力，不是某一张图本身的问题。
+		 * 三档：① 原样拍；② 先暂停视频（解码器不再产出新帧）；③ 把视频层隐藏（成本降到最低，
+		 * 截图里那一块会露出壁纸底色）。第 ③ 档仍失败才真的抛错 —— 日志里会写明用的是哪一档。
+		 */
+		const captureWithFallback = async () => {
+			const attempts = [
+				{ label: "原样", prep: null },
+				{ label: "暂停视频", prep: `(() => { const v = document.getElementById("wallpaper-video"); if (v && !v.paused) v.pause(); return "paused"; })()` },
+				{ label: "隐藏视频层", prep: `(() => { const l = document.getElementById("wallpaper-video-layer"); if (l) l.style.visibility = "hidden"; const v = document.getElementById("wallpaper-video"); if (v && !v.paused) v.pause(); return "hidden"; })()` },
+			];
+			let lastErr = null;
+			for (const [i, a] of attempts.entries()) {
+				try {
+					if (a.prep) {
+						await cdp.send("Runtime.evaluate", { expression: a.prep, returnByValue: true });
+						await sleep(500);
+					}
+					const shot = await cdp.send("Page.captureScreenshot", {
+						format: "png",
+						captureBeyondViewport: page.fullPage !== false,
+					});
+					if (i > 0) console.log(`  ↳ ${page.name}：第 ${i + 1} 档（${a.label}）才拍成功`);
+					// 复位：下一张图不该受这一张的临时处置影响
+					await cdp.send("Runtime.evaluate", {
+						expression: `(() => {
+							const l = document.getElementById("wallpaper-video-layer");
+							if (l) l.style.visibility = "";
+							const v = document.getElementById("wallpaper-video");
+							if (v && v.paused) v.play().catch(() => {});
+							return "restored";
+						})()`,
+						returnByValue: true,
+					});
+					return shot;
+				} catch (err) {
+					lastErr = err;
+					console.log(`  ↳ ${page.name}：第 ${i + 1} 档（${a.label}）失败：${err.message}`);
+				}
+			}
+			throw lastErr ?? new Error("截图失败");
+		};
+		const shot = await captureWithFallback();
 		await fs.writeFile(path.join(OUT_DIR, `${page.name}.png`), Buffer.from(shot.data, "base64"));
 		console.log(`截图 ${path.join(OUT_DIR, `${page.name}.png`)}  (${page.width}×${page.height})`);
 	}
@@ -5598,26 +5710,50 @@ async function main() {
 		}
 	}
 
+		/**
+		 * 从 DOM 反推"人物锚点在可见窗口里的相对偏移"（0 = 正中）。
+		 * ⚠️ 不能读脚本自己写的 focusAtX/focusAtY —— 那两个是"锚点在**原画**里的位置"（常数），
+		 *    拿它判居中会永远等于配置里的 focus（本轮就是这么判红的：手机端算出 41、断言期望 50）。
+		 *    这里用 object-position（脚本写的）+ 可见宽（脚本量的）**反推**窗口左边界，再算偏移。
+		 */
+		const focusOffsetInWindow = (v) => {
+			if (!v?.intrinsicW || !v?.visibleW) return null;
+			const px = Number.parseFloat((v.objectPosition || "50% 50%").split("%")[0]);
+			const overflow = v.intrinsicW - v.visibleW;
+			const left = overflow > 0 ? (px / 100) * overflow : 0;
+			const focusPx = v.focusX * v.intrinsicW;
+			return (focusPx - (left + v.visibleW / 2)) / v.visibleW;
+		};
+
 	// ── P3 壁纸（R-BG-01 / R-BG-04）──
 	{
 		const wp = facts["home-1440"].wallpaper;
 		record(
 			"R-BG-01",
-			"首页壁纸换成发起人给的 4 张图（不是上游示例）",
-			(wp?.src ?? "").includes("imiss-"),
-			`当前壁纸=${(wp?.src ?? "").split("/").pop() || "（取不到）"}`,
+			"首页壁纸是动态壁纸（视频在播）而不是静态图",
+			wp?.video?.playing === true &&
+				wp?.video?.ready === true &&
+				(wp?.video?.currentSrc ?? "").endsWith(".mp4"),
+			`当前壁纸=${wp?.video?.slug}（${wp?.video?.name}）｜playing=${wp?.video?.playing} ready=${wp?.video?.ready} 分辨率=${wp?.video?.intrinsicW}×${wp?.video?.intrinsicH}`,
 		);
 		record(
 			"R-BG-01",
-			"壁纸确实加载成功（naturalWidth > 0）",
-			(wp?.loaded ?? 0) > 0,
-			`naturalWidth=${wp?.loaded}`,
+			"静态图零残留（发起人：动态壁纸替换所有静态图片）",
+			(wp?.staticImageCount ?? -1) === 0 &&
+				(wp?.slideCount ?? -1) === 0 &&
+				(wp?.videoElCount ?? 0) === 1,
+			`壁纸区里的 <img>=${wp?.staticImageCount}、.slide-item=${wp?.slideCount}、<video>=${wp?.videoElCount}（期望 0 / 0 / 1）`,
 		);
 		record(
 			"R-BG-04",
-			`取景锚点与配置一致（${EXPECT_BANNER_POSITION}）`,
-			(wp?.objectPosition ?? "").replace(/\s+/g, " ") === EXPECT_BANNER_POSITION,
-			`object-position=${wp?.objectPosition}`,
+			"横幅取景按**当前框**反算：人物锚点落在可见窗口的中轴（±6%）",
+			(() => {
+				const v = wp?.video;
+				if (!v || v.fit !== "cover") return false;
+				const off = focusOffsetInWindow(v); // 从 DOM 反推，不读脚本自述
+				return off !== null && Math.abs(off) <= 0.06;
+			})(),
+			`object-position=${wp?.video?.objectPosition}｜可见源区 ${wp?.video?.visibleW}×${wp?.video?.visibleH}（原画 ${wp?.video?.intrinsicW}×${wp?.video?.intrinsicH}）｜人物锚点 x=${wp?.video?.focusX} 落在窗口内（脚本自述 focusAtX=${wp?.video?.focusAtX}）`,
 		);
 		record(
 			"R-BG-04",
@@ -5700,7 +5836,283 @@ async function main() {
 		);
 	}
 
-	// 原来读不到就 catch 记 pass=true——"什么都没验"却计入通过数，属于假绿；现在读不到直接判失败。
+
+		// ── R-BG-02 动态壁纸：原画不压缩 / 真的在播 / 无限循环（v1.70）──────────────
+	// 发起人 2026-10-09 交来 5 支动态壁纸，原话四条：替换所有静态图 / 首尾帧要能无限循环 /
+	// 能不裁就不裁且人物居中 / **不可压缩，我要原画**。这一节验前三条里"能机械判定的部分"。
+	{
+		const wp = facts["home-1440"].wallpaper;
+		const v = wp?.video;
+
+		// ① 原画**逐字节**没被动过：产物里的字节数 + sha256 与导入时记录的一致。
+		//    为什么不信"能播就行"：转一道码、换个封装，照样能播 —— 而发起人的要求是"不压缩"。
+		{
+			const crypto = await import("node:crypto");
+			const rows = [];
+			let allOk = true;
+			for (const expect of EXPECT_WALLPAPER_VIDEOS) {
+				const p = path.resolve("dist/assets/wallpaper", `${expect.slug}.mp4`);
+				let bytes = -1;
+				let hash = "";
+				try {
+					const buf = await fs.readFile(p);
+					bytes = buf.length;
+					hash = crypto.createHash("sha256").update(buf).digest("hex");
+				} catch (err) {
+					rows.push(`${expect.slug}:读不到(${err.code ?? err.message})`);
+					allOk = false;
+					continue;
+				}
+				const ok = bytes === expect.bytes && hash === expect.sha256;
+				if (!ok) allOk = false;
+				rows.push(`${expect.slug} ${ok ? "✓" : "✗"} ${bytes.toLocaleString()}B`);
+			}
+			record(
+				"R-BG-02",
+				`动态壁纸原画**逐字节**未被压缩/转码（${EXPECT_WALLPAPER_VIDEOS.length} 支，产物里核对字节数 + sha256）`,
+				allOk,
+				`${rows.join("｜")}（合计 ${(EXPECT_WALLPAPER_VIDEOS.reduce((s, x) => s + x.bytes, 0) / 1024 / 1024).toFixed(2)} MB）`,
+			);
+		}
+
+		// ② 视频真的在播、带 loop、静音、分辨率与原画一致（"动态壁纸"这四个字的底线）
+		record(
+			"R-BG-02",
+			"动态壁纸正在播放：loop + muted + 原生分辨率 2944×1248（不是静帧、不是降采样版）",
+			v?.playing === true &&
+				v?.loop === true &&
+				v?.muted === true &&
+				v?.paused === false &&
+				v?.intrinsicW === EXPECT_WALLPAPER_INTRINSIC.w &&
+				v?.intrinsicH === EXPECT_WALLPAPER_INTRINSIC.h,
+			`playing=${v?.playing} paused=${v?.paused} loop=${v?.loop} muted=${v?.muted} 原生=${v?.intrinsicW}×${v?.intrinsicH}（期望 ${EXPECT_WALLPAPER_INTRINSIC.w}×${EXPECT_WALLPAPER_INTRINSIC.h}）｜播放源=${v?.currentSrc}｜海报=${v?.poster}`,
+		);
+
+		// ③ 首尾帧接缝：**在页面里真解码**首帧与末帧，算平均绝对差，并与"1 秒正常运动量"对比。
+		//    为什么要上真解码而不是读配置里那句"实测过"：循环是**内容属性**，配置说不了谎但也不会自己作证。
+		//    阈值怎么定：末帧与首帧的差**不该明显大于**画面自己 1 秒内的正常变化（否则接缝会"跳一下"）。
+		{
+			const seam = (
+				await cdp.send("Runtime.evaluate", {
+					expression: `(async () => {
+						const v = document.getElementById("wallpaper-video");
+						if (!v) return { error: "no-video" };
+						const c = document.createElement("canvas");
+						const ctx = c.getContext("2d", { willReadFrequently: true });
+						const w = 480, h = Math.round((v.videoHeight / v.videoWidth) * w);
+						c.width = w; c.height = h;
+						const grab = () => { ctx.drawImage(v, 0, 0, w, h); return ctx.getImageData(0, 0, w, h); };
+						const seek = (t) => new Promise((res) => {
+							if (Math.abs(v.currentTime - t) < 0.01) return res();
+							v.addEventListener("seeked", res, { once: true });
+							v.currentTime = t;
+						});
+						const mad = (a, b) => {
+							let s = 0, n = 0, big = 0;
+							for (let i = 0; i < a.data.length; i += 4) {
+								const d = (Math.abs(a.data[i]-b.data[i]) + Math.abs(a.data[i+1]-b.data[i+1]) + Math.abs(a.data[i+2]-b.data[i+2])) / 3;
+								s += d; n++; if (d > 24) big++;
+							}
+							return { mad: +(s / n).toFixed(3), bigPct: +((big / n) * 100).toFixed(3) };
+						};
+						const dur = v.duration;
+						const wasPaused = v.paused;
+						v.pause();
+						await seek(0.001); const first = grab();
+						await seek(Math.min(1, dur / 4)); const after1s = grab();
+						await seek(Math.max(0, dur - 0.05)); const last = grab();
+						if (!wasPaused) v.play().catch(() => {});
+						return { dur: +dur.toFixed(3), seam: mad(first, last), motion: mad(first, after1s) };
+					})()`,
+					returnByValue: true,
+					awaitPromise: true,
+				})
+			).result.value;
+			record(
+				"R-BG-02",
+				"首尾帧对得上（末帧 vs 首帧的差异 ≤ 画面自己 1 秒的正常变化量）→ loop 硬切看不出接缝",
+				!!seam &&
+					!seam.error &&
+					seam.dur > 5 &&
+					seam.seam.mad <= seam.motion.mad + 1.5,
+				seam?.error
+					? `取帧失败：${seam.error}`
+					: `片长 ${seam.dur}s｜接缝 MAD=${seam.seam?.mad}（大差异像素 ${seam.seam?.bigPct}%）vs 1 秒运动 MAD=${seam.motion?.mad}（${seam.motion?.bigPct}%）`,
+			);
+		}
+	}
+
+		// ④ 降级二：省流量模式（R-BG-02 要求的三种降级之一）—— 用 CDP 在文档创建前注入
+		//    `navigator.connection.saveData = true`，看壁纸是否**真的不播**（原画一支 8~13.5 MB）。
+		//    为什么必须真注入而不是"读一眼代码里有没有这个分支"：降级是**运行时决策**，
+		//    代码里有分支 ≠ 真的会走那条分支（本项目已经吃过"写了但没生效"的亏，见 T90）。
+		{
+			const { identifier } = await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
+				source: `Object.defineProperty(navigator, "connection", { value: { saveData: true }, configurable: true });`,
+			});
+			const loadedSd = cdp.once("Page.loadEventFired");
+			await cdp.send("Page.navigate", { url: `${BASE}/` });
+			await loadedSd;
+			await sleep(2200);
+			const sd = (await cdp.send("Runtime.evaluate", { expression: COLLECT, returnByValue: true })).result.value;
+			facts["wp-save-data"] = sd;
+			const sv = sd.wallpaper?.video;
+			record(
+				"R-BG-02",
+				"降级二·省流量模式：`navigator.connection.saveData` 为真时**不自动下载/播放**，只留海报",
+				!!sv && sv.playing === false && sv.playReason === "save-data" && (sv.poster || "").length > 0,
+				`playing=${sv?.playing} 原因=${sv?.playReason}（期望 save-data）｜海报=${sv?.poster}｜取景仍算过=${sv?.fit}/\${sv?.objectPosition}`,
+			);
+			await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier });
+			const loadedBack = cdp.once("Page.loadEventFired");
+			await cdp.send("Page.navigate", { url: `${BASE}/` });
+			await loadedBack;
+			await sleep(2200);
+		}
+
+		// ⑤ 降级三：页面切到后台就停、回来再播（用 CDP 真开一个新标签页把我们挤到后台，
+		//    不是改 `document.hidden`——那个属性是只读的，改了也骗不过浏览器）
+		{
+			const before = (await cdp.send("Runtime.evaluate", { expression: COLLECT, returnByValue: true })).result.value;
+			const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" });
+			await cdp.send("Target.activateTarget", { targetId });
+			await sleep(1200);
+			const hiddenState = (await cdp.send("Runtime.evaluate", { expression: COLLECT, returnByValue: true })).result.value;
+			await cdp.send("Target.activateTarget", { targetId: (await cdp.send("Target.getTargets")).targetInfos.find((t) => t.type === "page" && t.url.startsWith(BASE))?.targetId ?? targetId });
+			await sleep(1500);
+			const backState = (await cdp.send("Runtime.evaluate", { expression: COLLECT, returnByValue: true })).result.value;
+			await cdp.send("Target.closeTarget", { targetId });
+			facts["wp-visibility"] = { before: before.wallpaper?.video, hidden: hiddenState.wallpaper?.video, back: backState.wallpaper?.video };
+			record(
+				"R-BG-02",
+				"降级三·页面切到后台：壁纸停播，回前台自动续播",
+				before.wallpaper?.video?.playing === true &&
+					hiddenState.wallpaper?.video?.playing === false &&
+					hiddenState.wallpaper?.video?.playReason === "hidden" &&
+					backState.wallpaper?.video?.playing === true,
+				`切后台前 playing=${before.wallpaper?.video?.playing} → 后台 playing=${hiddenState.wallpaper?.video?.playing}（原因=${hiddenState.wallpaper?.video?.playReason}）→ 回前台 playing=${backState.wallpaper?.video?.playing}`,
+			);
+		}
+
+	// ── R-BG-07 取景：能不裁就不裁，要裁时人物在展示中心（v1.70）────────────
+	{
+		const home = facts["home-1440"].wallpaper?.video;
+		const mobile = facts["home-390"]?.wallpaper?.video ?? facts["pet-390"]?.wallpaper?.video;
+
+		// ① 横幅：cover（框比 2.36:1 更方，必然要裁）且**人物锚点在可见窗口里**（左右都留了余量）
+		{
+			const inside = (() => {
+				const v = home;
+				if (!v?.intrinsicW || !v?.visibleW) return false;
+				const px = Number.parseFloat((v.objectPosition || "50% 50%").split("%")[0]);
+				const overflow = v.intrinsicW - v.visibleW;
+				const left = overflow > 0 ? (px / 100) * overflow : 0;
+				const focusPx = v.focusX * v.intrinsicW;
+				return focusPx >= left && focusPx <= left + v.visibleW;
+			})();
+			record(
+				"R-BG-07",
+				"横幅壁纸：cover 裁切，且**人物锚点在可见窗口内**（不是被裁掉的那一侧）",
+				home?.fit === "cover" && inside,
+				`框 ${home?.box?.w}×${home?.box?.h}｜可见源区 ${home?.visibleW}×${home?.visibleH}（原画 ${home?.intrinsicW}×${home?.intrinsicH}）｜object-position=${home?.objectPosition}｜人物锚点 x=${home?.focusX}`,
+			);
+		}
+
+		// ② 手机：框是竖的（0.71:1），横向只能保住三成宽 —— 可见窗口必须**明显更窄**，
+		//    而且人物锚点仍要落在窗口里（发起人：手机端脸必须全露）
+		{
+			const ratio = mobile?.visibleW && mobile?.intrinsicW ? mobile.visibleW / mobile.intrinsicW : 1;
+			const off = focusOffsetInWindow(mobile);
+			record(
+				"R-BG-07",
+				"手机横幅（390×844）横向裁得更狠，但人物锚点**仍落在可见窗口中轴**（脸不会被切）",
+				!!mobile && ratio < 0.5 && off !== null && Math.abs(off) <= 0.08,
+				`框 ${mobile?.box?.w}×${mobile?.box?.h}｜可见源区 ${mobile?.visibleW}×${mobile?.visibleH} = 原画的 ${(ratio * 100).toFixed(0)}%（横向只剩三成，所以取景必须算）｜object-position=${mobile?.objectPosition}｜人物锚点在窗口里的偏移 ${off === null ? "?" : (off * 100).toFixed(1) + "%"}（0 = 正中）`,
+			);
+		}
+
+		// ③ 全屏：contain —— **一个像素都不裁**（发起人：「全屏壁纸的话就展示完整的动态壁纸」）
+		{
+			await cdp.send("Emulation.setDeviceMetricsOverride", {
+				width: 1440,
+				height: 900,
+				deviceScaleFactor: 1,
+				mobile: false,
+			});
+			const loadedFs = cdp.once("Page.loadEventFired");
+			await cdp.send("Page.navigate", { url: `${BASE}/` });
+			await loadedFs;
+			await sleep(2200);
+			// 运行期切到全屏模式：模式本身是构建期常量，用组件监听的同一个事件切（不是改 dataset 骗它）
+			await cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					const root = document.documentElement;
+					if (root.dataset.wallpaperMode === "fullscreen") return "already";
+					const before = root.dataset.wallpaperMode;
+					root.dataset.wallpaperMode = "fullscreen";
+					window.dispatchEvent(new CustomEvent("wallpaperModeChange", { detail: { mode: "fullscreen", previous: before } }));
+					return "switched";
+				})()`,
+				returnByValue: true,
+			});
+			await sleep(900);
+			const fsFacts = (await cdp.send("Runtime.evaluate", { expression: COLLECT, returnByValue: true })).result.value;
+			facts["wp-fullscreen"] = fsFacts;
+			const fv = fsFacts.wallpaper?.video;
+			record(
+				"R-BG-07",
+				"全屏壁纸：contain —— 完整展示整支动态壁纸（可见源区 = 原生分辨率，一个像素都不裁）",
+				fv?.fit === "contain" &&
+					fv?.visibleW === fv?.intrinsicW &&
+					fv?.visibleH === fv?.intrinsicH &&
+					fv?.playing === true,
+				`fit=${fv?.fit}｜可见源区 ${fv?.visibleW}×${fv?.visibleH} vs 原生 ${fv?.intrinsicW}×${fv?.intrinsicH}｜object-position=${fv?.objectPosition}｜仍在播=${fv?.playing}`,
+			);
+			// 复位（后面的断言按 banner 模式写）
+			await cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					const root = document.documentElement;
+					root.dataset.wallpaperMode = "banner";
+					window.dispatchEvent(new CustomEvent("wallpaperModeChange", { detail: { mode: "banner" } }));
+					return "reset";
+				})()`,
+				returnByValue: true,
+			});
+			await sleep(400);
+		}
+
+		// ④ 减少动态：`prefers-reduced-motion: reduce` 下**不播**，只留海报（无障碍口径）
+		{
+			await cdp.send("Emulation.setEmulatedMedia", {
+				features: [
+					{ name: "prefers-color-scheme", value: "dark" },
+					{ name: "prefers-reduced-motion", value: "reduce" },
+				],
+			});
+			const loadedR = cdp.once("Page.loadEventFired");
+			await cdp.send("Page.navigate", { url: `${BASE}/` });
+			await loadedR;
+			await sleep(2200);
+			const rf = (await cdp.send("Runtime.evaluate", { expression: COLLECT, returnByValue: true })).result.value;
+			facts["wp-reduced"] = rf;
+			const rv = rf.wallpaper?.video;
+			record(
+				"R-BG-02",
+				"`prefers-reduced-motion: reduce` 下不播视频，只显示海报（与桌宠/樱花同一条无障碍口径）",
+				!!rv && rv.playing === false && rv.playReason === "reduced-motion" && (rv.poster || "").length > 0,
+				`playing=${rv?.playing} 原因=${rv?.playReason}（期望 reduced-motion）｜海报=${rv?.poster}｜取景仍算过=${rv?.fit}/${rv?.objectPosition}`,
+			);
+			await cdp.send("Emulation.setEmulatedMedia", {
+				features: [{ name: "prefers-color-scheme", value: "dark" }],
+			});
+			const loadedB = cdp.once("Page.loadEventFired");
+			await cdp.send("Page.navigate", { url: `${BASE}/` });
+			await loadedB;
+			await sleep(2200);
+		}
+	}
+
+// 原来读不到就 catch 记 pass=true——"什么都没验"却计入通过数，属于假绿；现在读不到直接判失败。
 	if (isDevServer) {
 		record("INFO(dev)", "sitemap 检查已跳过", true, "dev 服务器下磁盘 dist/ 可能是旧产物，改用 pnpm preview");
 	} else {

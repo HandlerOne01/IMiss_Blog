@@ -3,10 +3,6 @@
   "src:assets/images/pet/pet-aemeath.webp": "544a503830352e292b",
   "src:assets/images/logo/imiss-light.webp": "645d6142444677636a",
   "src:assets/images/logo/imiss-dark.webp": "67646747494a7d6c72",
-  "src:assets/images/DesktopWallpaper/imiss-d4.jpg": "9987a88e8cbcc4b7d9",
-  "src:assets/images/DesktopWallpaper/imiss-d3.jpg": "b6a3b392919f66606a",
-  "src:assets/images/DesktopWallpaper/imiss-d2.jpg": "d2cfdab99aa7c0a9b4",
-  "src:assets/images/DesktopWallpaper/imiss-d1.jpg": "5e4d5391778b8d6e76",
   "public:booknav-icons/tencent-cloud.png": "0099f0008bff00a1ff",
   "public:booknav-icons/tavily.png": "3e3c3c313030434241",
   "public:booknav-icons/siliconflow.png": "6b28f86d26f86b21f1",
@@ -26,5 +22,10 @@
   "public:images/projects/http-server-mindmap-04.png": "fcf8f7fdfbfbfdfafa",
   "public:images/projects/http-server-mindmap-03.png": "fffdfdfdfafafdf9f9",
   "public:images/projects/http-server-mindmap-02.png": "fffdfdfdfafafdfafa",
-  "public:images/projects/http-server-mindmap-01.png": "fefefefefafafdf9f9"
+  "public:images/projects/http-server-mindmap-01.png": "fefefefefafafdf9f9",
+  "public:assets/wallpaper/xishoutai-poster.webp": "9d8e97baaebfbab0bb",
+  "public:assets/wallpaper/xingye-poster.webp": "a18eac8a8cb9bfb5d5",
+  "public:assets/wallpaper/taluo-poster.webp": "a5745e7f7385b18b85",
+  "public:assets/wallpaper/hupan-poster.webp": "a0887e949ab1a28981",
+  "public:assets/wallpaper/chuangbian-poster.webp": "d9bdb9af9897a79293"
 }
