@@ -428,7 +428,13 @@ if (document.readyState === 'loading') {
 </script>
 
 {
-    import.meta.env.PROD && (
+    /* v1.95：**dev 与生产注入同一段加载器、同一个路径**。
+       生产：`/pagefind/pagefind.js` 是 `astro build` 后的真实产物。
+       开发：`astro.config.mjs` 里那个 dev-only 中间件把 `.dev/pagefind/`（`pnpm index:dev` 复制过来的
+       生产索引）挂在同一个 `/pagefind/*` 上 —— 所以 dev 的搜索与 preview 完全同源、同一份索引。
+       两边都没有索引时（dev 忘跑 `pnpm index:dev`、或生产产物缺失），下面 catch 里会派发
+       `pagefindloaderror`，UI 回落到中文提示（**不再有英文假结果**）。 */
+    (
         <script is:inline data-swup-ignore-script define:vars={{ scriptUrl: url('/pagefind/pagefind.js') }}>
             {/* 你的 loadPagefind 函数的完整内容放在这里 */}
             async function loadPagefind() {

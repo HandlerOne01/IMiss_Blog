@@ -36,6 +36,7 @@ comment: true
 | `pnpm new-dynamic <一句话>` | 在 `src/content/dynamic/` 下生成一条带时间戳的动态 | 发动态 |
 | `pnpm build` | 生产构建：生成图标与 LQIP、编译 Astro、字体子集化、建搜索索引，产物在 `dist/` | 发布前 |
 | `pnpm preview` | 用本地服务器预览 `dist/`（看到的是"线上真实产物"） | 构建后想确认最终效果 |
+| `pnpm index:dev` | 把生产搜索索引复制给开发模式用（**搜索在 `pnpm dev` 下也能用**；改了文章要先 `pnpm build` 再跑一次） | 想在 `pnpm dev` 里试搜索 |
 | `pnpm verify:posts` | 内容自检：逐篇检查 frontmatter、图片引用、站内链接、残留语法 | 每次改完内容 |
 
 另外三条只在特定场景用得上：`pnpm check`（类型与模板诊断）、`pnpm type-check`（纯 TypeScript 检查）、`pnpm lqips`（重新生成图片的模糊占位数据）。

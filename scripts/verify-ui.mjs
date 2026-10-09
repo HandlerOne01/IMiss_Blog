@@ -1709,7 +1709,9 @@ async function main() {
 				"INFO(dev)",
 				"搜索索引零残留扫描已跳过",
 				true,
-				"dev 下 pagefind 不可用（`Search.svelte` 走 `import.meta.env.DEV` 的假结果分支），不对着 dev 断言搜索；请用 pnpm preview",
+				"⚠️ v1.95 起这条提示的前提变了：dev **也能**真搜（`pnpm index:dev` 把生产索引复制到 `.dev/pagefind`，" +
+					"`astro.config.mjs` 的 dev-only 中间件挂在同一个 `/pagefind/*` 上）；本脚本仍只对**产物**跑这一组，" +
+					"因为脚本里的其余产物级检查在 dev 下同样不适用。要单测 dev 的搜索用 `pnpm verify:search --base http://localhost:4321`",
 			);
 		} else {
 			// 先把页面导到站上：搜的是站点**实际加载**的 pagefind（`/pagefind/pagefind.js`）
@@ -1747,6 +1749,43 @@ async function main() {
 							`搜索面板：${ui.links} 个结果链接、面板文字含该词 = ${needleInPanel} ｜ ${ui.text || "(空)"}`,
 				);
 			}
+		}
+
+		// v1.95：**模板那两条英文假搜索结果不许再出现在任何产物里**。
+		// 背景：上游模板给 dev 塞了 `This Is a Fake Search Result / Because Pagefind cannot work in
+		// the dev environment.`，发起人在 `pnpm dev` 上看到它，观感就是"搜索功能不行"。
+		// 现在改成：dev 也吃生产索引（`pnpm index:dev` + astro.config 的 dev 中间件），
+		// 真没有索引时显示的是**中文兜底**（按环境分话，生产只说"暂时用不了"）。
+		// 判据扫**产物全集**（含文件名/路径）—— 只要上游那份英文 mock 被谁改回来，这里立刻红。
+		{
+			const FAKE_MOCK_NEEDLES = [
+				"This Is a Fake Search Result",
+				"If You Want to Test the Search",
+				"Dev Mode Search Result",
+				"Because Pagefind cannot work",
+				"Pagefind only works in",
+			];
+			const fakeHits = [];
+			for (const { abs, rel } of distAllFiles) {
+				for (const n of FAKE_MOCK_NEEDLES) if (rel.includes(n)) fakeHits.push(`${rel}（路径） → ${n}`);
+				let buf;
+				try {
+					buf = await fs.readFile(abs);
+				} catch {
+					continue;
+				}
+				if (buf.includes(0)) continue; // 二进制跳过（与上面几处同一口径）
+				const text = buf.toString("utf8");
+				for (const n of FAKE_MOCK_NEEDLES) if (text.includes(n)) fakeHits.push(`${rel} → ${n}`);
+			}
+			record(
+				"R-ID-05",
+				"产物里没有模板那两条「英文假搜索结果」（dev 也吃真索引，兜底文案是中文的）",
+				fakeHits.length === 0,
+				fakeHits.length
+					? `${fakeHits.length} 处命中：${fakeHits.slice(0, 5).join(" ｜ ")}`
+					: `${FAKE_MOCK_NEEDLES.length} 个串扫 ${distAllFiles.length} 个产物文件（含文件名/路径）零命中；中文兜底只在"真没有索引"时出现`,
+			);
 		}
 	}
 	// 文章页不该有打赏按钮（R-NAV-06 的第三项）

@@ -1,4 +1,6 @@
 import { setMaxListeners } from "node:events";
+import fs from "node:fs";
+import path from "node:path";
 import cloudflare from "@astrojs/cloudflare";
 import { unified } from "@astrojs/markdown-remark";
 import mdx from "@astrojs/mdx";
@@ -64,6 +66,56 @@ const adapter = process.env.CF_WORKERS
 			prerenderEnvironment: "node",
 		})
 	: undefined;
+
+/**
+ * **dev-only**：把开发模式的搜索索引挂到 `/pagefind/*` 上（v1.95）。
+ *
+ * 背景：Pagefind 的索引是 `astro build` 之后对 `dist/` 扫出来的，`pnpm dev` 按需编译、
+ * 没有 `dist/`，所以模板在 dev 下给的是两条英文假结果（"This Is a Fake Search Result"）。
+ * 现在改成：`pnpm index:dev` 把生产索引复制到 `.dev/pagefind/`（gitignore），
+ * 这个中间件在 dev 下从那个目录发货 —— **路径与生产完全一致**（都是 `/pagefind/`），
+ * 于是 Pagefind 自己的 `basePath` 推导（`import.meta.url` → `/pagefind/`）、
+ * `wasm.<lang>.pagefind`、`index/*.pf_index` 全部原样工作，前端不需要任何特判。
+ *
+ * ⚠️ 只作用于 `astro dev`（`apply: "serve"`）：`astro build` / `preview` 用的是 `dist/`
+ * 里的真实产物；索引不存在时这里就是 404 → 前端回落到中文兜底提示（不再有英文假结果）。
+ */
+function pagefindDevIndex() {
+	const dir = path.join(process.cwd(), ".dev", "pagefind");
+	const MIME = {
+		".js": "text/javascript; charset=utf-8",
+		".json": "application/json; charset=utf-8",
+		".css": "text/css; charset=utf-8",
+		".wasm": "application/wasm",
+		// Pagefind 的二进制块：`.pf_index` / `.pf_meta` / `wasm.*.pagefind`（压缩过的 wasm）
+		".pf_index": "application/octet-stream",
+		".pf_meta": "application/octet-stream",
+		".pagefind": "application/octet-stream",
+	};
+	return {
+		name: "imiss-pagefind-dev-index",
+		apply: "serve",
+		configureServer(server) {
+			server.middlewares.use("/pagefind", (req, res, next) => {
+				const rel = decodeURIComponent((req.url ?? "/").split("?")[0]).replace(/^\/+/, "");
+				// 只读、只服这个目录：任何 `..` 一律拒绝（中间件是手写的，边界自己守）
+				if (!rel || rel.includes("..")) return next();
+				const file = path.join(dir, rel);
+				if (!file.startsWith(dir) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+					if (rel === "pagefind.js") {
+						server.config.logger.info(
+							"[pagefind] dev 下没有搜索索引 —— 跑一次 `pnpm index:dev` 就有了（现在前端显示的是中文兜底提示）",
+						);
+					}
+					return next();
+				}
+				res.setHeader("content-type", MIME[path.extname(file)] ?? "application/octet-stream");
+				res.setHeader("cache-control", "no-cache");
+				fs.createReadStream(file).pipe(res);
+			});
+		},
+	};
+}
 
 // https://astro.build/config
 export default defineConfig({
@@ -385,7 +437,7 @@ export default defineConfig({
 		}),
 	},
 	vite: {
-		plugins: [tailwindcss()],
+		plugins: [tailwindcss(), pagefindDevIndex()],
 		server: {
 			watch: {
 				ignored: ["**/package/**"],

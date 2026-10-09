@@ -29,7 +29,9 @@
     "verify:agent": "node scripts/verify-agent.mjs",
     "verify:gateway": "node scripts/verify-gateway.mjs",
     "verify:agent:robust": "node scripts/verify-agent-robust.mjs",
-    "make:logo": "node scripts/make-logo.mjs"
+    "make:logo": "node scripts/make-logo.mjs",
+    "index:dev": "npx tsx scripts/index-dev.ts",
+    "verify:search": "node scripts/verify-search.mjs"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.10",

@@ -57,3 +57,5 @@ agent/data/
 agent/.env
 agent/.venv/
 
+# v1.95：开发模式的搜索索引（pnpm index:dev 从 dist/pagefind 复制过来）
+.dev/

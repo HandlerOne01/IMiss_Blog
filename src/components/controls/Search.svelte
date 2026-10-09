@@ -17,20 +17,33 @@ let initialized = false;
 let debounceTimer: NodeJS.Timeout;
 let searchRequestId = 0;
 
-// --- Mocks for Dev Mode ---
-const fakeResult: SearchResult[] = [
-	{
-		url: formatUrl("/"),
-		meta: { title: "This Is a Fake Search Result" },
-		excerpt:
-			"Because Pagefind cannot work in the <mark>dev</mark> environment.",
-	},
-	{
-		url: formatUrl("/"),
-		meta: { title: "If You Want to Test the Search" },
-		excerpt: "Try running <mark>npm build && npm preview</mark> instead.",
-	},
-];
+// --- 没有索引时的兜底（v1.95）---
+// 原来这里是两条**英文假结果**（"This Is a Fake Search Result / Because Pagefind cannot work in
+// the dev environment."），是上游模板留给 dev 的占位 —— 发起人看到的就是它，观感是"搜索坏了"。
+// 现在：dev 用 `pnpm index:dev` 复制过来的**生产索引**（见 astro.config.mjs 的 dev 中间件），
+// 真的没有索引时才显示下面这两条 —— 且**按环境给不同的话**：dev 给可执行的办法，
+// 生产只说"暂时不可用"（不许把 `pnpm` 这类开发指令漏给访客）。
+const fallbackResult: SearchResult[] = import.meta.env.PROD
+	? [
+			{
+				url: formatUrl("/"),
+				meta: { title: "搜索暂时用不了" },
+				excerpt: "站内搜索这会儿没能载入，你可以在「文章」下拉里按归档、分类或标签找。",
+			},
+		]
+	: [
+			{
+				url: formatUrl("/"),
+				meta: { title: "现在还没有搜索索引" },
+				excerpt:
+					"开发模式用的是生成出来的索引：先跑一次 <mark>pnpm index:dev</mark> 就能搜了。",
+			},
+			{
+				url: formatUrl("/"),
+				meta: { title: "也可以直接看预览" },
+				excerpt: "<mark>pnpm preview</mark> 用的是生产索引，搜索与线上一致。",
+			},
+		];
 
 // --- UI Logic ---
 // pagefind.js 是按需加载的（见 Navbar.astro），搜索 UI 一被碰到就触发。
@@ -109,13 +122,16 @@ const search = async (keyword: string, isDesktop: boolean): Promise<void> => {
 		try {
 			let searchResults: SearchResult[] = [];
 
-			if (import.meta.env.PROD && window.pagefind) {
+			// v1.95：**不再按 PROD/DEV 分叉** —— 只看索引在不在。
+			// dev 下 `window.pagefind` 由 `pnpm index:dev` + dev 中间件提供（同一份生产索引），
+			// 真的没有索引时（加载失败）才走下面的兜底提示。
+			if (window.pagefind) {
 				const response = await window.pagefind.search(keyword);
 				searchResults = await Promise.all(
 					response.results.map((item) => item.data()),
 				);
-			} else if (import.meta.env.DEV) {
-				searchResults = fakeResult;
+			} else {
+				searchResults = fallbackResult;
 			}
 
 			if (requestId !== searchRequestId) return;

@@ -25,19 +25,25 @@ const getInitialKeyword = (): string => {
 	return "";
 };
 
-// --- Mocks for Dev Mode ---
-const fakeResult: SearchResult[] = [
-	{
-		url: formatUrl("/"),
-		meta: { title: "Dev Mode Search Result 1" },
-		excerpt: "This is a <mark>mock</mark> result for development.",
-	},
-	{
-		url: formatUrl("/"),
-		meta: { title: "Dev Mode Search Result 2" },
-		excerpt: "Pagefind only works in <mark>production</mark> build.",
-	},
-];
+// --- 没有索引时的兜底（v1.95）---
+// 与 `Search.svelte` 同一口径：dev 用 `pnpm index:dev` 复制过来的生产索引；
+// 真没有索引时才显示这段说明（按环境分话：生产只说"暂时用不了"）。
+const fallbackResult: SearchResult[] = import.meta.env.PROD
+	? [
+			{
+				url: formatUrl("/"),
+				meta: { title: "搜索暂时用不了" },
+				excerpt: "站内搜索这会儿没能载入，你可以在「文章」下拉里按归档、分类或标签找。",
+			},
+		]
+	: [
+			{
+				url: formatUrl("/"),
+				meta: { title: "现在还没有搜索索引" },
+				excerpt:
+					"开发模式用的是生成出来的索引：先跑一次 <mark>pnpm index:dev</mark> 就能搜了。",
+			},
+		];
 
 // --- Core Search Logic ---
 const search = async () => {
@@ -48,19 +54,15 @@ const search = async () => {
 	isSearching = true;
 
 	try {
-		if (import.meta.env.PROD && window.pagefind) {
+		// v1.95：与 `Search.svelte` 同一口径 —— 只看索引在不在（dev 下也能真搜）
+		if (window.pagefind) {
 			const response = await window.pagefind.search(keyword);
 			const rawResults = await Promise.all(
 				response.results.map((item) => item.data()),
 			);
 			results = rawResults;
-		} else if (import.meta.env.DEV) {
-			// 开发模式下的模拟结果
-			results = fakeResult.filter(
-				(item) =>
-					item.excerpt.toLowerCase().includes(keyword.toLowerCase()) ||
-					item.meta.title.toLowerCase().includes(keyword.toLowerCase()),
-			);
+		} else {
+			results = fallbackResult;
 		}
 	} catch (error) {
 		console.error("Search error:", error);
