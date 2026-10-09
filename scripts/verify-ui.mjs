@@ -47,9 +47,13 @@ const CHROME_CANDIDATES = [
  * 五个文件由发起人 2026-10-09 交来，要求「**不可压缩**……我要原画」，所以判据是
  * **字节数 + sha256 逐字节相等**（不是"能播就行"——转一道码它照样能播）。
  * 数值来自导入时的核对（reports/_wallpaper-import.mjs → reports/_wallpaper-assets.json）。
+ * ⚠️ **v1.80：chuangbian 单支换过图** —— 发起人 2026-10-09 16:09 把源目录里那份重新导出后
+ *    要求"对该动态壁纸进行单个替换，其他不动"，于是只有这一条的字节数/哈希变了
+ *    （8,331,182 → **7,861,712**，sha `4b248216…` → `7c30db17…`；合计 51.34 → **50.89 MB**）。
+ *    另外四条的数值**原样未动** —— 它们与源目录里的文件至今逐字节相同。
  */
 const EXPECT_WALLPAPER_VIDEOS = [
-	{ slug: "chuangbian", bytes: 8331182, sha256: "4b2482162f24f2368925e30fe49e603709f0e056bb0faa4e60e51f5cbbf03db5" },
+	{ slug: "chuangbian", bytes: 7861712, sha256: "7c30db17ca856fda1cb4335f5da998d855996fd0cf7e289ddf69ae3702723ff7" },
 	{ slug: "xingye", bytes: 10329106, sha256: "82070b367704edfcbd6af1e0f60f420cd344462bf60a99ed7128230166865468" },
 	{ slug: "hupan", bytes: 13519083, sha256: "0b2dd5c4851dd6292fca71889fc9ba3f57b3bcc1f7a87cc32cc55c6d4cd6f719" },
 	{ slug: "xishoutai", bytes: 9560435, sha256: "c4158842964848cb94de039ac5a4e8bbb0eb6a09168af575f005711ed4108259" },
