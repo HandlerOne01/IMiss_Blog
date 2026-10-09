@@ -272,11 +272,25 @@ const manualSwitchScript = `(function initManualSwitch() {
 	var cfg = {
 		zones: ${manualSwitch?.zones === false ? "false" : "true"},
 		drag: ${manualSwitch?.drag === false ? "false" : "true"},
+		click: ${manualSwitch?.click === false ? "false" : "true"},
 		threshold: ${Number(manualSwitch?.dragThreshold) || 60}
 	};
 
+	function wallpaperMode() {
+		return document.documentElement.dataset.wallpaperMode || 'banner';
+	}
 	function isBannerMode() {
-		return document.documentElement.dataset.wallpaperMode === 'banner';
+		return wallpaperMode() === 'banner';
+	}
+	/** 可换壁纸的三种模式（v1.74：原来只有 banner，全屏与透明覆盖下换不了） */
+	function isSwitchMode() {
+		var m = wallpaperMode();
+		return m === 'banner' || m === 'fullscreen' || m === 'overlay';
+	}
+	/** 点击换图只在 fullscreen / overlay 生效：banner 已经有两侧箭头，再抢点击容易误触 */
+	function clickSwitchEnabled() {
+		var m = wallpaperMode();
+		return (m === 'fullscreen' || m === 'overlay') && cfg.click;
 	}
 	function visibleSlides() {
 		if (window.__imissGetVisibleSlides) return window.__imissGetVisibleSlides();
@@ -300,7 +314,7 @@ const manualSwitchScript = `(function initManualSwitch() {
 		return vp ? vp.count : visibleSlides().length;
 	}
 	function canSwitch() {
-		return isBannerMode() && wallpaperCount() > 1;
+		return isSwitchMode() && wallpaperCount() > 1;
 	}
 	/** 把 ±1 交给模板现成的换图函数（循环 / 懒实例化 / 过渡 / 防连点都在那边）；
 	    视频模式下交给壁纸层的 step()（它自己做淡出→换源→淡入） */
@@ -335,10 +349,12 @@ const manualSwitchScript = `(function initManualSwitch() {
 
 	// ② 按住横向拖动（鼠标）/ 滑动（触屏）：同一套 pointer 手势
 	if (cfg.drag) {
-		var startX = 0, startY = 0, dragging = false, pointerId = null;
+		var startX = 0, startY = 0, dragging = false, pointerId = null, startTarget = null;
 		var INTERACTIVE = 'a, button, input, textarea, select, [role="button"], [contenteditable="true"]';
 
-		wrapper.addEventListener('pointerdown', function (e) {
+		// ⚠️ v1.74：挂在 **document** 上而不是 wrapper —— 透明覆盖模式下壁纸层在 z-index:-1，
+		//    指针事件到不了它（原来那种写法在全屏/覆盖下等于没绑）。
+		document.addEventListener('pointerdown', function (e) {
 			if (!canSwitch()) return;
 			if (e.button !== 0 && e.pointerType === 'mouse') return;
 			var t = e.target;
@@ -348,9 +364,10 @@ const manualSwitchScript = `(function initManualSwitch() {
 			startX = e.clientX;
 			startY = e.clientY;
 			dragging = false;
-		});
+			startTarget = t;
+		}, true);
 
-		wrapper.addEventListener('pointermove', function (e) {
+		document.addEventListener('pointermove', function (e) {
 			if (pointerId === null || e.pointerId !== pointerId) return;
 			var dx = e.clientX - startX;
 			var dy = e.clientY - startY;
@@ -361,7 +378,7 @@ const manualSwitchScript = `(function initManualSwitch() {
 				wrapper.classList.add('is-swiping');
 			}
 			if (e.cancelable) e.preventDefault();
-		}, { passive: false });
+		}, { passive: false, capture: true });
 
 		var endDrag = function (e) {
 			if (pointerId === null || (e && e.pointerId !== pointerId)) return;
@@ -373,9 +390,18 @@ const manualSwitchScript = `(function initManualSwitch() {
 			if (!wasDragging || Math.abs(dx) < cfg.threshold) return;
 			switchBy(dx < 0 ? 1 : -1); // 往左拖 = 下一张
 		};
-		wrapper.addEventListener('pointerup', endDrag);
-		wrapper.addEventListener('pointercancel', endDrag);
-		wrapper.addEventListener('pointerleave', endDrag);
+		document.addEventListener('pointerup', endDrag, true);
+		document.addEventListener('pointercancel', endDrag, true);
+
+		// 点击换图（v1.74，仅 fullscreen / overlay）：在空白处点一下 = 下一张。
+		// 判据与拖动共用 INTERACTIVE 白名单 —— 点到链接/按钮/输入框一律让给它们。
+		document.addEventListener('click', function (e) {
+			if (!clickSwitchEnabled() || !canSwitch()) return;
+			var t = e.target;
+			if (t && t.closest && t.closest(INTERACTIVE)) return;
+			if (dragging) return; // 拖动收尾那一下不算点击
+			switchBy(1);
+		}, true);
 	}
 
 	// 让模板原有的触摸滑动让位（同一次滑动不能切两张）
@@ -873,7 +899,7 @@ const manualSwitchScript = `(function initManualSwitch() {
           节点跨页常驻，脚本只在启动时绑一次
         · z-30 高于 dim(10) 与 overlay(20)：箭头不会被 0.2 的暗罩压灰
         · 只有"这一侧有多张图"时才渲染；JS 还会在运行时再确认一次（getVisibleSlides） */}
-    {(state.isBannerMode || state.isWallpaperSwitchable) && backgroundWallpaper.banner?.manualSwitch?.enable && backgroundWallpaper.banner.manualSwitch.zones && (videoItems.length > 1 || backgroundImages.desktop.length > 1 || backgroundImages.mobile.length > 1) && (
+    {(state.isBannerMode || state.isFullscreenMode || state.isWallpaperSwitchable) && backgroundWallpaper.banner?.manualSwitch?.enable && backgroundWallpaper.banner.manualSwitch.zones && (videoItems.length > 1 || backgroundImages.desktop.length > 1 || backgroundImages.mobile.length > 1) && (
         <>
             <button type="button" class="banner-switch-zone is-prev" data-banner-switch="-1" aria-label="上一张壁纸" title="上一张壁纸">
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -889,7 +915,7 @@ const manualSwitchScript = `(function initManualSwitch() {
     {videoOn && <script is:inline data-swup-ignore-script set:html={videoScript} />}
 
     {/* 手动换壁纸（R-BG-05）：说明见 frontmatter 注释（模板注释会进产物，T85） */}
-    {manualSwitch?.enable && (videoItems.length > 1 || state.hasMultipleImages) && (
+    {manualSwitch?.enable && (videoItems.length > 1 || state.hasMultipleImages) && state.isBackgroundEnabled && (
     <script is:inline data-swup-ignore-script set:html={manualSwitchScript} />
     )}
 

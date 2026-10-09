@@ -5851,7 +5851,92 @@ async function main() {
 	}
 
 
-		// ── R-BG-02 动态壁纸：原画不压缩 / 真的在播 / 无限循环（v1.70）──────────────
+		// ── R-BG-05 续：全屏壁纸 / 透明覆盖 也能换壁纸（v1.74，发起人：「全屏壁纸也要支持双端左右
+	//    滑动壁纸切换和电脑端点击切换 / 透明覆盖同理」）────────────────────────────────
+	{
+		const modeState = () =>
+			cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					const zones = [...document.querySelectorAll(".banner-switch-zone")];
+					return {
+						mode: document.documentElement.dataset.wallpaperMode,
+						index: Number(document.documentElement.dataset.wallpaperIndex),
+						count: Number(document.documentElement.dataset.wallpaperCount),
+						slug: document.getElementById("wallpaper-video-layer")?.dataset.slug ?? null,
+						zones: zones.map((z) => ({ dir: z.dataset.bannerSwitch, hidden: z.hidden, display: getComputedStyle(z).display })),
+					};
+				})()`,
+				returnByValue: true,
+			}).then((r) => r.result.value);
+		const setMode = (m) =>
+			cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					document.documentElement.dataset.wallpaperMode = ${JSON.stringify(m)};
+					window.dispatchEvent(new CustomEvent("wallpaperModeChange", { detail: { mode: ${JSON.stringify(m)} } }));
+					return true;
+				})()`,
+				returnByValue: true,
+			});
+		const clickBlank = async (x, y) => {
+			for (const type of ["mousePressed", "mouseReleased"]) {
+				await cdp.send("Input.dispatchMouseEvent", { type, x, y, button: "left", buttons: type === "mousePressed" ? 1 : 0, clickCount: 1 });
+			}
+		};
+		const dragBlank = () =>
+			cdp.send("Runtime.evaluate", {
+				expression: `(() => {
+					const o = { bubbles: true, cancelable: true, pointerId: 77, button: 0 };
+					const t = document.body;
+					t.dispatchEvent(new PointerEvent("pointerdown", { ...o, clientX: 900, clientY: 300 }));
+					t.dispatchEvent(new PointerEvent("pointermove", { ...o, clientX: 880, clientY: 302 }));
+					t.dispatchEvent(new PointerEvent("pointermove", { ...o, clientX: 700, clientY: 305 }));
+					t.dispatchEvent(new PointerEvent("pointerup", { ...o, clientX: 700, clientY: 305 }));
+					return true;
+				})()`,
+				returnByValue: true,
+			});
+		await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+		const loaded = cdp.once("Page.loadEventFired");
+		await cdp.send("Page.navigate", { url: `${BASE}/` });
+		await loaded;
+		await sleep(2600);
+		const collect = {};
+		for (const mode of ["fullscreen", "overlay"]) {
+			await setMode(mode);
+			await sleep(900);
+			const before = await modeState();
+			await clickBlank(720, 300);
+			await sleep(1300);
+			const afterClick = await modeState();
+			await dragBlank();
+			await sleep(1300);
+			const afterDrag = await modeState();
+			collect[mode] = { before, afterClick, afterDrag };
+		}
+		facts["wp-switch-modes"] = collect;
+		// 复位到 banner（后面的断言按 banner 写）
+		await setMode("banner");
+		await sleep(400);
+		const fs5 = collect.fullscreen;
+		record(
+			"R-BG-05",
+			"全屏壁纸也能换：两侧箭头渲染出来 + 点空白换下一张 + 拖动换下一张",
+			fs5?.before?.zones?.length === 2 &&
+				fs5.before.zones.every((z) => z.hidden === false && z.display !== "none") &&
+				fs5.afterClick?.index === (fs5.before.index + 1) % fs5.before.count &&
+				fs5.afterDrag?.index === (fs5.afterClick.index + 1) % fs5.before.count,
+			`全屏模式：箭头=${JSON.stringify(fs5?.before?.zones)}｜点空白 #${fs5?.before?.index}→#${fs5?.afterClick?.index}｜拖动 →#${fs5?.afterDrag?.index}（共 ${fs5?.before?.count} 张）`,
+		);
+		const ov = collect.overlay;
+		record(
+			"R-BG-05",
+			"透明覆盖也能换：点空白换下一张 + 拖动换下一张（它的壁纸在 z-index:-1，指针到不了 wrapper）",
+			ov?.afterClick?.index === (ov.before.index + 1) % ov.before.count &&
+				ov.afterDrag?.index === (ov.afterClick.index + 1) % ov.before.count,
+			`覆盖模式：点空白 #${ov?.before?.index}→#${ov?.afterClick?.index}｜拖动 →#${ov?.afterDrag?.index}（共 ${ov?.before?.count} 张）`,
+		);
+	}
+	// ── R-BG-02 动态壁纸：原画不压缩 / 真的在播 / 无限循环（v1.70）──────────────
 	// 发起人 2026-10-09 交来 5 支动态壁纸，原话四条：替换所有静态图 / 首尾帧要能无限循环 /
 	// 能不裁就不裁且人物居中 / **不可压缩，我要原画**。这一节验前三条里"能机械判定的部分"。
 	{

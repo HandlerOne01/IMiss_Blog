@@ -146,6 +146,12 @@ export type BackgroundWallpaperConfig = {
 			zones?: boolean; // 桌面端（≥1024px）左右两侧的隐藏交互区，hover / Tab 聚焦才淡出箭头
 			drag?: boolean; // 按住横向拖动换图（鼠标与触屏共用一套 pointer 手势）
 			dragThreshold?: number; // 拖动多远算一次换图（px），默认 60
+			/**
+			 * 点击换图（v1.74 新增）：在**壁纸空白处**点一下切到下一张。
+			 * ⚠️ 只在 fullscreen / overlay 两种模式下生效 —— banner 模式已经有两侧箭头，
+			 * 再让"点横幅就换图"抢一次点击容易误触。
+			 */
+			click?: boolean;
 		};
 	};
 	// 全屏透明覆盖模式特有配置

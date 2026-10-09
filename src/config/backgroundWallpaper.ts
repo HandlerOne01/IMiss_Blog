@@ -102,8 +102,9 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 				poster: "/assets/wallpaper/chuangbian-poster.webp",
 				focus: { x: 0.41, y: 0.36 },
 				focusAnchorY: 0.45,
-				// 发起人 2026-10-09：「第三张左移一点」→ 人物落点从正中挪到 45%
-				focusAnchorX: 0.45,
+				// 发起人 2026-10-09 第一次：「第三张左移一点」→ 0.45；
+				// 第二次看图后改口：「**第一张人物居中**」→ 回到正中 0.50
+				focusAnchorX: 0.5,
 			},
 			{
 				src: "/assets/wallpaper/xingye.mp4",
@@ -132,8 +133,9 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 				// 锚点取**镜中那张脸** —— 发起人的硬要求是"手机端脸必须全露"，背影不算脸。
 				focus: { x: 0.3, y: 0.34 },
 				focusAnchorY: 0.45,
-				// 发起人 2026-10-09：「第二张左移一点点，下拉一点点」→ 落点 47%、zoom 1.06
-				focusAnchorX: 0.47,
+				// 发起人 2026-10-09 第一次：「第二张左移一点点，下拉一点点」→ 0.47 / zoom 1.06；
+				// 第二次看图后改成：「**第二张人物偏左**」→ 落点进一步挪到 0.38（镜中那张脸落在画面左三分之一）
+				focusAnchorX: 0.38,
 				zoom: 1.06,
 			},
 			{
