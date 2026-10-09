@@ -65,6 +65,8 @@ const videoData = {
 		fx: it.focus.x,
 		fy: it.focus.y,
 		anchorY: it.focusAnchorY ?? 0.45,
+		anchorX: it.focusAnchorX ?? 0.5,
+		zoom: it.zoom ?? 1,
 	})),
 	order: videoConf?.order ?? "first",
 	fits: {
@@ -109,12 +111,16 @@ const videoScript = `(function initVideoWallpaper() {
 			layer.dataset.visibleH = String(ih);
 			layer.dataset.focusX = String(it.fx);
 			layer.dataset.focusY = String(it.fy);
+			layer.dataset.anchorX = String(it.anchorX || 0.5);
+			layer.dataset.anchorY = String(it.anchorY);
+			layer.dataset.zoom = String(it.zoom || 1);
 			return;
 		}
-		var s = Math.max(cw / iw, ch / ih);
+		// zoom：手机端整幅高度全可见、垂直方向没有余量，想让人物"下沉"只能放大（见类型注释）
+		var s = Math.max(cw / iw, ch / ih) * (it.zoom || 1);
 		var visW = Math.min(iw, cw / s);
 		var visH = Math.min(ih, ch / s);
-		var left = clamp(it.fx * iw - visW / 2, 0, Math.max(0, iw - visW));
+		var left = clamp(it.fx * iw - visW * (it.anchorX || 0.5), 0, Math.max(0, iw - visW));
 		var top = clamp(it.fy * ih - visH * it.anchorY, 0, Math.max(0, ih - visH));
 		var px = iw > visW ? (left / (iw - visW)) * 100 : 50;
 		var py = ih > visH ? (top / (ih - visH)) * 100 : 50;
@@ -124,6 +130,9 @@ const videoScript = `(function initVideoWallpaper() {
 		layer.dataset.objectPosition = pos;
 		layer.dataset.focusX = String(it.fx);
 		layer.dataset.focusY = String(it.fy);
+		layer.dataset.anchorX = String(it.anchorX || 0.5);
+		layer.dataset.anchorY = String(it.anchorY);
+		layer.dataset.zoom = String(it.zoom || 1);
 		layer.dataset.visibleW = String(Math.round(visW));
 		layer.dataset.visibleH = String(Math.round(visH));
 		layer.dataset.focusAtX = String(Math.round((left + visW / 2) / iw * 1000) / 10);

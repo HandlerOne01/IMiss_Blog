@@ -102,6 +102,8 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 				poster: "/assets/wallpaper/chuangbian-poster.webp",
 				focus: { x: 0.41, y: 0.36 },
 				focusAnchorY: 0.45,
+				// 发起人 2026-10-09：「第三张左移一点」→ 人物落点从正中挪到 45%
+				focusAnchorX: 0.45,
 			},
 			{
 				src: "/assets/wallpaper/xingye.mp4",
@@ -116,6 +118,11 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 				poster: "/assets/wallpaper/hupan-poster.webp",
 				focus: { x: 0.44, y: 0.39 },
 				focusAnchorY: 0.45,
+				// 发起人 2026-10-09：「第一张左移一点，再下拉一点」
+				//   左移 → 落点 44%；下拉 → 手机端没有垂直余量，靠 zoom 1.15 让下缘被裁、人物下沉
+				//   （人物在框里的高度占比 ≈ focus.y × zoom = 0.39 × 1.15 ≈ 45%）
+				focusAnchorX: 0.44,
+				zoom: 1.15,
 			},
 			{
 				src: "/assets/wallpaper/xishoutai.mp4",
@@ -125,6 +132,9 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 				// 锚点取**镜中那张脸** —— 发起人的硬要求是"手机端脸必须全露"，背影不算脸。
 				focus: { x: 0.3, y: 0.34 },
 				focusAnchorY: 0.45,
+				// 发起人 2026-10-09：「第二张左移一点点，下拉一点点」→ 落点 47%、zoom 1.06
+				focusAnchorX: 0.47,
+				zoom: 1.06,
 			},
 			{
 				src: "/assets/wallpaper/taluo.mp4",

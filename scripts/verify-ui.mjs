@@ -551,6 +551,9 @@ const COLLECT = `(() => {
         ready: vLayer.dataset.ready === "1",
         focusX: Number(vLayer.dataset.focusX),
         focusY: Number(vLayer.dataset.focusY),
+        anchorX: Number(vLayer.dataset.anchorX),
+        anchorY: Number(vLayer.dataset.anchorY),
+        zoom: Number(vLayer.dataset.zoom),
         focusAtX: Number(vLayer.dataset.focusAtX),
         focusAtY: Number(vLayer.dataset.focusAtY),
         visibleW: Number(vLayer.dataset.visibleW),
@@ -5724,6 +5727,17 @@ async function main() {
 			const focusPx = v.focusX * v.intrinsicW;
 			return (focusPx - (left + v.visibleW / 2)) / v.visibleW;
 		};
+		/**
+		 * 与配置的偏离量：期望偏移 = anchorX − 0.5（v1.73 起每支壁纸有自己的水平落点，
+		 * 发起人 2026-10-09 三条微调里两条就是"左移一点/一点点"）。
+		 * ⚠️ 别把阈值放宽来代替这个减法 —— 那就变成"随便偏都算过"。
+		 */
+		const focusOffsetError = (v) => {
+			const off = focusOffsetInWindow(v);
+			if (off === null) return null;
+			const expect = (Number.isFinite(v.anchorX) ? v.anchorX : 0.5) - 0.5;
+			return off - expect;
+		};
 
 	// ── P3 壁纸（R-BG-01 / R-BG-04）──
 	{
@@ -5750,8 +5764,8 @@ async function main() {
 			(() => {
 				const v = wp?.video;
 				if (!v || v.fit !== "cover") return false;
-				const off = focusOffsetInWindow(v); // 从 DOM 反推，不读脚本自述
-				return off !== null && Math.abs(off) <= 0.06;
+				const err = focusOffsetError(v); // 从 DOM 反推，不读脚本自述
+				return err !== null && Math.abs(err) <= 0.03;
 			})(),
 			`object-position=${wp?.video?.objectPosition}｜可见源区 ${wp?.video?.visibleW}×${wp?.video?.visibleH}（原画 ${wp?.video?.intrinsicW}×${wp?.video?.intrinsicH}）｜人物锚点 x=${wp?.video?.focusX} 落在窗口内（脚本自述 focusAtX=${wp?.video?.focusAtX}）`,
 		);
@@ -6022,11 +6036,11 @@ async function main() {
 		//    而且人物锚点仍要落在窗口里（发起人：手机端脸必须全露）
 		{
 			const ratio = mobile?.visibleW && mobile?.intrinsicW ? mobile.visibleW / mobile.intrinsicW : 1;
-			const off = focusOffsetInWindow(mobile);
+			const off = focusOffsetError(mobile);
 			record(
 				"R-BG-07",
-				"手机横幅（390×844）横向裁得更狠，但人物锚点**仍落在可见窗口中轴**（脸不会被切）",
-				!!mobile && ratio < 0.5 && off !== null && Math.abs(off) <= 0.08,
+				"手机横幅（390×844）横向裁得更狠，但人物锚点**落在配置的落点上**（默认中轴，微调后按配置偏左）",
+				!!mobile && ratio < 0.5 && off !== null && Math.abs(off) <= 0.03,
 				`框 ${mobile?.box?.w}×${mobile?.box?.h}｜可见源区 ${mobile?.visibleW}×${mobile?.visibleH} = 原画的 ${(ratio * 100).toFixed(0)}%（横向只剩三成，所以取景必须算）｜object-position=${mobile?.objectPosition}｜人物锚点在窗口里的偏移 ${off === null ? "?" : (off * 100).toFixed(1) + "%"}（0 = 正中）`,
 			);
 		}
@@ -6073,8 +6087,8 @@ async function main() {
 					fv?.visibleW < fv?.intrinsicW &&
 					fv?.visibleH <= fv?.intrinsicH &&
 					(() => {
-						const off = focusOffsetInWindow(fv);
-						return off !== null && Math.abs(off) <= 0.08;
+						const err = focusOffsetError(fv);
+						return err !== null && Math.abs(err) <= 0.03;
 					})(),
 				`fit=${fv?.fit}｜壁纸框 ${fv?.box?.w}×${fv?.box?.h}｜可见源区 ${fv?.visibleW}×${fv?.visibleH} vs 原生 ${fv?.intrinsicW}×${fv?.intrinsicH}（可见宽 = 原生的 ${fv?.intrinsicW ? Math.round((fv.visibleW / fv.intrinsicW) * 100) : "?"}%）｜object-position=${fv?.objectPosition}｜仍在播=${fv?.playing}`,
 			);
