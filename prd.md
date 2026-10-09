@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | IMiss Blog |
-| 文档版本 | v1.85 |
+| 文档版本 | v1.86 |
 | 最后更新 | 2026-10-09 |
 | 关联文档 | `ARCH.md`（架构与技术设计）、`PROJECT_STATUS.md`（阶段、进度、下一步、阻塞项） |
 | 基线代码 | 上游模板基线 v6.16.8（Astro 7 静态站点，名称与出处见 `README.upstream.zh.md`），来源 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\my_-blog\Blog template` |
@@ -116,7 +116,7 @@
 | 轻小说（原 VNDB） | `/vndb/` | 模板改名 | VNDB API（`dynamic` 模式，客户端拉取） | ⚠️ 需 userId（待提供） |
 | 番剧（原 AnimeList） | `/myanimelist/` | 模板改名 | MAL API（构建期拉取） | ⚠️ 需 username + clientId（待提供） |
 | 关于我 | `/about/` | 自写（v1.51 起）→ **v1.65 起改为占位页**（原内容整体搬到「关于本站」；新的自我介绍待发起人提供） | `src/content/spec/about.md` | ⏳ 等发起人给新内容 |
-| **关于本站** | `/about-site/` | 自写（**v1.65 新增**） | `src/content/spec/about-site.md`（= 原 about.md 那篇整体搬过来） | ✅ |
+| **关于本站** | `/about-site/` | 自写（**v1.65 新增**；**v1.86 起是第一人称的站内使用说明**：站里有什么 / 怎么逛 / 怎么跟爱弥斯说话 / 怎么换外观 / 手机上怎么用 / 还没有什么） | `src/content/spec/about-site.md` | ✅ |
 | 链接 | 外链下拉 | 模板 | 配置（**v1.61 起是发起人的 6 条**，v1.57 那 8 条已整批替换） | ✅ |
 | ~~留言~~ | ~~`/guestbook/`~~ | 模板 | — | ❌ **v1.83 整体删除**：页面与 `spec/guestbook.md` 都已删 → **真 404**（R-CMT-01/02 换口径） |
 | 搜索 | `/search/` | 模板 | Pagefind（**索引层 v1.51 起有 4 条断言**：搜上游字样必须 0 命中 + 正控「指针」必须 > 0） | ✅ |

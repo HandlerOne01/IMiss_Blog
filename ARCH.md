@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.85 |
+| 文档版本 | v1.86 |
 | 最后更新 | 2026-10-09 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | 上游模板基线 v6.16.8（站点信息里中性显示为「博客版本 v6.16.8」），Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -144,7 +144,7 @@ src/
 │  ├─ friends.astro / bilibili.astro / bangumi.astro / sponsor.astro
 │  │                              ⛔ 不改代码，靠 pages 开关关掉（返回 404）
 │  ├─ about.astro                  ⛔ 不改（导航移入「我的」；v1.65 起它渲染的 about.md 是占位页）
-│  └─ about-site.astro             ➕ 关于本站（**v1.65 新增**，结构与 about.astro 同，但不发 ProfilePage 结构化数据）
+│  └─ about-site.astro             ➕ 关于本站（**v1.65 新增**，结构与 about.astro 同，但不发 ProfilePage 结构化数据；**v1.86 起渲染的是第一人称使用说明**）
 ├─ content/
 │  ├─ posts/**                    ➕ 迁移来的文章
 │  ├─ spec/about.md               ✏️ 关于我（**v1.65 起是占位页**；原内容整体搬到 about-site.md）

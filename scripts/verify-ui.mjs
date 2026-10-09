@@ -4388,11 +4388,16 @@ async function main() {
 	//    ② 关于我页仍可达、且**确实是占位态**（含占位文案 + 指向关于本站的入口）。
 	{
 		const siteText = facts["about-site-1440"].bodyText ?? "";
+		// v1.86：这一页从"讲这个站的散文"重写成**第一人称的使用说明**（发起人：「以我的视角讲述这个站的
+		// 功能和用户的使用方法」）。判据跟着换成新内容的关键锚点 —— 除了"有真内容"（长度门槛），
+		// 还要求它确实写到了**怎么用**：桌宠的两种唤起方式（右键 / 长按）、学习路线、以及 Astro。
+		const siteNeedles = ["右键", "长按", "学习路线", "Astro"];
+		const siteMissing = siteNeedles.filter((n) => !siteText.includes(n));
 		record(
 			"R-NAV-04",
-			"关于本站页可访问且有真实内容（原 about.md 那篇已整体搬过来）",
-			siteText.length > 800 && siteText.includes("关于本站") && siteText.includes("学习路线") && siteText.includes("Astro"),
-			`正文长度 ${siteText.length}｜含「关于本站」=${siteText.includes("关于本站")}｜含「学习路线」=${siteText.includes("学习路线")}｜含「Astro」=${siteText.includes("Astro")}`,
+			"关于本站页可访问且有真实内容（v1.86 起是第一人称的使用说明）",
+			siteText.length > 800 && siteMissing.length === 0,
+			`正文长度 ${siteText.length}｜缺 ${siteMissing.join("、") || "无"}（要求含 ${siteNeedles.join(" / ")}）`,
 		);
 		const aboutText = facts["about-1440"].bodyText ?? "";
 		record(
