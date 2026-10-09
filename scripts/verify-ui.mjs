@@ -9294,8 +9294,9 @@ async function main() {
 			return { ok: !hasHidden, why: `出现 ${occurrences} 次，容器开标签=${openTag.slice(0, 110)}` };
 		};
 
-		// ① /projects/：v1.65 起**集合里有内容了**（发起人 2026-10-08 要求写两个项目）
-		//    所以这条判据从"渲染空态"**就地翻成**"确实列出这两张卡、且字段逐条对得上"。
+		// ① /projects/：v1.65 起**集合里有内容了**（发起人 2026-10-08 要求写两个项目），
+		//    v1.79 起是**三个**（发起人 2026-10-09 给了 agent_-for_-blog 仓库，说"新增项目介绍"）。
+		//    所以这条判据从"渲染空态"**就地翻成**"确实列出这几张卡、且字段逐条对得上"。
 		//    ⚠️ 为什么不能只看"没有空态"：那样"页面渲染成空白"也会绿 —— 必须正向钉住卡片内容。
 		//    反面清单（上游条目名零残留）保留。
 		{
@@ -9316,6 +9317,12 @@ async function main() {
 					status: "已发布",
 					links: ["https://gitee.com/a2186988646/search_engine", "http://106.52.158.48:8081/"],
 					detail: "/projects/boost-search-engine/",
+				},
+				{
+					title: "基于 LangChain / LangGraph 个人博客智能助手",
+					status: "已发布",
+					links: ["https://gitee.com/a2186988646/agent_-for_-blog"],
+					detail: "/projects/blog-agent/",
 				},
 			];
 			const cardCount = (html.match(/class="project-card/g) || []).length;
@@ -9338,11 +9345,12 @@ async function main() {
 				leftover.length === 0,
 				leftover.join("、") || "无残留",
 			);
-			// 两个**新**项目详情页：可达 + 正文里有各自的正文特征串（钉住"详情页真的渲染了文章"）
+			// 三个**新**项目详情页：可达 + 正文里有各自的正文特征串（钉住"详情页真的渲染了文章"）
 			const newDetails = [];
 			for (const [u, needle] of [
 				["/projects/my-server/", "多 Reactor"],
 				["/projects/boost-search-engine/", "倒排"],
+				["/projects/blog-agent/", "LangGraph"],
 			]) {
 				const r = await fetch(`${BASE}${u}`);
 				const t = await r.text();
@@ -9350,7 +9358,7 @@ async function main() {
 			}
 			record(
 				"R-ID-10",
-				"两个新项目详情页可达且正文渲染出来（各含自己的技术特征串）",
+				"三个新项目详情页可达且正文渲染出来（各含自己的技术特征串）",
 				newDetails.every((s) => s.includes("=200") && s.includes("✓正文")),
 				newDetails.join(" ｜ "),
 			);
@@ -9387,7 +9395,7 @@ async function main() {
 			);
 		}
 		// ②b 两个上游项目的详情路由：v1.65 起 `projects` 集合**有内容了**，但**上游那两条**依旧必须 404
-		//     （集合里只有发起人自己的两个项目；上游示例没有回来）
+		//     （集合里只有发起人自己的项目 —— v1.79 起是三个；上游示例没有回来）
 		{
 			const projDetail = [];
 			for (const u of ["/projects/firefly/", "/projects/example-project/"]) {

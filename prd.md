@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | IMiss Blog |
-| 文档版本 | v1.78 |
+| 文档版本 | v1.79 |
 | 最后更新 | 2026-10-09 |
 | 关联文档 | `ARCH.md`（架构与技术设计）、`PROJECT_STATUS.md`（阶段、进度、下一步、阻塞项） |
 | 基线代码 | 上游模板基线 v6.16.8（Astro 7 静态站点，名称与出处见 `README.upstream.zh.md`），来源 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\my_-blog\Blog template` |
@@ -110,7 +110,7 @@
 | 文章详情 | `/posts/<slug>/` | 模板 | 文章集合 | ✅ |
 | **学习路线** | `/roadmap/` | **新增** | `roadmapConfig.ts`（数据全部来自站内已导入的 133 篇笔记，零新素材） | ✅ |
 | 动态 | `/dynamic/` | 模板 | 本地 `src/content/dynamic/*.md` | ✅（内容后续自填） |
-| 项目 | `/projects/` | 模板 | `src/content/projects/` | ✅ |
+| 项目 | `/projects/` | 模板（**v1.79 起是自写内容：三个项目**） | `src/content/projects/` | ✅ |
 | 相册 | `/gallery/` | 模板 | 图集配置 | ✅ |
 | 书签导航 | `/booknav/` | 模板 | 书签配置（**v1.57 起是发起人最终选定的 6 组 38 张**，见 R-BOOKNAV-01~08） | ✅ |
 | 轻小说（原 VNDB） | `/vndb/` | 模板改名 | VNDB API（`dynamic` 模式，客户端拉取） | ⚠️ 需 userId（待提供） |

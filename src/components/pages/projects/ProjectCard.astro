@@ -59,6 +59,15 @@ const hiddenTagCount = (tags || []).length - visibleTags.length;
   <!-- 内容（纯文字：2026-10-08 起不再渲染封面模块） -->
   <div class="post-card-content p-4 flex flex-col flex-1 min-h-0">
     <!-- 标题行：标题 + 状态徽标（徽标原先挂在封面右上角，封面删掉后挪到这里） -->
+    <!--
+      ⚠️ v1.79 备忘（**试过但没采用**）：卡片标题框只有 226px（约 10 个汉字宽）且是 `line-clamp-1`。
+      如果标题里出现一个**超过整行宽的拉丁长词**（实测「LangChain/LangGraph」20 字符 = 249px > 226px，
+      且斜杠不是断行点），行盒会把它整个推到第二行，第一行只剩它前面的两个字 → 卡片显示成「基于...」。
+      给这个标题加 `break-all` 能修（第一行占满 217px），**但会连带改动另一张卡的截断点**
+      （「基于正倒排索引的 Boost…」→「…的 Boos…」，实测行盒从 176px 变 226px），
+      所以本轮**没动这个组件**，改成在内容侧给那个长词一个断行点（名字里的斜杠两侧留空格）。
+      将来真要为它加 `break-all`，记得先量一遍其余卡片的行盒。
+    -->
     <div class="flex items-start gap-2">
       <a
         href={detailUrl}
