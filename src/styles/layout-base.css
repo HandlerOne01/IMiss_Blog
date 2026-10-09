@@ -81,7 +81,15 @@
   /* --content-top 由 html[data-wallpaper-mode] + body.is-home + 媒体查询解析（解析期生效，无 JS 内联 top） */
   /* banner（桌面全页 + 移动首页）：内容在横幅下方，重叠 3.5rem */
   html[data-wallpaper-mode="banner"] .content-panel {
-    --content-top: calc(var(--banner-height-home) - 3.5rem); /* = 65vh - 3.5rem */
+    --content-top: calc(var(--banner-height-home) - 3.5rem);
+  }
+  /* ⚠️ v1.71：窄屏（≤1023px）的横幅被压到 --banner-height-mobile（65vh），内容定位必须**跟着压**，
+     否则「重叠 3.5rem」会变成「横幅下方空出一块 80vh−65vh−3.5rem ≈ 70px 的页面底色」 —— 暗色主题下
+     就是一块黑板（发起人手机截图指的就是它）。这一条以前没有，是本轮量出来的。 */
+  @media (max-width: 1023px) {
+    html[data-wallpaper-mode="banner"] body.is-home .content-panel {
+      --content-top: calc(var(--banner-height-mobile, 65vh) - 3.5rem);
+    }
   }
   /* banner 移动端非首页：横幅隐藏，内容从导航栏下方开始 */
   @media (max-width: 1023px) {

@@ -26,7 +26,7 @@
 @media (max-width: 480px) {
     /* Banner wrapper 高度统一 65vh，让主内容区自然覆盖约 10% 横幅 */
     #wallpaper-wrapper:not(.mobile-hide-banner) {
-        height: 65vh !important;
+        height: var(--banner-height-mobile, 65vh) !important;
         top: 0 !important;
         transform: none !important;
     }
@@ -36,7 +36,7 @@
 @media (min-width: 481px) and (max-width: 640px) {
     /* Banner wrapper 高度统一 65vh，让主内容区自然覆盖约 10% 横幅 */
     #wallpaper-wrapper:not(.mobile-hide-banner) {
-        height: 65vh !important;
+        height: var(--banner-height-mobile, 65vh) !important;
         top: 0 !important;
         transform: none !important;
     }
@@ -46,7 +46,7 @@
 @media (min-width: 641px) and (max-width: 767px) {
     /* Banner wrapper 高度统一 65vh，让主内容区自然覆盖约 10% 横幅 */
     #wallpaper-wrapper:not(.mobile-hide-banner) {
-        height: 65vh !important;
+        height: var(--banner-height-mobile, 65vh) !important;
         top: 0 !important;
         transform: none !important;
     }
@@ -56,7 +56,7 @@
 @media (min-width: 768px) and (max-width: 1023px) {
     /* Banner wrapper 高度统一 65vh，让主内容区自然覆盖约 10% 横幅 */
     #wallpaper-wrapper:not(.mobile-hide-banner) {
-        height: 65vh !important;
+        height: var(--banner-height-mobile, 65vh) !important;
         top: 0 !important;
         transform: none !important;
     }
@@ -178,7 +178,8 @@
 @media (max-width: 1023px) and (orientation: landscape) {
     #wallpaper-wrapper:not(.mobile-hide-banner) {
         top: 0 !important; /* 横屏模式从顶部开始，避免被导航栏覆盖 */
-        height: 65vh !important;
+        /* v1.71：和上面四处读同一个变量，别再写死 65vh（横屏也属于窄屏档） */
+        height: var(--banner-height-mobile, 65vh) !important;
         transform: none !important; /* 移除桌面端的translateY偏移 */
     }
 }

@@ -34,6 +34,15 @@ export const BANNER_HEIGHT_NON_HOME = 55;
 // Combined as `max(...vh, ...px)` in Layout.astro.
 export const BANNER_HEIGHT_NON_HOME_MIN = 380;
 
+// 横幅在**窄屏**（≤1023px）下的高度（vh）—— v1.71 新增，把原来散在 CSS 里的 65vh 收成单一事实来源
+//
+// 为什么需要它：layout-styles.css 一直在四处写死 height: 65vh !important 把手机横幅压矮，
+// 而 --banner-height-home（内容定位用的那个变量）仍是 80vh —— 于是「内容重叠横幅 3.5rem」
+// 这个设计在手机上从来没生效过，横幅下面留了 80vh−65vh−3.5rem ≈ 70px 的**纯页面底色空档**
+// （暗色主题下就是一块黑板，发起人 2026-10-09 指着截图问「水波那里那么大块黑色区域」）。
+// 现在两个地方都读这一个值，改一处即可同时改掉「横幅多高」与「内容从哪开始」。
+export const BANNER_HEIGHT_MOBILE = 65;
+
 // Page width: rem
 export const PAGE_WIDTH = 100;
 
