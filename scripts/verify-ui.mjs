@@ -6059,14 +6059,24 @@ async function main() {
 			const fsFacts = (await cdp.send("Runtime.evaluate", { expression: COLLECT, returnByValue: true })).result.value;
 			facts["wp-fullscreen"] = fsFacts;
 			const fv = fsFacts.wallpaper?.video;
+			// ⚠️ v1.71 改口径：原来钉的是 contain（"完整展示、一个像素都不裁"）——那是我照发起人
+			// 「全屏壁纸的话就展示完整的动态壁纸」字面理解的，实测手机上画面缩成中间一条、上下两大块垫底，
+			// 发起人截图指出「全屏不是这个意思，和 firefly 一样」→ 改成 cover（铺满整屏，该裁就裁）。
+			// 所以这条判据现在验的是"**铺满**"而不是"不裁"：可见源区必须比原生窄（= 真的占满了一屏
+			// 而不是缩在中间），同时人物锚点仍要在可见窗口里（靠 focusOffsetInWindow 反推）。
 			record(
 				"R-BG-07",
-				"全屏壁纸：contain —— 完整展示整支动态壁纸（可见源区 = 原生分辨率，一个像素都不裁）",
-				fv?.fit === "contain" &&
-					fv?.visibleW === fv?.intrinsicW &&
-					fv?.visibleH === fv?.intrinsicH &&
-					fv?.playing === true,
-				`fit=${fv?.fit}｜可见源区 ${fv?.visibleW}×${fv?.visibleH} vs 原生 ${fv?.intrinsicW}×${fv?.intrinsicH}｜object-position=${fv?.objectPosition}｜仍在播=${fv?.playing}`,
+				"全屏壁纸：cover **铺满整屏**（可见源区比原生窄 = 真的占满，不是缩在中间一条）+ 人物锚点仍在窗口内",
+				fv?.fit === "cover" &&
+					fv?.playing === true &&
+					fv?.visibleW > 0 &&
+					fv?.visibleW < fv?.intrinsicW &&
+					fv?.visibleH <= fv?.intrinsicH &&
+					(() => {
+						const off = focusOffsetInWindow(fv);
+						return off !== null && Math.abs(off) <= 0.08;
+					})(),
+				`fit=${fv?.fit}｜壁纸框 ${fv?.box?.w}×${fv?.box?.h}｜可见源区 ${fv?.visibleW}×${fv?.visibleH} vs 原生 ${fv?.intrinsicW}×${fv?.intrinsicH}（可见宽 = 原生的 ${fv?.intrinsicW ? Math.round((fv.visibleW / fv.intrinsicW) * 100) : "?"}%）｜object-position=${fv?.objectPosition}｜仍在播=${fv?.playing}`,
 			);
 			// 复位（后面的断言按 banner 模式写）
 			await cdp.send("Runtime.evaluate", {
