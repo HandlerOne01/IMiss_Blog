@@ -27,12 +27,8 @@ const KEY_PAGES: KeyPage[] = [
 	{ labelKey: I18nKey.about, path: "/about/" },
 	// P4-8（v1.47）：`/friends/` 与 `/sponsor/` 两个条目已删除 —— 两个页面的源文件都没了
 	// （真 404），留着 `pageKey: "friends" / "sponsor"` 只是引用两个已经不存在的路由。
-	{
-		labelKey: I18nKey.guestbook,
-		path: "/guestbook/",
-		descKey: I18nKey.guestbookDescription,
-		pageKey: "guestbook",
-	},
+	// v1.83：`/guestbook/` 同理删除（留言功能整体移除，页面与 spec 内容都已删 → 真 404），
+	// 所以这里连 `pageKey: "guestbook"` 一起拿掉，不再对外声明这一页存在。
 	{
 		labelKey: I18nKey.dynamic,
 		path: "/dynamic/",

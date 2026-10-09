@@ -12,8 +12,11 @@ const pages = resolvePageToggles({
 
 	// 友链页面开关（IMiss Blog：已删除该功能，见 prd.md R-NAV-05）
 	friends: false,
-	// 留言板页面开关，需要配置评论系统。IMiss Blog：页面保留，评论区暂时关闭（R-CMT-01）
-	guestbook: true,
+	// 留言板页面开关（IMiss Blog：**v1.83 起整个功能删除** —— 发起人原话「然后删掉留言功能」）
+	// `src/pages/guestbook.astro` 与 `src/content/spec/guestbook.md` 都已删掉，
+	// 所以 `/guestbook/` 现在是**真 404**（与 `/friends/`、`/sponsor/` 同一种处置）。
+	// 这个开关留着只是为了 `resolvePageToggles` 的类型完整；打开它也不会让页面回来。
+	guestbook: false,
 
 	// ── 我的 (My) ──────────────────────────────────
 

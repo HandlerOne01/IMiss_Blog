@@ -68,11 +68,14 @@ const EXPECT_WALLPAPER_INTRINSIC = { w: 2944, h: 1248 };
 // （上游主题 / 上游文档站两条署名外链），发起人要求站上不留任何上游字样。
 // `nav-menu-utils.ts:19-21` 在 children 过滤后为 0 时 `return null`，整组自然消失。
 // ⚠️ **v1.57（B-10 关闭）：「链接」整组用发起人自己的外链重建**，位置回到
-//    「我的」与「留言」之间 → 顶层从 5 格变回 **6 格**。这条常量是**单一事实来源**：
+//    「我的」与最后那一格之间 → 顶层从 5 格变回 **6 格**。这条常量是**单一事实来源**：
 //    `navBarConfig.ts` 里增删任何顶层项，这里都得跟着改（v1.57 与 v1.61 两轮都做过注入验证：
 //    临时把「链接」组里的子项去掉 → 本断言当场判红，明细打出实际顺序）。
 // v1.61：**顶层没动**（仍是这 6 格），变的是第 5 格下拉里的内容（见 EXPECT_LINK_CHILDREN）。
-const EXPECT_TOP_NAV = ["主页", "文章", "学习路线", "我的", "链接", "留言"];
+// ⚠️ **v1.83：最后那一格从「留言」换成「关于」**（发起人：「把留言改成关于……然后删掉留言功能」）
+//    —— 留言整条删除、`/guestbook/` 变真 404；「关于」是**带两个子项的下拉**
+//    （关于我 + 关于本站，从「我的」搬过来）。格数仍是 6，只有第 6 格换了名字与形态。
+const EXPECT_TOP_NAV = ["主页", "文章", "学习路线", "我的", "链接", "关于"];
 // v1.61：「链接」下拉的内容 —— **6 条**外链，顺序即 `navBarConfig.ts` 里的顺序，
 // 也就是发起人给清单的顺序（Gitee → GitHub → CSDN → 洛谷 → Boost 搜索引擎 → HTTP 服务器）。
 // ⚠️ 子项名字取短名（「洛谷」不是「洛谷 Luogu」、不含用户名），所以这里钉的是**导航里的短名**，
@@ -103,11 +106,19 @@ const EXPECT_MY_CHILDREN = [
 	{ name: "书签导航", href: "/booknav/" },
 	{ name: "轻小说", href: "/vndb/" },
 	{ name: "番剧", href: "/myanimelist/" },
+	// ⚠️ v1.83：「关于我」「关于本站」**从这里搬到顶层「关于」下拉**（见 EXPECT_ABOUT_CHILDREN），
+	//    「我的」到「番剧」为止 —— 这两项**不许**再出现在这一组里（发起人明确要求删掉）。
+];
+// v1.83：顶层「关于」下拉的两个子项（从「我的」整体搬来，顺序不变）。**顺序即配置里的顺序**：
+// 关于我 → 关于本站（v1.65 起「关于本站」就固定在「关于我」下面，本轮只换了父级）。
+const EXPECT_ABOUT_CHILDREN = [
 	{ name: "关于我", href: "/about/" },
-	// v1.65：「关于本站」按发起人要求加在「关于我」**下面**（内容 = 原 about.md 那篇整体搬过来）
 	{ name: "关于本站", href: "/about-site/" },
 ];
-const EXPECT_ABSENT_LABELS = ["社交", "友链", "哔哩哔哩", "番组计划", "打赏", "关于"];
+// v1.83：「留言」加入这一组 —— 留言功能整体删除（导航项 + 页面 + spec 内容），
+// 所以它现在与「社交」「友链」「打赏」同属"任何一层导航里都不许再出现"。
+// ⚠️「关于」**已从本组移出**：v1.65 它被删时进了这张表，v1.83 又按发起人要求建回来了。
+const EXPECT_ABSENT_LABELS = ["社交", "友链", "哔哩哔哩", "番组计划", "打赏", "留言"];
 // ─── v1.57：书签导航页（R-BOOKNAV-01 ~ 04）的单一事实来源 ────────────────────
 // 发起人 2026-09-30 最终选定 **38 张卡 / 6 组**，本表就是那份清单的**逐字落地**。
 // ⚠️ 为什么把 38 条全列出来而不是只数个数：只断言 `cards.length === 38` 的话，
@@ -262,7 +273,7 @@ const EXPECT_ABSENT_STAT_TEXT = ["运行时长", "最后活动", "天前"];
 const STUBBED_ROUTES = ["/bilibili/", "/bangumi/"];
 // P4-8（v1.47）：`/friends/` 与 `/sponsor/` **连页面源文件都删了**（上游作者身份 / 打赏入口整条移除），
 // 所以它们从"noindex 存根"升级成**真 404** —— 判据跟着改口径，而不是把断言悄悄删掉。
-const REMOVED_PAGE_ROUTES = ["/friends/", "/sponsor/"];
+const REMOVED_PAGE_ROUTES = ["/friends/", "/sponsor/", "/guestbook/"];
 // sitemap 那一半（"不在这两个页面的路由"）对上面两组都适用，保留合并视图
 const FORBIDDEN_ROUTES = [...STUBBED_ROUTES, ...REMOVED_PAGE_ROUTES];
 // R-ID-06：订阅功能整体移除后，这 4 条路由**连存根都没有**（文件已删），应该是真 404
@@ -271,7 +282,8 @@ const REMOVED_FEED_ROUTES = ["/rss/", "/atom/", "/rss.xml", "/atom.xml"];
 // ⚠️ Task 4（P2R-6）已把三条 `/rank/*` 摘掉 —— 排行整条删除（R-PATH-06），它们不再是"保留页面"，
 //    改由新断言钉住相反的事实：四个旧地址"返回 404 / 不在 sitemap / llms.txt 里也没有残渣"。
 // v1.65：新增 `/about-site/`（关于本站）—— 进了这张表才会被"路由都要 200"那一趟扫到。
-const ALLOWED_ROUTES = ["/", "/about/", "/about-site/", "/guestbook/", "/vndb/", "/myanimelist/", "/booknav/", "/dynamic/", "/projects/", "/gallery/", "/archive/", "/roadmap/"];
+// v1.83：`/guestbook/` 移出本表 —— 留言功能删除后它是**真 404**，已并入 REMOVED_PAGE_ROUTES。
+const ALLOWED_ROUTES = ["/", "/about/", "/about-site/", "/vndb/", "/myanimelist/", "/booknav/", "/dynamic/", "/projects/", "/gallery/", "/archive/", "/roadmap/"];
 // 这里是"待建路由"的登记处：说好要建但还没建的路由写在这里，只记录状态、不参与"通过/失败"计数
 //（否则"功能没做"会被算成 ✅）—— 别再退回"catch 住就算过"的假绿写法。
 const KNOWN_PENDING_ROUTES = [];
@@ -1764,7 +1776,8 @@ async function main() {
 		{ name: "home-1440", path: "/", width: 1440, height: 900, mobile: false },
 		{ name: "home-390", path: "/", width: 390, height: 844, mobile: true },
 		{ name: "sidebar-1440", path: "/", width: 1440, height: 2400, mobile: false, fullPage: false },
-		{ name: "guestbook-1440", path: "/guestbook/", width: 1440, height: 900, mobile: false },
+		// v1.83：`guestbook-1440` 已随留言功能删除（页面没了，采集它只会拿到 404 页；
+		//        截图也从 reports/screenshots 里删掉 → 截图总数 -1）
 		{ name: "myanimelist-1440", path: "/myanimelist/", width: 1440, height: 900, mobile: false },
 		{ name: "vndb-1440", path: "/vndb/", width: 1440, height: 900, mobile: false },
 		{ name: "about-1440", path: "/about/", width: 1440, height: 900, mobile: false },
@@ -3652,9 +3665,13 @@ async function main() {
 		`抽屉第 3 格 = ${JSON.stringify(mThird)} ｜ 抽屉顶层 ${JSON.stringify(mobileHome.mobileTops?.map((t) => t.name))}`);
 	const my = home.navTops.find((t) => t.name === "我的");
 	record("R-NAV-03", "我的子项顺序与链接", !!my && same(my.children, EXPECT_MY_CHILDREN), JSON.stringify(my?.children));
+	// v1.83：新增顶层「关于」下拉 —— 子项必须**逐条**等于从「我的」搬过来那两项（名字 + href + 顺序）。
+	// 为什么不能只断言"有个叫关于的顶层项"：那样「关于」下拉里装了别的东西（或空着）也是绿的。
+	const about = home.navTops.find((t) => t.name === "关于");
+	record("R-NAV-04", "顶层「关于」下拉的两个子项（关于我 + 关于本站，顺序一致）", !!about && same(about.children, EXPECT_ABOUT_CHILDREN), JSON.stringify(about?.children ?? null));
 	record("R-NAV-01~04", "已删除的导航项不再出现", EXPECT_ABSENT_LABELS.every((l) => !home.allLabels.includes(l)), home.allLabels.filter((l) => EXPECT_ABSENT_LABELS.includes(l)).join(",") || "无残留");
 	// ── v1.57（B-10 关闭）「链接」下拉重建；**v1.61 整批换成发起人的 6 条** ────────
-	// 位置由上面那条「顶层导航顺序」钉住（第 5 格、在「我的」与「留言」之间），
+	// 位置由上面那条「顶层导航顺序」钉住（第 5 格、在「我的」与「关于」之间），
 	// 这里钉**内容**：6 条的名字 + href + 顺序，一条不对就红。
 	// ⚠️ 子项名字是**短名**（「洛谷」/「CSDN」/「Boost 搜索引擎」），不是书签页那 38 张卡的全名 ——
 	//    两边故意不同（导航栏放不下「力扣 LeetCode」那类全名），别把它和 EXPECT_BOOKNAV_CARDS 对齐。
@@ -3708,19 +3725,20 @@ async function main() {
 		);
 	}
 	// 移动抽屉与桌面共用同一份 navBarConfig，所以顺序断言对两边都成立（「排行」不再出现在任何一层）
-	record("R-NAV-01", "移动端菜单最后一项是「留言」且第 3 格是「学习路线」", mobileHome.mobileTops.at(-1)?.name === "留言" && mobileHome.mobileTops.some((t) => t.name === "学习路线"), JSON.stringify(mobileHome.mobileTops.map((t) => t.name)));
+	// v1.83：最后一项从「留言」换成「关于」
+	record("R-NAV-01", "移动端菜单最后一项是「关于」且第 3 格是「学习路线」", mobileHome.mobileTops.at(-1)?.name === "关于" && mobileHome.mobileTops.some((t) => t.name === "学习路线"), JSON.stringify(mobileHome.mobileTops.map((t) => t.name)));
 	// M6（终审）：`mobileNavActive` 与 `mobileNavExpanded` 两个采集项原来的唯一消费者是
 	// 「进排行页 → 抽屉自动展开『排行』分组并把它标成当前页」，那条随排行模块删掉了（Task 4），
 	// 于是两个采集项成了**零消费者的死代码**（另一个 agent 交接时点名的 Minor）。
-	// 按终审裁定**改锚到一个仍然存在的分组**上：「我的」→ `/about/`（「关于我」是它的最后一项）。
-	// 覆盖回来的正是丢掉的那半条通用能力：**进子页 → 抽屉标当前页 + 自动展开含它的父级分组**。
+	// 按终审裁定**改锚到一个仍然存在的分组**上：`/about/`（「关于我」）。
+	// ⚠️ v1.83：它的父级从「我的」换成了顶层「关于」—— 锚点跟着搬，判据本体（标当前页 + 自动展开父级）不变。
 	// 数据取 `facts["about-1440"]`（主 COLLECT，抽屉在每一页都在 DOM 里，与视口宽无关）。
 	const aboutNav = facts["about-1440"];
 	record(
 		"R-NAV-01",
-		"进 /about/ 时抽屉把「关于我」标成当前页，并自动展开父级「我的」分组",
+		"进 /about/ 时抽屉把「关于我」标成当前页，并自动展开父级「关于」分组",
 		(aboutNav?.mobileNavActive ?? []).includes("关于我") &&
-			(aboutNav?.mobileNavExpanded ?? []).some((t) => t.startsWith("我的")),
+			(aboutNav?.mobileNavExpanded ?? []).some((t) => t.startsWith("关于")),
 		`当前页项文字 ${JSON.stringify(aboutNav?.mobileNavActive)} ｜ 自动展开的分组 ${JSON.stringify(aboutNav?.mobileNavExpanded)}`,
 	);
 	record("R-ID-01", "站点名 IMiss Blog（标题 + 导航栏品牌）", home.title.includes("IMiss Blog") && (home.brand ?? "").includes("IMiss Blog"), `title=${home.title} brand=${home.brand}`);
@@ -4342,8 +4360,25 @@ async function main() {
 		home.settingsPanel === true,
 		`面板触发属性 ${home.settingsPanel ? "存在" : "不存在"}`,
 	);
-	record("R-CMT-01", "留言页显示装修中占位", (facts["guestbook-1440"].bodyText ?? "").includes("留言板正在装修中"), "");
-	record("R-CMT-02", "留言页副标题已改成本站口吻", (facts["guestbook-1440"].bodyText ?? "").includes("评论区接好之前"), "");
+	// ── v1.83：留言功能整体删除（R-CMT-01 / R-CMT-02 就地换口径）────────────────
+	// 原来这两条读的是 `facts["guestbook-1440"]`（页面正文里的"留言板正在装修中"与副标题）。
+	// 页面与 spec 内容都删了，所以两条判据换成"删除**确实生效**"的正/反面：
+	//   ① 路由层面：`/guestbook/` 是真 404（不再是一个能打开的占位页）；
+	//   ② 结构层面：产物里没有这一页的文件，导航的任何一层也没有「留言」。
+	// ⚠️ 不能只判 404：那样"页面还在、只是被 siteConfig 关成存根"也会绿 —— 我们要的是**文件没了**。
+	// 条数仍是 2（原来也是 2），所以断言总数不变。
+	{
+		const gb = await fetch(`${BASE}/guestbook/`, { redirect: "manual" });
+		record("R-CMT-01", "/guestbook/ 已删除（真 404，不再是「装修中」占位页）", gb.status === 404, `HTTP ${gb.status}`);
+		const pageGone = !(await fs.access(path.resolve("dist/guestbook/index.html")).then(() => true).catch(() => false));
+		const specGone = !(await fs.access(path.resolve("src/content/spec/guestbook.md")).then(() => true).catch(() => false));
+		record(
+			"R-CMT-02",
+			"留言功能产物与内容都已删除（无 dist 页面文件 / 无 spec 内容 / 导航里没有「留言」）",
+			pageGone && specGone && !home.allLabels.includes("留言"),
+			`dist 页面文件已删=${pageGone}｜spec 内容已删=${specGone}｜导航里还有「留言」=${home.allLabels.includes("留言")}`,
+		);
+	}
 	record("R-NAV-03", "番剧页显示未配置卡片", (facts["myanimelist-1440"].bodyText ?? "").includes("番剧数据源还没配置"), "");
 	record("R-NAV-03", "轻小说页显示未配置卡片", (facts["vndb-1440"].bodyText ?? "").includes("轻小说数据源还没配置"), "");
 	// R-NAV-04 原来只看 bodyText.length > 100（几乎恒真）。改成检查页面上有真实内容标志。
@@ -6236,10 +6271,11 @@ async function main() {
 			record("R-NAV-07", "sitemap 不含已关闭页面", gone.length === 0, gone.join(",") || "干净");
 			// v1.41（Task 4）：三个 `/rank/*` 从"保留页面"里摘掉（排行整条删除），
 			// 换成顶上它那一格的替代页 `/roadmap/`。
-			const kept = ["/vndb/", "/myanimelist/", "/guestbook/", "/booknav/", "/roadmap/"].filter(
+			// v1.83：`/guestbook/` 从本表移出（留言功能删除 → 已并入 FORBIDDEN_ROUTES）→ 4 条。
+			const kept = ["/vndb/", "/myanimelist/", "/booknav/", "/roadmap/"].filter(
 				(r) => sm.includes(r),
 			);
-			record("R-NAV-07", "sitemap 含保留页面（含学习路线）", kept.length === 5, kept.join(","));
+			record("R-NAV-07", "sitemap 含保留页面（含学习路线）", kept.length === 4, kept.join(","));
 			// ── R-PATH-06：排行整条删除后，**产物里也不许留排行残渣**（sitemap + llms.txt）──
 			// ⚠️ **必须带正向锚点**：`filter(...).length === 0` 在"读到空串 / 读到 404 页 / 路径写错"
 			//    时**恒为真** —— 那是典型的"判据空过"（本项目已两次踩到同类写法）。
