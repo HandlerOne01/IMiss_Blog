@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.92 |
+| 文档版本 | v1.93 |
 | 最后更新 | 2026-10-09 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | 上游模板基线 v6.16.8（站点信息里中性显示为「博客版本 v6.16.8」），Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -148,7 +148,7 @@ src/
 ├─ content/
 │  ├─ posts/**                    ➕ 迁移来的文章
 │  ├─ spec/about.md               ✏️ 关于我（**v1.90 起是发起人给的自述**：学习笔记说明 + 电话/微信/邮箱 + 7 条游戏身份 + 「曾经的我」；**v1.92 把开篇的自嘲与「踩坑」口吻删掉、回到他的原话**；v1.65~v1.89 曾是占位页，原内容整体搬到 about-site.md）
-│  ├─ spec/about-site.md          ➕ 关于本站（**v1.65 新增**；**v1.86 起是第一人称使用说明**）
+│  ├─ spec/about-site.md          ➕ 关于本站（**v1.65 新增**；**v1.86 起是第一人称使用说明**；**v1.93 开篇两行改成平铺直叙**（删掉「也是我练手的地方」这类自嘲与抒情式解释））
 │  ├─ spec/guestbook.md           ⛔ **v1.83 已删除**（留言功能整体移除，见 R-CMT-01）
 │  └─ projects/*.md               ➕ 项目（**v1.79 起 3 篇**：仿 muduo 实现的高并发服务器 / 基于正倒排索引的 Boost 搜索引擎 / 基于 LangChain / LangGraph 个人博客智能助手 —— ⚠️ 第三篇的标题里有一个 249px 的无断点长词，它与卡片 `line-clamp-1` 的关系见 `src/components/pages/projects/ProjectCard.astro` 的注释）
 ├─ public/gallery/site-images/    ➕ **v1.87 相册「本站图片」**：8 张 PNG **原图按字节原样**（39.9 MB，未转码）+ 一份 README.md 文件名映射；封面 `cover.png`（7680×3296）
