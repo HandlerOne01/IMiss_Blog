@@ -100,7 +100,8 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 				src: "/assets/wallpaper/chuangbian.mp4",
 				name: "窗边少女",
 				poster: "/assets/wallpaper/chuangbian-poster.webp",
-				focus: { x: 0.41, y: 0.36 },
+				// 实测（网格帧读数）：两眼中心 x=50% / y=26% → 脸中心取 50% / 33%
+				focus: { x: 0.5, y: 0.33 },
 				focusAnchorY: 0.45,
 				// 发起人 2026-10-09 第一次：「第三张左移一点」→ 0.45；
 				// 第二次看图后改口：「**第一张人物居中**」→ 回到正中 0.50
@@ -110,14 +111,16 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 				src: "/assets/wallpaper/xingye.mp4",
 				name: "星夜少女",
 				poster: "/assets/wallpaper/xingye-poster.webp",
-				focus: { x: 0.37, y: 0.37 },
+				// 实测：两眼中心 x=24% / y=27%（她躺在画面左侧）→ 脸中心 24% / 34%
+				focus: { x: 0.24, y: 0.34 },
 				focusAnchorY: 0.45,
 			},
 			{
 				src: "/assets/wallpaper/hupan.mp4",
 				name: "湖畔少女",
 				poster: "/assets/wallpaper/hupan-poster.webp",
-				focus: { x: 0.44, y: 0.39 },
+				// 实测：两眼中心 x=41% / y=24% → 脸中心 41% / 31%
+				focus: { x: 0.41, y: 0.31 },
 				focusAnchorY: 0.45,
 				// 发起人 2026-10-09：「第一张左移一点，再下拉一点」
 				//   左移 → 落点 44%；下拉 → 手机端没有垂直余量，靠 zoom 1.15 让下缘被裁、人物下沉
@@ -131,7 +134,8 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 				poster: "/assets/wallpaper/xishoutai-poster.webp",
 				// 这一支画面里有两个"人"：镜中的正脸（x≈0.30）与镜前本人的背影（x≈0.62）。
 				// 锚点取**镜中那张脸** —— 发起人的硬要求是"手机端脸必须全露"，背影不算脸。
-				focus: { x: 0.3, y: 0.34 },
+				// 实测：**镜中那张正脸**的两眼中心 x=18% / y=37%（背影那位的身体中心在 60%）→ 取镜中脸 18% / 44%
+				focus: { x: 0.18, y: 0.44 },
 				focusAnchorY: 0.45,
 				// 发起人 2026-10-09 第一次：「第二张左移一点点，下拉一点点」→ 0.47 / zoom 1.06；
 				// 第二次看图后改成：「**第二张人物偏左**」→ 落点进一步挪到 0.38（镜中那张脸落在画面左三分之一）
@@ -142,7 +146,8 @@ export const backgroundWallpaper: BackgroundWallpaperConfig = {
 				src: "/assets/wallpaper/taluo.mp4",
 				name: "塔罗占卜",
 				poster: "/assets/wallpaper/taluo-poster.webp",
-				focus: { x: 0.49, y: 0.3 },
+				// 实测：两眼中心 x=40% / y=15% → 脸中心 40% / 22%
+				focus: { x: 0.4, y: 0.22 },
 				focusAnchorY: 0.45,
 				// 预留示例：以后做"按时间排序"时，这一支可以挂夜间档
 				// timeRange: ["18:00", "06:00"],
