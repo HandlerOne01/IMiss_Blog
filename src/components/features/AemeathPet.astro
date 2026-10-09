@@ -162,7 +162,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 
 <script>
 	import { petConfig } from "@/config";
-	import { askAemeath, resetSession, type AgentTurn } from "@/utils/agent-client";
+	import { askAemeath, classifyAsk, resetSession, type AgentTurn } from "@/utils/agent-client";
 	import { cleanMarkdown, cleanUserText, formatClock, shouldCollapse } from "@/utils/pet-chat-text";
 	import {
 		PET_COLS,
@@ -1372,8 +1372,13 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 					//    旧实现把它套在整段（答复+反问）上 → 450 字的文章列表被砍成 221 字。
 					//    现在只对**纯反问**那一形态截断；长答复交给历史区的滚动与折叠（见 pet.css）。
 					const onlyAsk = !turn.text.includes("\n\n");
+					// v1.91：「回我「不提供」也行，我替你挑。」这句提示**只对"约定词那一类"反问成立**
+					//（要不要收进本子 / 篇幅多少字）。「你说的是哪一篇？回我序号就行」那一类要的是
+					// 序号或篇名 —— 配这句提示会把人往错的方向带（发起人就是这么踩到的），
+					// 而反问原文里已经写清了该怎么答，原样上屏即可。
+					const hint = turn.interrupt?.kind === "choice" ? "" : `\n\n${INTERRUPT_HINT}`;
 					setReplySource("live");
-					addLine("ai", onlyAsk ? `${trimAsk(turn.text, true)}\n\n${INTERRUPT_HINT}` : turn.text);
+					addLine("ai", onlyAsk ? `${trimAsk(turn.text, true)}${hint}` : turn.text);
 					endTrip(session, "running");
 					return;
 				}
@@ -2081,7 +2086,12 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				if (chatInput) chatInput.value = "";
 				addLine("user", text); // 用户那句先进历史（R-PET-11：历史区就是"看得见的上下文"）
 				histIdx = -1;
-				lastReply = text; // 兜底：适配层拿它判"这句是不是在回答刚才的反问"
+				// ⚠️ v1.91：**这里不许把 `lastReply` 覆盖成用户刚说的那句**。
+				//    `lastReply` 的定义是"爱弥斯上一句"（1181 行：只有非 user 的行才写它），
+				//    适配层拿它判"用户这句是不是在回答刚才的反问"—— 覆盖成用户自己的话之后，
+				//    `classifyAsk()` 判的就不是那句反问、而是用户这句话，等于**永远判不出
+				//    "后端在问哪一篇"**（旧代码靠 `isResumeWord` 的真值门槛侥幸还能跑通约定词那条路）。
+				//    实测证据：`reports/_choice-ask-probe.mjs`（修前用户回「1」也被翻成「不提供」）。
 				runAsk(text, chatResume);
 			});
 			// 键盘：Enter 发送走表单的隐式提交（原生行为，不用另写）；Esc 关框在 document 上。
@@ -2426,6 +2436,8 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 					busy: boolean;
 					ask: string | null;
 					resume: string | null;
+					/** 反问的类型（v1.91）：`choice` = 要序号/篇名（前端不许替答），`resume-word` = 三个约定词 */
+					askKind: "resume-word" | "choice" | null;
 					lastReply: string;
 				};
 			};
@@ -2467,6 +2479,9 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				busy: chatBusy,
 				ask: chatAsk,
 				resume: chatResume,
+				// v1.91：反问的**类型**（只读事实）。断言靠它区分"该不该由前端替答"：
+				// `choice` 那一类必须上屏等人答，`resume-word` 那一类才走约定词自动/手动续跑。
+				askKind: chatAsk ? classifyAsk(chatAsk) : null,
 				lastReply,
 				// ── R-PET-11 新增（同样是**只读**事实，给"历史 / 思考中 / 上一次答复"
 				//    这几条断言用）：`lines` = 历史条数、`thinking` = 思考指示是否在转、

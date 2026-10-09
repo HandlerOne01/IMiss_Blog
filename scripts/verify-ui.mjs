@@ -8043,6 +8043,176 @@ async function main() {
 					`第一次提交后 busy=${busyBefore.busy}；在飞时提交第二句 → 气泡「${(afterSecond.reply ?? "").replace(/\n/g, "⏎").slice(0, 60)}」（含可见反馈=${afterSecond.reply.includes("还忙着上一句")}）、输入框仍留着「${inputVal}」（不清空 = 不丢用户刚打的字）、busy 仍是 ${afterSecond.busy}；截图 reports/screenshots/pet-agent-busy-feedback-1440.png`,
 				);
 			}
+
+			// ── v1.91：「后端问『你说的是哪一篇』」这一问**不许被前端替答** ──────────────
+			// 现场（发起人 2026-10-09 的图证）：他在桌宠里问「介绍一下Boost搜索引擎这个文章」，
+			// 气泡回的是「我这边没定位到你说的那篇文章。换个说法？…」—— 可 LangSmith 里那篇
+			// 明明被找到了。三个只读复现探针打真后端（`reports/_agent-repro-boost{,2,3}.mjs`）
+			// 把链路钉清楚了：后端 `find_by_title("Boost搜索引擎")` 命中 **2 篇** → `interrupt`
+			// 反问「「Boost搜索引擎」对上好几篇，你说的是哪一篇？回我序号就行：1…2…」；
+			// **答「1」→ 一篇完整介绍（含真实站内链接）**；答两次「不提供」→ 后端放弃，
+			// `compose_intro` 输出那句"没定位到"（它其实刚找到两篇）。
+			// 前端有两条旧口径把这一问吞掉了：① `replyForAsk()` 对这种问句落到默认词「不提供」；
+			// ② `runRound()` 见"只有反问、没有答复"就**自动续跑** → 反问从来没上屏、
+			//    用户随后回「1」也被翻成「不提供」（浏览器端复现 `reports/_choice-ask-probe.mjs`：
+			//    修前实测自动发了 `["不提供","不提供"]`，最后气泡就是那句假话）。
+			// 这一组用**假后端复刻真后端那条链**（不再依赖真后端在不在），把修好后的口径钉住；
+			// 第 4 条是**对照组**：约定词那一类反问必须照旧自动续跑（别把能跑的那条路一起改坏）。
+			{
+				// 假后端要复刻的四句原文（逐字取自真后端 `introduce.py` 的 `_ask_which` 与
+				// `compose_intro`，以及本次实测的真反问文本 —— 别改成"差不多的意思"，
+				// 判据认的就是这些字）
+				const CHOICE_ASK =
+					"「Boost搜索引擎」对上好几篇，你说的是哪一篇？回我序号就行：\n1. 《基于正倒排索引的 Boost 搜索引擎》 · 项目实战 · 约 3552 字\n2. 《搜索引擎思维导图》 · 项目梳理 · 约 11192 字";
+				const CHOICE_REASK =
+					"没认出你回的是哪篇。回我**序号**（1、2…）就行：\n1. 《基于正倒排索引的 Boost 搜索引擎》 · 项目实战 · 约 3552 字\n2. 《搜索引擎思维导图》 · 项目梳理 · 约 11192 字";
+				const CHOICE_GIVEUP =
+					"我这边没定位到你说的那篇文章。换个说法？比如把篇名说得再准一点，我照着标题找。";
+				const CHOICE_INTRO =
+					"《基于正倒排索引的 Boost 搜索引擎》——假后端给的介绍，用来证明「序号答对了」这条路通。原文在这儿：/posts/projects/boost-search-engine/";
+				const choiceFake = `
+					const enc = new TextEncoder();
+					const sse = (name, data) => "event: " + name + "\\r\\ndata: " + data + "\\r\\n\\r\\n";
+					const jsonRes = (o, status) => new Response(JSON.stringify(o), { status: status || 200, headers: { "content-type": "application/json" } });
+					const streamOf = (chunks) => new Response(new ReadableStream({ start(c) { for (const x of chunks) c.enqueue(enc.encode(x)); c.close(); } }), { headers: { "content-type": "text/event-stream" } });
+					const base = window.__imissRealFetch;
+					window.__cfResumes = [];
+					window.__cfAttempts = 0;
+					const ASK = ${JSON.stringify(CHOICE_ASK)};
+					const REASK = ${JSON.stringify(CHOICE_REASK)};
+					const GIVEUP = ${JSON.stringify(CHOICE_GIVEUP)};
+					const INTRO = ${JSON.stringify(CHOICE_INTRO)};
+					window.fetch = (input, init) => {
+						const u = typeof input === "string" ? input : (input && input.url) ? input.url : String(input);
+						const method = ((init && init.method) || "GET").toUpperCase();
+						if (u.indexOf(${JSON.stringify(LIVE_FAKE)}) !== 0) return base(input, init);
+						let body = null;
+						try { body = init && init.body ? JSON.parse(init.body) : null; } catch {}
+						const isCommand = !!(body && body.command);
+						if (u.endsWith("/ok") && method === "GET") return Promise.resolve(jsonRes({ ok: true }));
+						if (u.endsWith("/assistants/search")) return Promise.resolve(jsonRes([{ graph_id: "blog_agent", assistant_id: "asst-choice" }]));
+						if (u.endsWith("/threads") && method === "POST") return Promise.resolve(jsonRes({ thread_id: "t-choice" }));
+						if (u.endsWith("/runs/stream")) {
+							if (!isCommand) {
+								return Promise.resolve(streamOf([sse("values", JSON.stringify({
+									messages: [{ type: "human", content: ${JSON.stringify("介绍一下Boost搜索引擎这个文章")} }],
+									__interrupt__: [{ value: ASK, id: "i1" }],
+								}))]));
+							}
+							const v = String(body.command.resume);
+							window.__cfResumes.push(v);
+							if (/^\\s*\\d+\\s*$/.test(v)) return Promise.resolve(streamOf([sse("values", JSON.stringify({ messages: [{ type: "ai", content: INTRO }] }))]));
+							window.__cfAttempts += 1;
+							if (window.__cfAttempts < 2) {
+								return Promise.resolve(streamOf([sse("values", JSON.stringify({
+									messages: [{ type: "human", content: ${JSON.stringify("介绍一下Boost搜索引擎这个文章")} }],
+									__interrupt__: [{ value: REASK, id: "i2" }],
+								}))]));
+							}
+							return Promise.resolve(streamOf([sse("values", JSON.stringify({ messages: [{ type: "ai", content: GIVEUP }] }))]));
+						}
+						return Promise.resolve(jsonRes({ detail: "no route" }, 404));
+					};`;
+				await arm({ enable: true, baseUrl: LIVE_FAKE, timeoutMs: 20000 }, choiceFake);
+				// ① 提问：后端反问"哪一篇" → 这一轮结束时就该看到那句反问（不许自动续跑）
+				const askTurn = await askPet("介绍一下Boost搜索引擎这个文章", { timeout: 30000, waitFor: "interrupt" });
+				const askState = await cdp.send("Runtime.evaluate", {
+					expression: `(() => {
+						const d = window.__imissChatDebug ? window.__imissChatDebug() : null;
+						const reply = document.querySelector(".pet-chat-reply");
+						return { reply: reply ? (reply.textContent || "").trim() : "", askKind: d ? d.askKind : null, ask: d ? d.ask : null, resumes: window.__cfResumes || [], busy: d ? d.busy : null };
+					})()`,
+					returnByValue: true,
+				});
+				const s1 = askState.result.value;
+				facts["choice-ask"] = { askTurn, s1 };
+				record(
+					"R-AGT-12",
+					"后端问「你说的是哪一篇」时，这句反问**上屏**（连候选列表一起），并标成 `choice` 类",
+					String(s1?.reply ?? "").includes("回我序号") &&
+						String(s1?.reply ?? "").includes("基于正倒排索引") &&
+						s1?.askKind === "choice",
+					`气泡原文「${(s1?.reply ?? "").replace(/\n/g, "⏎").slice(0, 120)}」；askKind=${s1?.askKind}`,
+				);
+				// ② 关键的一条：**前端一个 resume 都没发**（替答就是这次线上问题的成因）
+				record(
+					"R-AGT-12",
+					"前端**不替用户答**：这一问之后没有任何自动 `command.resume`（旧实现自动发了两次「不提供」）",
+					(s1?.resumes ?? []).length === 0 && s1?.busy === false,
+					`这一轮发出去的 resume = ${JSON.stringify(s1?.resumes ?? [])}（期望空数组）；busy=${s1?.busy}`,
+				);
+				// ③ 用户亲手回「1」→ 原话透传 + 拿到答复
+				const pickTurn = await askPet("1", { timeout: 30000, waitFor: "round" });
+				const s2 = (
+					await cdp.send("Runtime.evaluate", {
+						expression: `(() => {
+							const reply = document.querySelector(".pet-chat-reply");
+							return { reply: reply ? (reply.textContent || "").trim() : "", resumes: window.__cfResumes || [] };
+						})()`,
+						returnByValue: true,
+					})
+				).result.value;
+				facts["choice-ask-pick"] = s2;
+				// ⚠️ CDP 合成键盘会把同一个字写两遍（实测「第第二二句句」，同 line ~8034 那条的容忍口径）：
+				//    所以「原话透传」在这里的期望值是 `"1"` **或** `"11"` —— 关键是**它是用户打的那个数字**，
+				//    而不是被翻成约定词「不提供」（修前实测就是这个：`["不提供"]`）。
+				const PICK_DOUBLED = "1".split("").map((c) => c + c).join("");
+				const pickOk = (s2?.resumes ?? []).some((v) => v === "1" || v === PICK_DOUBLED);
+				record(
+					"R-AGT-12",
+					"用户回「1」→ 原话透传成 `command.resume`（不再是约定词「不提供」），并拿到那篇的介绍",
+					pickOk && String(s2?.reply ?? "").includes("基于正倒排索引的 Boost 搜索引擎"),
+					`发出去的 resume = ${JSON.stringify(s2?.resumes ?? [])}（期望 [\"1\"]；合成键盘会打成 \"11\"，两种都算原话透传）；答复「${(s2?.reply ?? "").slice(0, 60)}…」`,
+				);
+				// ④ 对照组：约定词那一类反问**照旧**自动续跑（别把能跑的那条路一起改坏）
+				const wordFake = `
+					const enc = new TextEncoder();
+					const sse = (name, data) => "event: " + name + "\\r\\ndata: " + data + "\\r\\n\\r\\n";
+					const jsonRes = (o, status) => new Response(JSON.stringify(o), { status: status || 200, headers: { "content-type": "application/json" } });
+					const streamOf = (chunks) => new Response(new ReadableStream({ start(c) { for (const x of chunks) c.enqueue(enc.encode(x)); c.close(); } }), { headers: { "content-type": "text/event-stream" } });
+					const base = window.__imissRealFetch;
+					window.__wfResumes = [];
+					window.fetch = (input, init) => {
+						const u = typeof input === "string" ? input : (input && input.url) ? input.url : String(input);
+						const method = ((init && init.method) || "GET").toUpperCase();
+						if (u.indexOf(${JSON.stringify(LIVE_FAKE)}) !== 0) return base(input, init);
+						let body = null;
+						try { body = init && init.body ? JSON.parse(init.body) : null; } catch {}
+						const isCommand = !!(body && body.command);
+						if (u.endsWith("/ok") && method === "GET") return Promise.resolve(jsonRes({ ok: true }));
+						if (u.endsWith("/assistants/search")) return Promise.resolve(jsonRes([{ graph_id: "blog_agent", assistant_id: "asst-word" }]));
+						if (u.endsWith("/threads") && method === "POST") return Promise.resolve(jsonRes({ thread_id: "t-word" }));
+						if (u.endsWith("/runs/stream")) {
+							if (!isCommand) {
+								return Promise.resolve(streamOf([sse("values", JSON.stringify({
+									messages: [{ type: "human", content: "帮我找几篇讲 C++ 的文章" }],
+									__interrupt__: [{ value: ${JSON.stringify("要不要我收进本子？")}, id: "w1" }],
+								}))]));
+							}
+							window.__wfResumes.push(String(body.command.resume));
+							return Promise.resolve(streamOf([sse("values", JSON.stringify({ messages: [{ type: "ai", content: "收好了，本子上记着呢。" }] }))]));
+						}
+						return Promise.resolve(jsonRes({ detail: "no route" }, 404));
+					};`;
+				await arm({ enable: true, baseUrl: LIVE_FAKE, timeoutMs: 20000 }, wordFake);
+				const wordTurn = await askPet("帮我找几篇讲 C++ 的文章", { timeout: 30000, waitFor: "answer" });
+				const s3 = (
+					await cdp.send("Runtime.evaluate", {
+						expression: `(() => {
+							const reply = document.querySelector(".pet-chat-reply");
+							return { reply: reply ? (reply.textContent || "").trim() : "", resumes: window.__wfResumes || [] };
+						})()`,
+						returnByValue: true,
+					})
+				).result.value;
+				facts["word-ask"] = { wordTurn, s3 };
+				record(
+					"R-AGT-12",
+					"对照组：约定词那一类反问（「要不要收进本子」）**照旧**自动续跑 —— 发的是「需要」",
+					(s3?.resumes ?? []).includes("需要") && String(s3?.reply ?? "").includes("收好了"),
+					`发出去的 resume = ${JSON.stringify(s3?.resumes ?? [])}（期望含「需要」）；气泡「${(s3?.reply ?? "").slice(0, 40)}」`,
+				);
+			}
 		}
 
 		// ── R-PET-11 聊天框 UI / 交互重做（发起人 2026-09-27 第五轮反馈，附图）─────

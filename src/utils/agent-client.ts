@@ -223,6 +223,14 @@ export interface AgentInterrupt {
 	reply: string;
 	/** 怎么判出来的（只给日志 / 断言看，**不许**进气泡） */
 	via: "values" | "updates" | "state";
+	/**
+	 * **这一问该怎么答**（v1.91 新增）—— 见 `classifyAsk()`：
+	 *   · `"resume-word"`：三个约定词就能答（推荐链路的「要不要收进本子 / 篇幅多少字」）；
+	 *   · `"choice"`：**要的是序号或篇名本身**（`introduce.py` 的 `_ask_which`），约定词答不了，
+	 *     而且**绝不能由前端替用户答** —— 实测替答两次之后后端会输出
+	 *     「我这边没定位到你说的那篇文章」，可它刚刚明明找到了两篇。
+	 */
+	kind: "resume-word" | "choice";
 }
 
 /** 最终状态：只有这四种，组件按它做九状态联动（R-AGT-04） */
@@ -574,7 +582,7 @@ async function runRound(
 				round.state = state;
 				const ask = interruptValue(state.__interrupt__);
 				if (ask && !round.interrupt)
-					round.interrupt = { ask, reply: replyForAsk(ask), via: "values" };
+					round.interrupt = makeInterrupt(ask, "values");
 				// ⚠️ 锚点 = 最后一条 human 消息（本轮自己的提问）：多步图首快照里带的
 				//    **上一轮答复**因此取不到（v1.37 修"气泡停在旧文本"）
 				const { text, blocked, id } = lastAiMessage(
@@ -602,7 +610,7 @@ async function runRound(
 			const o = parseJSON(e.data) as Record<string, unknown> | null;
 			const ask = interruptValue(o?.__interrupt__);
 			if (ask)
-				round.interrupt = { ask, reply: replyForAsk(ask), via: "updates" };
+				round.interrupt = makeInterrupt(ask, "updates");
 		}
 		// `messages/*` 一律不碰：`messages/metadata` 是模型名 / 节点名（内部信息），
 		// `messages/partial` 是半成品 tool_calls，`messages/complete` 与 `values` 重复。
@@ -721,6 +729,31 @@ async function interruptFromState(
 /* ── 约定词（§8.9.5 的暗号表）────────────────────────────────────────────── */
 
 /**
+ * **后端这一问属于哪一类**（v1.91）—— 决定"前端能不能替用户答"。
+ *
+ * 起因（发起人 2026-10-09 的图证 + 三个只读复现探针）：他在桌宠里问
+ * 「介绍一下Boost搜索引擎这个文章」，气泡回的是
+ * 「我这边没定位到你说的那篇文章。换个说法？…」，可 LangSmith 里那篇明明被找到了。
+ * 复现结论（`reports/_agent-repro-boost{,2,3}.mjs`，打的真后端）：
+ *   · 后端 `find_by_title("Boost搜索引擎")` 命中 **2** 篇 → `interrupt` 反问
+ *     「「Boost搜索引擎」对上好几篇，你说的是哪一篇？回我序号就行：1…2…」；
+ *   · **答「1」→ 一篇完整的介绍**（含真实站内链接）；**答「不提供」两次 → 后端放弃，
+ *     `compose_intro` 输出「我这边没定位到你说的那篇文章」**（它其实刚找到两篇）；
+ *   · 而前端 `replyForAsk()` 对这种问句落到默认词「不提供」，`runRound()` 又在
+ *     "只有反问、没有答复"的形态下**自动续跑** → 那句反问从来没见过访客，
+ *     访客只看到最后那句假话（浏览器端复现：`reports/_choice-ask-probe.mjs`，
+ *     实测自动发了 `["不提供","不提供"]`，用户随后回「1」也被翻成「不提供」）。
+ *
+ * 所以这里把问句分成两类，`choice` 那一类**只上屏、不替答**，用户回什么就原样回传什么。
+ * ⚠️ 判据仍是"靠问句形态"（后端 `interrupt` 里还没有结构化载荷 —— 见 §8.9.5 已知脆弱点、
+ *    §8.9.7 未决项 #9）；认出 `_ask_which` 的三句问法：首次反问、两次尝试之间的重问。
+ */
+export function classifyAsk(ask: string): "choice" | "resume-word" {
+	if (/回我序号|对上好几篇|你说的是哪一篇|没认出你回的是哪篇/.test(ask)) return "choice";
+	return "resume-word";
+}
+
+/**
  * 挑该回给后端哪个约定词。**只在"问句本身明确在问什么"时才推词**（复核 D-8）。
  * ⚠️ 旧实现有一条 `/要不要|需要我|要我/ → provide（需要）`，它把「要不要我按站里的常用范围
  * 替你挑几篇？」这类**宽松提问**也翻成了 `需要` —— 而契约里 `需要` 的含义是"用户明确给了
@@ -729,14 +762,20 @@ async function interruptFromState(
  *   · 问句里明确出现**字数/篇幅/时长**类词，或明确问"要不要收进本子" → `provide`（收下这个活儿）；
  *   · 其余（含"不提供/不想说"这类宽松提问）→ **默认词 `不提供`**；
  *   · 推不出来一律默认，**不猜用户意图**。
- * 已知脆弱点：这仍然是"靠问句形态推词"，根治要等后端在 `interrupt` 里带结构化载荷
- * （见 `ARCH.md` §8.9.5 的已知脆弱点与 §8.9.7 未决项）。
+ * ⚠️ **只对 `classifyAsk() === "resume-word"` 的问句调用**：`choice` 那类（问你要哪一篇）
+ *    拿约定词去答是答非所问（见 `classifyAsk` 的注释与三个复现探针）。
  */
 function replyForAsk(ask: string): string {
 	// 后端反问"要不要收进本子"= 它准备把结果落盘，这时回 `需要` 是明确的"收下"
 	if (/收进本子|收进本|存下来|记下来/.test(ask)) return agentConfig.resumeWords.provide;
 	if (/多少字|字数|篇幅|多长|时长|看多久/.test(ask)) return agentConfig.resumeWords.provide;
 	return agentConfig.resumeWords.default;
+}
+
+/** 造一个 `AgentInterrupt`（三个来源共用，免得漏填 `kind`） */
+function makeInterrupt(ask: string, via: AgentInterrupt["via"]): AgentInterrupt {
+	const kind = classifyAsk(ask);
+	return { ask, via, kind, reply: replyForAsk(ask) };
 }
 
 /** 这句话里有没有出现约定词（判"用户这句是不是在回答 `interrupt`"） */
@@ -943,14 +982,21 @@ export async function askAemeath(
 	// `opts.lastReply` 只用来判一件事：**用户这句是不是在回答上一轮的反问**（§8.9.5）。
 	// ⚠️ 它**不再**参与"答复去重"（复核 D-5：组件把用户那句话塞进来当基线，导致
 	// "答复比用户那句短"时真答复被丢、假降级）。
-	// ⚠️ 判据是"上一轮反问过 **且** 这句里出现了约定词"（`isResumeWord` 做子串匹配）——
-	// 这是 §8.9.5 那三条暗号能表达的全部信息量，**推不出来就按普通消息发**（不猜用户意图）。
-	// 副作用（已知、可接受）：用户用「好的 / 嗯」这种**非约定词**回答反问时，这句会作为新
-	// `input` 发出去，后端把它当新话题（推荐链路那一轮会白跑）。根治同样要等后端的结构化载荷
-	// （§8.9.7 未决项 #9）；当前口径是"宁可当新话题，也不替用户编一个约定词"。
+	// ⚠️ 判据是"上一轮反问过 **且** 这句能算作回答"——
+	//   · 问的是「要不要收进本子 / 篇幅多少字」→ 三个约定词之一（`isResumeWord` 子串匹配）；
+	//   · **问的是「你说的是哪一篇？（回我序号）」→ 用户这句就原样回传**（v1.91）。
+	//     为什么必须原样：那一问要的是**序号或篇名**，约定词答不了；实测拿「不提供」去答两次，
+	//     后端会输出「我这边没定位到你说的那篇文章」（它刚找到两篇）—— 访客看到的是一句假话。
+	//     详见 `classifyAsk()` 与 `reports/_agent-repro-boost{,2,3}.mjs`。
+	// 副作用（已知、可接受）：用户在"哪一篇"这一问之后改问别的，那句会被当成对它的回答发出去，
+	// 后端认不出会**再问一次**（它的 `_ask_which` 本来就是两次尝试）—— 比替用户编一个词诚实。
+	const lastWasChoiceAsk = Boolean(
+		opts.lastReply && classifyAsk(opts.lastReply) === "choice",
+	);
 	const answeringInterrupt = Boolean(
 		opts.lastReply &&
-			isResumeWord(message, Object.values(agentConfig.resumeWords)),
+			(lastWasChoiceAsk ||
+				isResumeWord(message, Object.values(agentConfig.resumeWords))),
 	);
 
 	let assistant: string | null = null;
@@ -1019,7 +1065,12 @@ export async function askAemeath(
 	// `command`，而 `blog_agent` 的形态 A（先答复再反问）是**跨轮**的：用户隔一轮回答时，
 	// 那句被当成新 `input` 发出。真后端今天容忍这种写法（复核实测 200 + interrupt 被消费），
 	// 但那是**没写进契约的宽容行为**，后端一收紧这条链路就静默失效 —— 所以照契约发。
-	const firstRoundResume = answeringInterrupt ? resumeWordFor(message) : null;
+	// ⚠️ `choice` 那一问（"你说的是哪一篇"）回传**用户原话**，其余按暗号表翻成约定词
+	const firstRoundResume = answeringInterrupt
+		? lastWasChoiceAsk
+			? message.trim()
+			: resumeWordFor(message)
+		: null;
 	let payload: Record<string, unknown> = firstRoundResume
 		? { command: { resume: firstRoundResume } }
 		: { input: { messages: [{ type: "human", content: message }] } };
@@ -1096,7 +1147,7 @@ export async function askAemeath(
 		//    有答复的轮次根本不需要判 interrupt（形态 A 的答复+反问都从 `values` 里拿）。
 		if (!r.interrupt && !r.answer.trim()) {
 			const ask = await interruptFromState(base, liveThread, cfg.timeoutMs, signal);
-			if (ask) r.interrupt = { ask, reply: replyForAsk(ask), via: "state" };
+			if (ask) r.interrupt = makeInterrupt(ask, "state");
 		}
 		// ④ 命中 `interrupt`，分两种形态（§8.9.5 描述了前一种，第二种是 P5-1 接线时实测到的，
 		//    P5 复核又独立复现了一次；两种形态都真实存在，别只按文档写的那种实现）：
@@ -1115,7 +1166,11 @@ export async function askAemeath(
 			}
 			// 形态 B（**纯反问、没有答复**，`recommended_agent` 问篇幅）：这一轮确实没有答复，
 			//   必须续跑（§8.9.5 的判定规则）；用户这句话本身是约定词时用他说的那个，否则用默认词。
-			if (round === MAX_RESUME_ROUNDS) {
+			//   ⚠️ **例外：`choice` 那一问（"你说的是哪一篇"）绝不自动续跑**（v1.91）——
+			//   它要的是序号/篇名，前端编不出正确答案；替答两次的实测后果是后端输出
+			//   「我这边没定位到你说的那篇文章」（而它刚找到两篇），访客永远看不到那句反问。
+			//   所以这里直接把反问交出去，用户答什么下一轮原样回传。
+			if (r.interrupt.kind === "choice" || round === MAX_RESUME_ROUNDS) {
 				return done({
 					text: r.interrupt.ask,
 					status: "interrupt",
