@@ -197,6 +197,18 @@ export const booknavConfig: BooknavGroup[] = [
 				weight: 3,
 			},
 			{
+				// v1.88：发起人给的地址（「书签导航加个这个」）。放在本组**最后一位**（weight 1）——
+				// 这组的顺序是他 2026-09-30 定的优先级，新卡不插队；要挪前面说一声。
+				// ⚠️ 品牌键**逐字等于标题**：`verify-ui.mjs` 那条"逐张核对亮色图标色"是按**卡片标题**
+				//    索引品牌表的，键写成短名会让这张卡**静默漏掉核对**（写短名的第一版实测 27 张只核了 26 张）。
+				title: "MiniMax 媒体平台",
+				url: "https://design.minimax.cn/media-plan/console/details",
+				desc: "MiniMax 的媒体计划控制台",
+				icon: "simple-icons:minimax",
+				iconColor: brandHex("MiniMax 媒体平台"),
+				weight: 1,
+			},
+			{
 				title: "OpenAI Platform",
 				url: "https://platform.openai.com/",
 				desc: "OpenAI API 平台",

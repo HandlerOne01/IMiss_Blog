@@ -79,7 +79,7 @@ const EXPECT_TOP_NAV = ["主页", "文章", "学习路线", "我的", "链接", 
 // v1.61：「链接」下拉的内容 —— **6 条**外链，顺序即 `navBarConfig.ts` 里的顺序，
 // 也就是发起人给清单的顺序（Gitee → GitHub → CSDN → 洛谷 → Boost 搜索引擎 → HTTP 服务器）。
 // ⚠️ 子项名字取短名（「洛谷」不是「洛谷 Luogu」、不含用户名），所以这里钉的是**导航里的短名**，
-//    与书签页那 38 张卡（`EXPECT_BOOKNAV_CARDS` 用全名）**故意不同**，别互相抄。
+//    与书签页那 39 张卡（`EXPECT_BOOKNAV_CARDS` 用全名）**故意不同**，别互相抄。
 // ⚠️ href **逐字**钉死（含两条容易被"顺手改掉"的）：CSDN 只有干净地址、**没有** `?spm=…` 跟踪参数；
 //    「Boost 搜索引擎」是 `http://` + 裸 IP + 非标准端口，**按发起人给的地址原样收录**（改动即判红）。
 //    ⚠️ 但"钉 href"证不了"为什么是这样"（跟踪参数去了、裸 IP 那条留了建议注释），
@@ -120,11 +120,11 @@ const EXPECT_ABOUT_CHILDREN = [
 // ⚠️「关于」**已从本组移出**：v1.65 它被删时进了这张表，v1.83 又按发起人要求建回来了。
 const EXPECT_ABSENT_LABELS = ["社交", "友链", "哔哩哔哩", "番组计划", "打赏", "留言"];
 // ─── v1.57：书签导航页（R-BOOKNAV-01 ~ 04）的单一事实来源 ────────────────────
-// 发起人 2026-09-30 最终选定 **38 张卡 / 6 组**，本表就是那份清单的**逐字落地**。
-// ⚠️ 为什么把 38 条全列出来而不是只数个数：只断言 `cards.length === 38` 的话，
+// 发起人 2026-09-30 最终选定 **39 张卡 / 6 组**，本表就是那份清单的**逐字落地**。
+// ⚠️ 为什么把 39 条全列出来而不是只数个数：只断言 `cards.length === 39` 的话，
 //    换掉任意一张卡（内容对不上发起人给的清单）仍然是绿的 —— 那正是"判据空过"。
 //    这里连 **URL 的顺序**一起钉死，改一条就红。
-// ⚠️ 这 38 条**同时是隐私守卫的正控**：它们都是"换成首页"之后的形态，
+// ⚠️ 这 39 条**同时是隐私守卫的正控**：它们都是"换成首页"之后的形态，
 //    所以守卫（PRIVACY_NEEDLES）判红时，这张表能证明"清单本身是好的、红的是被注入的那条"。
 const EXPECT_BOOKNAV_CARDS = [
 	// 组 1 · AI 工具
@@ -144,6 +144,8 @@ const EXPECT_BOOKNAV_CARDS = [
 	["智谱 AI", "https://bigmodel.cn/"],
 	["DeepSeek 开放平台", "https://platform.deepseek.com/"],
 	["OpenAI Platform", "https://platform.openai.com/"],
+	["MiniMax 媒体平台", "https://design.minimax.cn/media-plan/console/details"],
+	// v1.88：上面这条是发起人后加的（原清单 38 条 → 39 条），位置与配置一致（本组最后一位）
 	// 组 3 · 学习与刷题
 	["洛谷", "https://www.luogu.com.cn/"],
 	["力扣 LeetCode", "https://leetcode.cn/"],
@@ -175,7 +177,7 @@ const EXPECT_BOOKNAV_CARDS = [
 // 分组名与**权重顺序**（AI 工具优先 … 最后才是其他三方站）
 const EXPECT_BOOKNAV_GROUPS = [
 	["ai-tools", "AI 工具", 6],
-	["ai-platform", "AI 平台与模型", 9],
+	["ai-platform", "AI 平台与模型", 10],
 	["study", "学习与刷题", 5],
 	["dev", "开发与文档", 9],
 	["cloud", "云服务与账号", 4],
@@ -230,6 +232,7 @@ const ICONIFY_BOOKNAV_TITLES = new Set(
 		"火山方舟",
 		"DeepSeek 开放平台",
 		"OpenAI Platform",
+		"MiniMax 媒体平台",
 		"洛谷",
 		"力扣 LeetCode",
 		"GitHub",
@@ -758,8 +761,8 @@ const COLLECT_ROADMAP = `(() => {
 
 // ─── 书签导航页事实采集（R-BOOKNAV-01 ~ 04，v1.57 新增）──
 // 这一页此前**一条断言都没有**（grep `booknav` 只命中导航子项表与 ALLOWED_ROUTES）。
-// 本轮整页换内容（6 组 38 张），所以补上"分组渲染 / 卡片数 / 图标降级 / 空组过滤"这一组
-// 判据 —— 判据本体（38 条标题与 URL、6 个组名与条数）在文件头的
+// 本轮整页换内容（6 组 39 张），所以补上"分组渲染 / 卡片数 / 图标降级 / 空组过滤"这一组
+// 判据 —— 判据本体（39 条标题与 URL、6 个组名与条数）在文件头的
 // EXPECT_BOOKNAV_CARDS / EXPECT_BOOKNAV_GROUPS 里。
 const COLLECT_BOOKNAV = `(async () => {
   // ⚠️ **先把主题钉成亮色**（v1.58 实测踩到的坑）：主循环里前面的步骤可能把页面留在
@@ -1254,7 +1257,7 @@ async function main() {
 	const UPSTREAM_CI =
 		/firefly|cuteleaf|夏夜流萤|夏叶|xiaye@msn\.com|cuteleaf\.cn|ko-fi\.com\/cuteleaf|ifdian\.net\/a\/cuteleaf/i;
 	// ─── v1.57：隐私与排除项**泄漏守卫**（发起人点名的 14 个串，一个都不许进产物）────
-	// 为什么要有这条：书签导航那 38 条是发起人**从自己浏览器里抄出来的书签**，原始 URL 里
+	// 为什么要有这条：书签导航那 39 条是发起人**从自己浏览器里抄出来的书签**，原始 URL 里
 	// 混着只有他自己会有的东西 —— 腾讯云轻量**实例 ID**、Docker **用户名**、LangSmith
 	// **组织 ID**、Google/Gemini 的**追踪参数**、学习通的**时间戳参数**。本轮统一"换成首页"
 	// 时这些串**顺带被抹掉**了，但"顺带"不是"保证"：改一条 URL、把某条原始链接粘回去、
@@ -1785,7 +1788,7 @@ async function main() {
 		{ name: "about-site-1440", path: "/about-site/", width: 1440, height: 900, mobile: false },
 		// v1.57（B-10）：书签导航页 —— 整页换内容后必须有断言看着（此前一条都没有），
 		// booknav: true → 额外采集分组/卡片/图标降级事实（COLLECT_BOOKNAV）。
-		// 用 1440×1400 是因为 38 张卡分 6 组铺下来很高，900 高的整页截图会把下面的组切掉。
+		// 用 1440×1400 是因为 39 张卡分 6 组铺下来很高，900 高的整页截图会把下面的组切掉。
 		{ name: "booknav-1440", path: "/booknav/", width: 1440, height: 1400, mobile: false, booknav: true },
 		{ name: "booknav-390", path: "/booknav/", width: 390, height: 844, mobile: true, booknav: true },
 		// P2R 学习路线（排行那 8 张随模块删除，Task 4 / P2R-6）
@@ -3673,7 +3676,7 @@ async function main() {
 	// ── v1.57（B-10 关闭）「链接」下拉重建；**v1.61 整批换成发起人的 6 条** ────────
 	// 位置由上面那条「顶层导航顺序」钉住（第 5 格、在「我的」与「关于」之间），
 	// 这里钉**内容**：6 条的名字 + href + 顺序，一条不对就红。
-	// ⚠️ 子项名字是**短名**（「洛谷」/「CSDN」/「Boost 搜索引擎」），不是书签页那 38 张卡的全名 ——
+	// ⚠️ 子项名字是**短名**（「洛谷」/「CSDN」/「Boost 搜索引擎」），不是书签页那 39 张卡的全名 ——
 	//    两边故意不同（导航栏放不下「力扣 LeetCode」那类全名），别把它和 EXPECT_BOOKNAV_CARDS 对齐。
 	{
 		const link = home.navTops.find((t) => t.name === "链接");
@@ -3744,7 +3747,7 @@ async function main() {
 	record("R-ID-01", "站点名 IMiss Blog（标题 + 导航栏品牌）", home.title.includes("IMiss Blog") && (home.brand ?? "").includes("IMiss Blog"), `title=${home.title} brand=${home.brand}`);
 	// ── v1.57：书签导航页（R-BOOKNAV-01 ~ 04）──────────────────────────────────
 	// 这一页此前**一条界面断言都没有**（grep `booknav` 只命中导航子项表与 ALLOWED_ROUTES）。
-	// 本轮整页从"上游示例三组 10 张"换成发起人最终选定的 **6 组 38 张**，判据一起补上。
+	// 本轮整页从"上游示例三组 10 张"换成发起人最终选定的 **6 组 39 张**，判据一起补上。
 	// ⚠️ 事实取自 `facts["booknav-1440"].booknav` 与 `facts["booknav-390"].booknav`
 	//    （主循环里 `booknav: true` 那一趟采的），不是 fetch HTML 正则 —— 图标降级形态、
 	//    卡片高度、空组过滤这些只有真渲染出来才看得出。
@@ -3766,15 +3769,15 @@ async function main() {
 			same(bn.sectionIds, wantIds) && same(bn.sectionNames, wantNames),
 			`实际 id=${JSON.stringify(bn.sectionIds)} ｜ 组名=${JSON.stringify(bn.sectionNames)}`,
 		);
-		// R-BOOKNAV-01：每组条数与 EXPECT_BOOKNAV_GROUPS 的第三列一致（合计 38）
+		// R-BOOKNAV-01：每组条数与 EXPECT_BOOKNAV_GROUPS 的第三列一致（合计 39）
 		record(
 			"R-BOOKNAV-02",
-			"每组条数正确（6/9/5/9/4/5 = 38）",
+			"每组条数正确（6/10/5/9/4/5 = 39）",
 			same(bn.sectionCounts, wantCounts),
 			`实际 ${JSON.stringify(bn.sectionCounts)}（合计 ${(bn.sectionCounts ?? []).reduce((a, b) => a + b, 0)}）`,
 		);
-		// R-BOOKNAV-02：38 张卡的**标题 + URL + 顺序**必须逐条等于发起人清单。
-		// 只数个数是不够的 —— 换掉一张卡仍是 38 张，但内容已经不是他要的了。
+		// R-BOOKNAV-02：39 张卡的**标题 + URL + 顺序**必须逐条等于发起人清单。
+		// 只数个数是不够的 —— 换掉一张卡仍是 39 张，但内容已经不是他要的了。
 		// ⚠️ 只折叠**标题**的大小写、不折叠 URL：模板渲染 data-title 时用的是
 		//    `item.title.toLowerCase()`（booknav.astro 的既有行为，本轮不改），所以标题这一列
 		//    天然是小写；URL 必须逐字符相等（大小写不同就是另一个地址）。
@@ -3831,7 +3834,7 @@ async function main() {
 			"R-BOOKNAV-03",
 			"卡片高度整齐（同一高度，没有被首字母块压扁或撑开）",
 			(bn.cardHeights ?? []).length === 1,
-			`实测卡片高度集合 = ${JSON.stringify(bn.cardHeights)}（38 张卡同一高度即通过）；移动端 390 下 = ${JSON.stringify(bnMobile.cardHeights)}`,
+			`实测卡片高度集合 = ${JSON.stringify(bn.cardHeights)}（39 张卡同一高度即通过）；移动端 390 下 = ${JSON.stringify(bnMobile.cardHeights)}`,
 		);
 		// R-BOOKNAV-01：**空组过滤**（`getEnabledBooknavGroups()` 会把 items 为 0 的组丢掉）——
 		// 页面里不许出现"有标题、0 张卡"的空 section，也不许出现"6 个组但总数对不上"。
@@ -3850,18 +3853,18 @@ async function main() {
 			same(bn.pillTargets, wantIds) && same(pillCounts, wantCounts),
 			`胶囊锚点=${JSON.stringify(bn.pillTargets)} ｜ 角标=${JSON.stringify(pillCounts)} ｜ 胶囊文字=${JSON.stringify(bn.pillNames)}`,
 		);
-		// R-BOOKNAV-02：卡片一律 `target="_blank"` + `rel="noopener noreferrer"`（38 条全是外链）
+		// R-BOOKNAV-02：卡片一律 `target="_blank"` + `rel="noopener noreferrer"`（39 条全是外链）
 		const badTargets = (bn.cards ?? []).filter((c) => c.target !== "_blank").length;
 		record(
 			"R-BOOKNAV-02",
-			"38 张卡都是新窗口打开（target=_blank）",
+			"39 张卡都是新窗口打开（target=_blank）",
 			(bn.cards ?? []).length === EXPECT_BOOKNAV_CARDS.length && badTargets === 0,
 			`target 不是 _blank 的卡片 ${badTargets} 张`,
 		);
-		// R-BOOKNAV-01：390 视口下同样是 6 组 38 张（手机上没有横向溢出 / 没有组被挤掉）
+		// R-BOOKNAV-01：390 视口下同样是 6 组 39 张（手机上没有横向溢出 / 没有组被挤掉）
 		record(
 			"R-BOOKNAV-01",
-			"移动端 390 下同样是 6 组 38 张卡",
+			"移动端 390 下同样是 6 组 39 张卡",
 			same(bnMobile.sectionIds, wantIds) && (bnMobile.cards ?? []).length === EXPECT_BOOKNAV_CARDS.length,
 			`移动端 组=${JSON.stringify(bnMobile.sectionIds)} ｜ 卡数=${(bnMobile.cards ?? []).length}`,
 		);

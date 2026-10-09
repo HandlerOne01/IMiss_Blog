@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.87 |
+| 文档版本 | v1.88 |
 | 最后更新 | 2026-10-09 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | 上游模板基线 v6.16.8（站点信息里中性显示为「博客版本 v6.16.8」），Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -245,7 +245,7 @@ src/
 5. 未使用的预设（`Friends`/`Bilibili`/`Bangumi`/`Sponsor`）从 `LinkPresets` 中删除，避免以后被误引用。⚠️ **v1.47 起 `Friends`/`Sponsor` 的页面文件也已删除**（`/friends/`、`/sponsor/` 是**真 404**，不再是 noindex 存根）；**v1.48（P4-8 收尾轮）**又删掉它们的配置残留：`src/types/{friends,sponsor}Config.ts`、`src/styles/pages/{friends,sponsor}.css`、`navbar-i18n.ts` 里 `友链`/`打赏` 两条死映射。`Bilibili`/`Bangumi` 两个页面文件仍在、仍靠开关关掉。恢复路径见 §14.4。
 6. **第 5 格「链接」= 纯外链下拉，不进 `LinkPresets`**（v1.57 重建、**v1.61 整批换成第二批 6 条**）：直接在 `getDynamicNavBarConfig()` 里内联 `links.push({ name: "链接", url: "#", icon: "material-symbols:link", children: [...] })`，位置固定在第 4 格「我的」与第 6 格「关于」之间（v1.83 起第 6 格是「关于」）。判据与口径（`prd.md` R-NAV-09 / R-NAV-10、`scripts/verify-ui.mjs` 的 `EXPECT_LINK_CHILDREN`）：
    - 6 条**都不是站内页面** → 每一条都要 `external: true`（新标签页打开 + `rel`），且**一律不许挂 `pageKey`**（`pageKey` 是给站内页面开关用的；随便挂一个不存在的 key 也**不会**隐藏，详见本文件 §4.1 第 4 点那条批注）；
-   - 子项名字取**短名**，与书签导航页那 38 张卡的全名**故意不同**；
+   - 子项名字取**短名**，与书签导航页那 39 张卡的全名**故意不同**；
    - **地址必须干净**：v1.61 照办把 CSDN 的 `?spm=…` 跟踪参数去掉了（同 R-BOOKNAV-04 那一轮的口径）；
    - ⚠️ **唯一例外是发起人点名要的裸 IP 那条**：「Boost 搜索引擎」= `http://106.52.158.48:8081/`（裸 IP + 非标准端口 + HTTP，该 IP 同时是本站后端数据库所在机器）。**照原样收录**，配置注释里写明代价与"有域名后换 `https://<域名>/`"的建议；`verify:ui` 有一条**配置层**判据同时钉住"6 条无查询串 / 裸 IP 那条原样在 / 注释里有 https 建议"（只钉渲染出的 DOM 证不了后两件事）。
    - 图标：Gitee / GitHub / CSDN / 洛谷 用 `simple-icons:*` 品牌图标；「Boost 搜索引擎」「HTTP 服务器」没有品牌图标 → 用含义图标 `material-symbols:search-rounded` / `material-symbols:dns-rounded`。名字逐个对过 `node_modules/@iconify-json/{simple-icons,material-symbols}/icons.json`，且 `astro.config.mjs` 的 `icon({ include })` 里两套都是 `["*"]` 全量包含。

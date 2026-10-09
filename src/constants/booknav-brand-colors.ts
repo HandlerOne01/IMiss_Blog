@@ -6,8 +6,12 @@
  *   ② `scripts/fetch-booknav-icons.mjs` —— 抓 favicon 时生成
  *      `public/booknav-icons/README.md` 的来源表
  *
- * ⚠️ **这张表的键 = 一条卡片的品牌标识**，28 个键对应被 `iconColor` 引用的 27 条卡
- *    （另一条 `腾讯云` 是有意不引用的登记项，见文件末尾）。其中三对是**同品牌两条卡**：
+ * ⚠️ **这张表的键 = 一条卡片的品牌标识**，**29 个键**对应被 `iconColor` 引用的 **28 条卡**
+ *    （另一条 `腾讯云` 是有意不引用的登记项，见文件末尾）。**键名要逐字等于卡片标题** ——
+ *    断言（R-BOOKNAV-06）是按**卡片标题**索引本表做逐张核对的，标题与本表键名对不上的卡
+ *    会**静默漏掉核对**（v1.88 第一版把新卡的键写成短名，27 张 svg 只核对了 26 张才发现）。
+ *    ⚠️ **v1.88 计数演进**：v1.57~v1.87 是「28 个键 / 被引用 27 条」，v1.88 加了一条卡
+ *    「MiniMax 媒体平台」→ **29 个键 / 被引用 28 条**。其中三对是**同品牌两条卡**：
  *    `DeepSeek` / `DeepSeek 开放平台`、`ChatGPT` / `OpenAI Platform`、
  *    `LangChain 中文文档` / `LangChain 官方文档`（`LangSmith` 与它们同色但独立成键）——
  *    色值相同、键各自独立，**这不是重复**：断言（R-BOOKNAV-06）按**卡片标题**索引品牌色
@@ -95,6 +99,17 @@ export const BOOKNAV_BRAND_COLORS: Record<string, BrandColorEntry> = {
 	// ⚠️ 这一条是**有意不被配置引用**的（`booknavConfig.ts` 里腾讯云走本地 favicon `<img>`，
 	//    自带真彩色，不需要 iconColor）。留着的理由：报告与断言要核对"腾讯云官方蓝"。
 	//    所以 `reports/_bni-audit.mjs` 的"没被引用的键"检查里它是**已知白名单**。
+	// v1.88：MiniMax 媒体平台（发起人给的 design.minimax.cn 那条卡）。
+	// ⚠️ 它的品牌色是**一组渐变**（官网同时用 粉红 #f52c6b / 橙 #ff7045 / 紫 #6f2cf5 / 蓝 #16a9f3），
+	//    没有单一官方色值表可抄 → 这里取**两个官网页面上都出现的那支粉红**，来源写在 source 里。
+	// ⚠️ **键名必须逐字等于卡片标题**：`verify-ui.mjs` 那条「27 张 iconify 卡的亮色图标色逐张
+	//    等于配置里的品牌色」是**按卡片标题**来索引这张表的（`EXPECT_BOOKNAV_BRAND_HEX` 是
+	//    `卡片标题 ∩ 本表键名`），键写成短名 `MiniMax` 会让这张卡**静默漏掉核对** ——
+	//    第一版就是短名，实测总数停在 26（27 张 svg 只核对了 26 张）才发现。
+	"MiniMax 媒体平台": {
+		light: "#F52C6B",
+		source: "MiniMax 官网（minimax.io / minimaxi.com）页面里出现的品牌粉红 #f52c6b（官网是渐变品牌色，无单一官方色值；这一支两个站点都有）",
+	},
 	腾讯云: { light: "#0052D9", source: "腾讯云官方蓝（本卡片用本地 favicon，仅作登记，不被 iconColor 引用）" },
 };
 
