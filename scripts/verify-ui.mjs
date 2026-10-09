@@ -474,6 +474,15 @@ const COLLECT = `(() => {
         display: getComputedStyle(el).display,
         hidden: getComputedStyle(el).display === "none" || getComputedStyle(el).visibility === "hidden",
         state: el.dataset.petState || null,
+        // v1.90：**出场打招呼的判据从"某一瞬采到的状态"改成"这趟加载里出现过哪些状态"**。
+        // 起因（实测踩到的一次假红）：组件是 DCL+900ms 开始挥手、持续 1900ms
+        //（见 AemeathPet.astro 的 boot 段：setTimeout 900ms 后 setState("waving", 1900)），
+        // 而 R-PET-02 原来是在 Page.navigate → load → 再等 2400ms 之后只采**一个瞬时值** ——
+        // 也就是说"load 事件比 DOMContentLoaded 晚多少"必须小于 400ms 才算过；机器一忙就翻红。
+        // 现在由文档起始脚本（Page.addScriptToEvaluateOnNewDocument）按 60ms 采样，
+        // 序列里出现 waving@<ms> 即算"她真的出场打过招呼"，顺带把时刻也留成证据。
+        // ⚠️ 本段在**模板字符串里面**：注释里不许出现反引号（否则当场截断 COLLECT，见陷阱 T91）。
+        stateSeq: Array.isArray(window.__petBootSeq) ? window.__petBootSeq.slice(0, 40) : null,
         // R-PET-06：三档运动模式（float / fixed / ground）与"正在飞"标记，都由组件写进 DOM
         mode: el.dataset.petMode || null,
         flying: el.dataset.petFlying === "1",
@@ -2042,6 +2051,29 @@ async function main() {
 			features: [{ name: "prefers-color-scheme", value: "dark" }],
 		});
 		const loaded = cdp.once("Page.loadEventFired");
+		// v1.90：先装**文档起始**状态采样器，再导航（详见 COLLECT 里 `stateSeq` 的注释）。
+		// ⚠️ 顺序不能反：不能"导航之后再 evaluate" —— 那样最早也要等 load，采不到 DCL+900ms 那次抬手。
+		const { identifier: bootSeqId } = await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
+			source: `(() => {
+				window.__petBootSeq = [];
+				const t0 = Date.now();
+				let last = null;
+				const tick = () => {
+					// 用属性选择器而不是写死 id：谁带 data-pet-state 就记谁
+					//（v1.90 第一版写的是 getElementById("pet-body")，而状态其实在 #pet 上 →
+					//  序列永远是空数组、判据当场 ❌ —— 空证据会红，不会静默通过）
+					const el = document.querySelector("[data-pet-state]");
+					const s = el && el.dataset.petState;
+					// 只在**状态名变化**时记一条（带首次出现的时刻）—— 60ms 一条地堆会淹掉真正的转换
+					if (s && s !== last) {
+						last = s;
+						window.__petBootSeq.push(s + "@" + (Date.now() - t0) + "ms");
+					}
+					if (Date.now() - t0 < 6000) setTimeout(tick, 60);
+				};
+				tick();
+			})();`,
+		});
 		await cdp.send("Page.navigate", { url: `${BASE}/` });
 		await loaded;
 		await sleep(2400); // 等出场招呼播完
@@ -2082,6 +2114,8 @@ async function main() {
 			});
 
 		await snap("pet-boot");
+		// 采完就撤掉采样器，后面的导航不再被它污染（它自己 6 秒后也会停，这里只是更干净）
+		await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: bootSeqId });
 
 		// ① 键盘：Tab 聚焦（这里直接 focus，可达性由 tabindex 保证）→ Enter → jumping
 		await cdp.send("Runtime.evaluate", {
@@ -4386,9 +4420,9 @@ async function main() {
 	record("R-NAV-03", "轻小说页显示未配置卡片", (facts["vndb-1440"].bodyText ?? "").includes("轻小说数据源还没配置"), "");
 	// R-NAV-04 原来只看 bodyText.length > 100（几乎恒真）。改成检查页面上有真实内容标志。
 	// ⚠️ v1.65 拆分：那篇「标题写着关于我、内容其实讲这个站」的文章整体搬到了 `/about-site/`，
-	//    `/about/` 现在是**等发起人给新自我介绍**的占位页 —— 所以判据也跟着分两条：
+	//    `/about/` 在 v1.65~v1.89 期间是**等发起人给新自我介绍**的占位页 —— 所以判据分两条：
 	//    ① 关于本站页要有真内容（长度 + 逐字短语双门槛）；
-	//    ② 关于我页仍可达、且**确实是占位态**（含占位文案 + 指向关于本站的入口）。
+	//    ② 关于我页要么是占位态、要么是**发起人交来的真自我介绍**（v1.90 起是后者，判据已换锚点）。
 	{
 		const siteText = facts["about-site-1440"].bodyText ?? "";
 		// v1.86：这一页从"讲这个站的散文"重写成**第一人称的使用说明**（发起人：「以我的视角讲述这个站的
@@ -4403,11 +4437,18 @@ async function main() {
 			`正文长度 ${siteText.length}｜缺 ${siteMissing.join("、") || "无"}（要求含 ${siteNeedles.join(" / ")}）`,
 		);
 		const aboutText = facts["about-1440"].bodyText ?? "";
+		// v1.90：发起人交来自我介绍（原话见 PROJECT_STATUS §1 最近变更）→ **关于我页不再是占位页**，
+		// 这条判据**就地换锚点**（不是删掉）：从「含占位文案」换成「含真内容」——
+		// 两节的标题（另一个世界的我 / 曾经的我）+ 联系方式（邮箱）+ 一个游戏 ID 必须在正文里。
+		// ⚠️ 只钉邮箱、**不钉手机号**：那串数字只该出现在这一页的正文里，判据脚本不再多抄一份。
+		// ⚠️「关于本站」这条互链继续要求留着（它是导航图上的交叉链接，不是占位标志）。
+		const aboutNeedles = ["另一个世界的我", "曾经的我", "2186988646@qq.com", "102800405"];
+		const aboutMissing = aboutNeedles.filter((n) => !aboutText.includes(n));
 		record(
 			"R-NAV-04",
-			"关于我页仍是可访问的占位页（新自我介绍待发起人提供）",
-			aboutText.includes("这一页还在整理") && aboutText.includes("关于本站"),
-			`正文长度 ${aboutText.length}｜含占位文案=${aboutText.includes("这一页还在整理")}｜指向关于本站=${aboutText.includes("关于本站")}`,
+			"关于我页是发起人给的真实自我介绍（v1.90 起不再是占位页）",
+			aboutText.length > 400 && aboutMissing.length === 0 && aboutText.includes("关于本站"),
+			`正文长度 ${aboutText.length}｜缺 ${aboutMissing.join("、") || "无"}（要求含 ${aboutNeedles.join(" / ")} + 指向关于本站）`,
 		);
 	}
 
@@ -4882,7 +4923,16 @@ async function main() {
 		);
 
 		// 九状态：这里挑"每条触发路径"各验一次（idle/running-right/failed/waiting/running/review/jumping/waving）
-		record("R-PET-02", "出场打招呼（waving）", st("pet-boot") === "waving", `state=${st("pet-boot")}`);
+		// ⚠️ v1.90：出场打招呼这条**换判据口径**（不改题目）：原来问"采样那一瞬是不是 waving"，
+		//    而组件是 DCL+900ms 才抬手、只挥 1900ms —— 采样点必须落在 [DCL+900, DCL+2800] 那
+		//    400ms 余量里才算过，机器一忙就假红（v1.90 实测踩到一次 ❌，state=idle）。
+		//    现在问"这趟加载**出现过** waving 吗"（文档起始脚本按 60ms 采的序列），
+		//    既去掉了时序赌博，也比原来更强：它证明她真的打过招呼，而不是"恰好被撞见"。
+		{
+			const bootSeq = facts["pet-boot"]?.pet?.stateSeq ?? [];
+			const sawWaving = bootSeq.some((s) => String(s).startsWith("waving@"));
+			record("R-PET-02", "出场打招呼（waving）", sawWaving, `按 60ms 采样到的状态序列=${JSON.stringify(bootSeq)}`);
+		}
 		record("R-PET-02", "键盘 Enter → 跳一下（jumping）", st("pet-key-enter") === "jumping", `state=${st("pet-key-enter")}`);
 		// v1.59：默认档改成 `fixed` 之后，键盘 ←/→ 在**默认档下不位移**（`walkTo()` 在 fixed 档
 		// 直接 return —— 组件里 R-PET-08 起就是这么写的），这条把默认档的真实行为钉住；
