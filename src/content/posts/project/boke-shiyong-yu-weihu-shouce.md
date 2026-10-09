@@ -115,7 +115,7 @@ slug: project/boke-shiyong-yu-weihu-shouce
 | `category` | 字符串或空 | `""` | 分类的**显示名**（目录名才是它的归属），如 `"项目实战"` |
 | `lang` | 字符串 | `""` | 语言标记，本站统一写 `"zh_CN"` |
 | `pinned` | 布尔 | `false` | 置顶 |
-| `comment` | 布尔 | `true` | 是否允许评论（本站评论系统未接入，这条只是预留） |
+| `comment` | 布尔 | `true` | 是否允许评论（**本站没有评论区** —— 这个字段是模板预留的，填 `true` 也不会出现评论框） |
 | `password` / `passwordHint` | 字符串 | `""` | 加密文章与密码提示；填了 `password` 正文会被加密，访客要输密码才能看 |
 | `series` / `seriesOrder` | 字符串 / 数字 | `""` / 无 | 系列名与系列内序号，用于 `/series/` 页面 |
 | `author` / `sourceLink` | 字符串 | `""` | 作者与原文链接（转载时填） |
