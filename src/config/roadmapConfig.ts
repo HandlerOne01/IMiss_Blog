@@ -341,7 +341,7 @@ export const roadmapConfig: RoadmapConfig = {
 			id: "project",
 			name: "项目实战",
 			summary:
-				"两个从零写出来的项目：先 HTTP 小项目，再 My_Server 框架，最后搜索引擎。",
+				"两个从零写出来的项目：先 HTTP 小项目，再 My_Server 框架，最后搜索引擎；收尾是一篇本站自己的维护手册。",
 			level: "实战",
 			stages: [
 				{ title: "HTTP 小项目", stops: [s("project", "http")] },
@@ -360,6 +360,10 @@ export const roadmapConfig: RoadmapConfig = {
 						s("project", "sousuoyinqingsiweidaotu"),
 					],
 				},
+				// v1.84 新增：本站自己的使用与维护手册（发起人：「创作一篇文章……教使用者如何使用本站」）。
+				// ⚠️ 它不是"第三个项目"，所以单开一个阶段、并把这层意思写进上面那句 summary ——
+				//    站内每一篇都必须能被路线页解释（R-PATH-04 的判据是"路线并集 == 站内总篇数"）。
+				{ title: "本站维护", stops: [s("project", "boke-shiyong-yu-weihu-shouce")] },
 			],
 		},
 		{

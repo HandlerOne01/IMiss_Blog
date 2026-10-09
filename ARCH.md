@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.83 |
+| 文档版本 | v1.84 |
 | 最后更新 | 2026-10-09 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | 上游模板基线 v6.16.8（站点信息里中性显示为「博客版本 v6.16.8」），Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -274,7 +274,7 @@ src/
 | 轻小说 `/vndb/` | VNDB API（`mode: "dynamic"`） | ❌ 不联网 | 客户端实时拉取；封面下载脚本有**四重短路**：`pages.vndb` 关闭 / `userId` 为空或是 `you-user-id` / `downloadCovers: false` / `mode !== "static"`（实测 `generate-vndb-covers.ts:101-119`） |
 | 番剧 `/myanimelist/` | MAL API（构建期） | ⚠️ 配置了凭据才联网 | `myanimelist.astro:48-49` 里 `isConfigured = username && clientId` 为假时**整段跳过**（`:101` 包住全部请求），页面显示未配置状态 |
 | GitHub 卡片 | `api.github.com`（构建期，按正文里的 `::github{repo=...}` 指令） | ⚠️ 会尝试联网，但**失败不阻断** | `generate-github-card-data.ts:54` 会请求，`:95` 失败时打印 `[GITHUB-CARD] Failed to refresh …; keeping cached data.` 并保留已提交的 `src/constants/github-card-data.json`。⚠️ **v1.48 更正（这一段是当时的结论；v1.51 起已被推翻，以本行末的 v1.53 更正为准）**：这里原来写"本站迁移后正文不含该指令，这一步即空转" —— **不成立**：`src/content/spec/about.md` 里仍有两条 `::github{repo="…"}`（v1.48 当时还在等发起人的新关于页文字，那几轮硬约束禁改），所以**v1.48 当时**这一步**每轮构建都真的会请求 api.github.com**；⚠️ **v1.51 起不再如此**（见行末）。而 `github-card-data.json` 是**构建期生成物**（每次 build 整个重写，只保留"这次刷到了"或"缓存里本来就有"的 repo）：本项目实测 API 返回 `403 rate limit exceeded`，所以**缓存里已有的原样保留、缓存里没有的会被删掉**；反过来，**能连上 API 时，正文里还留着的 `::github{}` 指令会把对应条目重新写回缓存** —— v1.48 实测走完了整个来回：删掉后一次 403 构建条目消失，下一次 API 通了 → `[GITHUB-CARD] Cached 2 repositories (2 refreshed)` → **条目被自动写回、内容与原文逐字节相同**，所以本轮最终**保留不删**那条条目（详见 `PROJECT_STATUS.md` §7.1）。结论：条目在不在取决于"正文指令 + 当轮网络"，**不是一次性删除**。⚠️ **v1.53 更正（这一段以这里为准）**：v1.51 把 `about.md` 换成中立版后**全站再无 `::github{repo=…}` 指令**（`git grep '::github' src/` 只剩 `rehype-component-github-card.mjs` 里那句报错文案），生成器口径是「正文里出现过的 repo」→ `src/constants/github-card-data.json` 已落成 `{}` 且**不再写回**（v1.51 两次连续构建实测都是 `[GITHUB-CARD] Cached 0 repositories (0 refreshed).`）。也就是说：**这一步现在是真的空转、也不再联网**，"条目会自己长回来"这条盲区已关闭（`PROJECT_STATUS.md` §7.1 标关闭于 v1.51）；想让它回来只有一条路 —— 再往正文里写 `::github{}` 指令 |
-| 学习路线 `/roadmap/` | `src/config/roadmapConfig.ts` | ❌ 不联网 | 纯本地数据：8 条主线 × 阶段 × 篇目，篇目引用站内已有的 133 篇；页顶四个数（**篇数 / 主线数 / 停靠点数（含跨线复用）/ 总时长**，实测渲染 `133 篇 · 8 条主线 · 136 个停靠点（3 处跨线复用）· 约 69 小时` —— 总时长 = 各线表头小时数之和，同一套取整口径）构建期由 `getCollection("posts")` 实算。<br>~~排行 `/rank/*` → `rankConfig.ts`~~（v1.41 随排行模块删除，见 §5.2 删除清单） |
+| 学习路线 `/roadmap/` | `src/config/roadmapConfig.ts` | ❌ 不联网 | 纯本地数据：8 条主线 × 阶段 × 篇目，篇目引用站内已有的 134 篇；页顶四个数（**篇数 / 主线数 / 停靠点数（含跨线复用）/ 总时长**，实测渲染 `134 篇 · 8 条主线 · 137 个停靠点（3 处跨线复用）· 约 69 小时` —— 总时长 = 各线表头小时数之和，同一套取整口径）构建期由 `getCollection("posts")` 实算。<br>~~排行 `/rank/*` → `rankConfig.ts`~~（v1.41 随排行模块删除，见 §5.2 删除清单） |
 | 动态 `/dynamic/` | `src/content/dynamic/*.md` → `/api/dynamic.json` | ❌ | 也可切到 Memos（本项目不用） |
 
 ---
@@ -316,14 +316,14 @@ src/
 
 ## 5. 学习路线子系统（R-PATH）
 
-> **本章 v1.40 取代原「5. 排行子系统（R-RANK）」**。发起人 2026-09-27 决定：**删掉排行，换成学习路线**。理由是排行需要作者持续产出 5 份榜单数据 + 约 50 张 5.7:1 配图（阻塞项 **B-08**），而路线页的数据**全部来自站内已有的 133 篇笔记**。
+> **本章 v1.40 取代原「5. 排行子系统（R-RANK）」**。发起人 2026-09-27 决定：**删掉排行，换成学习路线**。理由是排行需要作者持续产出 5 份榜单数据 + 约 50 张 5.7:1 配图（阻塞项 **B-08**），而路线页的数据**全部来自站内已有的 134 篇笔记**。
 > 原章节（设计目标 / 文件清单 / 数据模型 / 页面与交互 / 视觉规格 / 空数据处理的完整正文）在 git 历史里：**v1.40 之前的最后一个提交**；被删代码的恢复路径见 **§14.4**。
 
 ### 5.1 设计目标
 
-- **回答一个问题：「我该按什么顺序学」** —— 站内 133 篇笔记按「主线 → 阶段 → 篇目」组织成一条能从头读到尾的路。`/archive/` 已经能列出全部文章，路线页多出来的价值就是**顺序与阶段**。
+- **回答一个问题：「我该按什么顺序学」** —— 站内 134 篇笔记按「主线 → 阶段 → 篇目」组织成一条能从头读到尾的路。`/archive/` 已经能列出全部文章，路线页多出来的价值就是**顺序与阶段**。
 - **零新素材**：不引入任何图片、不新增需要作者维护的内容型数据；篇目全部是站内已有文章的引用，阅读时长复用文章页现成口径（§5.5）。
-- **纯静态、零 JS**（发起人 2026-09-27 选定）：无 JS 也能看到 8 条线、133 篇与每个可点链接（对应 `prd.md` §6.2「内容可见性不依赖 JS」）。**不做** localStorage 进度打勾、「下一站」推荐、拖拽排序。
+- **纯静态、零 JS**（发起人 2026-09-27 选定）：无 JS 也能看到 8 条线、134 篇与每个可点链接（对应 `prd.md` §6.2「内容可见性不依赖 JS」）。**不做** localStorage 进度打勾、「下一站」推荐、拖拽排序。
 - 删掉排行同时**关闭 B-08**：不再需要那 5 份榜单数据与约 50 张配图。
 
 ### 5.2 文件清单
@@ -363,7 +363,7 @@ export interface RoadmapLine {
 }
 ```
 
-**线的构成（8 条，合计 133 篇，一篇不落）**
+**线的构成（8 条，合计 134 篇，一篇不落）**
 
 | id | 线 | 篇数 | 阶段（篇数） | 备注 |
 | --- | --- | --- | --- | --- |
@@ -387,7 +387,7 @@ export interface RoadmapLine {
 - **`/roadmap/` 单页**（不拆 8 个子页：拆了导航要挂 8 个子项、手机上会爆，而路线本身是"一条从头读到尾的路"）。结构：
   - 页顶：一行**站点数字**（构建期实算，见 §5.6）+ **8 个锚点索引**
   - 主体：8 个 `h2`（线）→ 线的一句话说明 + 难度档 + `N 篇 · 约 M 小时` → `h3`（阶段）→ 篇目轻量行
-- **轻量行**：`标题 · 分类显示名 · 约 N 分钟`（**没有封面、没有 note**）。⚠️ 分类那一格显示的是**文章 frontmatter 的 `category`**（`C/C++` / `Linux 网络` / `八股文` / `AI 应用` …，与面包屑 / `/categories/` / 归档同一套叫法），**不是** `src/content/posts/` 下的目录名（`cpp` / `linux-net` / `interview`）—— 目录名只是定位键（`roadmapConfig` 的 `category` 字段用来查文章，`resolveRoadmap` 另把 `entry.data.category` 作为 `categoryLabel` 带出来），属实现细节，不该出现在访客眼前（终审 I3：这是设计轮的疏漏，落地按显示名渲染）。**v1.52（P2R-9②）补**：frontmatter 的 `category` 为空时**不退回目录名**，改用站点既有约定 `i18n(I18nKey.uncategorized)`（zh_CN 渲染「未分类」；与 `PostMeta.astro` 的 `category || i18n(I18nKey.uncategorized)`、`content-utils.ts` 的分类聚合是同一套）—— 站内 133 篇 frontmatter `category` **无一为空**，所以改前/改后 `dist/roadmap/index.html` 逐字节相同。一页 133 行**不许拉图**（否则首屏体积爆），这条写成断言（§5.7 #8）。
+- **轻量行**：`标题 · 分类显示名 · 约 N 分钟`（**没有封面、没有 note**）。⚠️ 分类那一格显示的是**文章 frontmatter 的 `category`**（`C/C++` / `Linux 网络` / `八股文` / `AI 应用` …，与面包屑 / `/categories/` / 归档同一套叫法），**不是** `src/content/posts/` 下的目录名（`cpp` / `linux-net` / `interview`）—— 目录名只是定位键（`roadmapConfig` 的 `category` 字段用来查文章，`resolveRoadmap` 另把 `entry.data.category` 作为 `categoryLabel` 带出来），属实现细节，不该出现在访客眼前（终审 I3：这是设计轮的疏漏，落地按显示名渲染）。**v1.52（P2R-9②）补**：frontmatter 的 `category` 为空时**不退回目录名**，改用站点既有约定 `i18n(I18nKey.uncategorized)`（zh_CN 渲染「未分类」；与 `PostMeta.astro` 的 `category || i18n(I18nKey.uncategorized)`、`content-utils.ts` 的分类聚合是同一套）—— 站内 134 篇 frontmatter `category` **无一为空**，所以改前/改后 `dist/roadmap/index.html` 逐字节相同。一页 133 行**不许拉图**（否则首屏体积爆），这条写成断言（§5.7 #8）。
 - **纯静态**：不用 Svelte island、不写 localStorage、不依赖任何运行期 JS。
 - **导航**：顶层第 3 格（原「排行」，固定位置在「文章」与「我的」之间）= **「学习路线」→ `/roadmap/`，不带子项**；「文章」下拉（归档 / 分类 / 标签 / 系列）**一根手指都不动**。
 - **旧地址 `/rank/`、`/rank/jp/`、`/rank/cn/`、`/rank/game/` 直接删，不做 301**（站点尚未上线、没有外部链接指向它；上线后若确需再补）。
@@ -398,7 +398,7 @@ export interface RoadmapLine {
 
 路线页要 133 篇的时长，两条路：
 
-1. **首选**：对每个 entry 调 `render()`，取 `remarkPluginFrontmatter.minutes` —— **与文章页逐字一致**。代价是一页要渲染 133 篇，**必须实测构建耗时增量**。
+1. **首选**：对每个 entry 调 `render()`，取 `remarkPluginFrontmatter.minutes` —— **与文章页逐字一致**。代价是一页要渲染 134 篇，**必须实测构建耗时增量**。
 2. **退路（当增量 > 15 秒时）**：把公式抽成 `src/utils/reading-time.ts`，路线页用它、插件也改用它（**一处公式、两处使用**）。此时两处数值可能**差 1 分钟** —— 这种情况必须写进文档，不许悄悄存在。
 
 无论走哪条：页顶总时长与每线小计都**构建期实算**（§5.7 #7）。
@@ -1661,7 +1661,7 @@ dosc/blog/**/*.md（只读）
 
 | 源目录 | category | 站内目录 | 备注 |
 | --- | --- | --- | --- |
-| AI应用 | AI 应用 | `ai` | **2 篇为原创重写版**（源导出里 125 张 `page-*.png` 整批缺失，发起人 2026-09-24 要求"重写这两篇" → 提交 `7219018`/`8264d0d`，站内 133 篇 0 draft）。⚠️ 源目录那两份**仍是缺图原版**，所以 `import-posts.mjs` 的 `SKIP_SOURCES` 必须保留（T74） |
+| AI应用 | AI 应用 | `ai` | **2 篇为原创重写版**（源导出里 125 张 `page-*.png` 整批缺失，发起人 2026-09-24 要求"重写这两篇" → 提交 `7219018`/`8264d0d`，站内 134 篇 0 draft）。⚠️ 源目录那两份**仍是缺图原版**，所以 `import-posts.mjs` 的 `SKIP_SOURCES` 必须保留（T74） |
 | C++11 | C++11 | `cpp11` | |
 | C与C++ | C/C++ | `cpp` | |
 | Linux系统 | Linux 系统 | `linux` | 与 `图片/linux`+`图片/linux系统` 两个池合并 |
