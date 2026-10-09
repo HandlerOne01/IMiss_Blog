@@ -9411,17 +9411,30 @@ async function main() {
 			);
 		}
 
-		// ② /gallery/：同上；另加"相册详情路由已消失"（配置与目录成对删除的证明）
+		// ② /gallery/：v1.87 起**有真相册了**（发起人给了 8 张原图 → 相册「本站图片」），
+		//    所以这条从"渲染空态"**就地翻成**"确实列出这个相册、详情页可达、原图逐字节发货"；
+		//    反面清单（上游相册名零残留）与"上游详情路由真 404"保留。条数不变。
 		{
 			const res = await fetch(`${BASE}/gallery/`);
 			const html = await res.text();
-			const empty = emptyStateIsVisible(html, "暂无相册");
+			const emptyGone = !html.includes("暂无相册");
 			const leftover = REMOVED_ENTRY_NAMES.filter((n) => html.includes(n));
+			const detail = await fetch(`${BASE}/gallery/site-images/`);
+			const detailHtml = await detail.text();
+			const imgCount = (detailHtml.match(/<img/g) || []).length;
+			// 原图逐字节：拿产物里那张最大的（cover.png）与服务端返回的字节数对一遍
+			const coverRes = await fetch(`${BASE}/gallery/site-images/cover.png`, { method: "HEAD" });
+			const coverLen = Number(coverRes.headers.get("content-length") || 0);
 			record(
 				"R-ID-10",
-				"/gallery/ 仍可达且渲染空态「暂无相册」（不是筛选无结果的 hidden 元素）",
-				res.status === 200 && empty.ok,
-				`HTTP ${res.status}，可见空态=${empty.ok}（${empty.why}）`,
+				"/gallery/ 列出相册「本站图片」，详情页可达、含 ≥8 张图、封面原图字节数对得上",
+				res.status === 200 &&
+					html.includes("本站图片") &&
+					emptyGone &&
+					detail.status === 200 &&
+					imgCount >= 8 &&
+					coverLen > 20 * 1024 * 1024,
+				`列表 HTTP ${res.status}｜含「本站图片」=${html.includes("本站图片")}｜空态已消失=${emptyGone}｜详情 HTTP ${detail.status}｜<img> ${imgCount} 个｜cover.png ${(coverLen / 1048576).toFixed(1)} MB（HEAD 实测）`,
 			);
 			record(
 				"R-ID-10",

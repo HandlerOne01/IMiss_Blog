@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | IMiss Blog |
-| 文档版本 | v1.86 |
+| 文档版本 | v1.87 |
 | 最后更新 | 2026-10-09 |
 | 关联文档 | `ARCH.md`（架构与技术设计）、`PROJECT_STATUS.md`（阶段、进度、下一步、阻塞项） |
 | 基线代码 | 上游模板基线 v6.16.8（Astro 7 静态站点，名称与出处见 `README.upstream.zh.md`），来源 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\my_-blog\Blog template` |
@@ -111,7 +111,7 @@
 | **学习路线** | `/roadmap/` | **新增** | `roadmapConfig.ts`（数据全部来自站内已导入的 134 篇笔记，零新素材） | ✅ |
 | 动态 | `/dynamic/` | 模板 | 本地 `src/content/dynamic/*.md` | ✅（内容后续自填） |
 | 项目 | `/projects/` | 模板（**v1.79 起是自写内容：三个项目**） | `src/content/projects/` | ✅ |
-| 相册 | `/gallery/` | 模板 | 图集配置 | ✅ |
+| 相册 | `/gallery/` | 模板 | 图集配置（**v1.87 起有真相册「本站图片」：8 张原图、字节原样、39.9 MB，见 R-GAL-01**） | ✅ |
 | 书签导航 | `/booknav/` | 模板 | 书签配置（**v1.57 起是发起人最终选定的 6 组 38 张**，见 R-BOOKNAV-01~08） | ✅ |
 | 轻小说（原 VNDB） | `/vndb/` | 模板改名 | VNDB API（`dynamic` 模式，客户端拉取） | ⚠️ 需 userId（待提供） |
 | 番剧（原 AnimeList） | `/myanimelist/` | 模板改名 | MAL API（构建期拉取） | ⚠️ 需 username + clientId（待提供） |
@@ -279,6 +279,24 @@
 | --- | --- | --- | --- | --- |
 | R-CMT-01 | **留言功能整体删除（v1.83 当前态）** | 发起人原话「**然后删掉留言功能**」→ `src/pages/guestbook.astro` 与 `src/content/spec/guestbook.md` **删文件**（不是关开关），`siteConfig.pages.guestbook` 置 `false`，`llms.txt` 里那条 KEY_PAGES 整条拿掉 → `/guestbook/` 是**真 404**（与 `/friends/`、`/sponsor/` 同口径）。<br>⚠️ **v1.65~v1.82 的历史**：留言页曾保留为占位页（评论系统先关闭，页面显示"留言板尚未开放"的占位卡片，评论选型记入阻塞项 B-09）。**v1.49 补记**：`commentConfig.ts` 五处上游演示端点已清空（twikoo / waline / artalk / giscus / disqus —— 原值都是模板作者的演示服务，`giscus.repo` 更是**模板作者本人的仓库**，切到 giscus 就会把访客评论发过去）；`type` 仍 `"none"`，选型后**必须填自己的地址**（giscus 必须填自己的 repo/repoId/categoryId） | 访问 `/guestbook/` 页面正常、无报错、显示占位卡片；`commentConfig` 五处端点为**空串**（不是上游地址） | ★ |
 | R-CMT-02 | **留言页文案（已随功能删除作废）** | v1.65~v1.82：留言页说明文字改成站点自己的口吻；**v1.83 起页面本身已删除**，这条以后只在“哪天要把留言找回来”时有意义（找回路径：`git show <v1.82 的提交>:src/pages/guestbook.astro`） | 页面已删 → 该文案不存在；产物里没有 `/guestbook/` 页面文件、导航里没有「留言」 | ◆ |
+
+### 3.9B 相册（R-GAL，v1.87 新增）
+
+| 编号 | 需求 | 详细说明 | 验收条件 | 优先级 |
+| --- | --- | --- | --- | --- |
+| R-GAL-01 | **相册「本站图片」上线**（v1.87） | 发起人给了 8 张图（`Desktop\图片`），要求「把这些图片放在相册中」；问到画质时选「**就要原图 PNG，无损**」→ 素材按**字节原样**放进 `public/gallery/site-images/`（不转码不缩放，合计 39.9 MB），配置里加一项 `id: site-images`。相册图在 `public/` 下**原样发货**、不过构建管线，所以访客下载到的就是原图；封面用 7680×3296 那张（`cover.*` 自动认封面） | `/gallery/` 列出「本站图片」、无空态；`/gallery/site-images/` 可达且 ≥8 张图；`cover.png` 的 `content-length` 与源文件一致（> 20 MB）；文件名 ↔ 原文件名映射见该目录的 `README.md` | ★ |
+
+### 3.9B 相册（R-GAL，v1.87 新增）
+
+| 编号 | 需求 | 详细说明 | 验收条件 | 优先级 |
+| --- | --- | --- | --- | --- |
+| R-GAL-01 | **相册「本站图片」上线**（v1.87） | 发起人给了 8 张图（`Desktop\图片`），要求「把这些图片放在相册中」；问到画质时选「**就要原图 PNG，无损**」→ 素材按**字节原样**放进 `public/gallery/site-images/`（不转码不缩放，合计 39.9 MB），配置里加一项 `id: site-images`。相册图在 `public/` 下**原样发货**、不过构建管线，所以访客下载到的就是原图；封面用 7680×3296 那张（`cover.*` 自动认封面） | `/gallery/` 列出「本站图片」、无空态；`/gallery/site-images/` 可达且 ≥8 张图；`cover.png` 的 `content-length` 与源文件一致（> 20 MB）；文件名 ↔ 原文件名映射见该目录的 `README.md` | ★ |
+
+### 3.9B 相册（R-GAL，v1.87 新增）
+
+| 编号 | 需求 | 详细说明 | 验收条件 | 优先级 |
+| --- | --- | --- | --- | --- |
+| R-GAL-01 | **相册「本站图片」上线**（v1.87） | 发起人给了 8 张图（`Desktop\图片`），要求「把这些图片放在相册中」；问到画质时选「**就要原图 PNG，无损**」→ 素材按**字节原样**放进 `public/gallery/site-images/`（不转码不缩放，合计 39.9 MB），配置里加一项 `id: site-images`。相册图在 `public/` 下**原样发货**、不过构建管线，所以访客下载到的就是原图；封面用 7680×3296 那张（`cover.*` 自动认封面） | `/gallery/` 列出「本站图片」、无空态；`/gallery/site-images/` 可达且 ≥8 张图；`cover.png` 的 `content-length` 与源文件一致（> 20 MB）；文件名 ↔ 原文件名映射见该目录的 `README.md` | ★ |
 
 ### 3.10 部署与运维（R-DEP）
 

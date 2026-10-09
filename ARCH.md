@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.86 |
+| 文档版本 | v1.87 |
 | 最后更新 | 2026-10-09 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | 上游模板基线 v6.16.8（站点信息里中性显示为「博客版本 v6.16.8」），Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
@@ -148,9 +148,10 @@ src/
 ├─ content/
 │  ├─ posts/**                    ➕ 迁移来的文章
 │  ├─ spec/about.md               ✏️ 关于我（**v1.65 起是占位页**；原内容整体搬到 about-site.md）
-│  ├─ spec/about-site.md          ➕ 关于本站（**v1.65 新增**，原 about.md 那篇搬过来）
+│  ├─ spec/about-site.md          ➕ 关于本站（**v1.65 新增**；**v1.86 起是第一人称使用说明**）
 │  ├─ spec/guestbook.md           ⛔ **v1.83 已删除**（留言功能整体移除，见 R-CMT-01）
 │  └─ projects/*.md               ➕ 项目（**v1.79 起 3 篇**：仿 muduo 实现的高并发服务器 / 基于正倒排索引的 Boost 搜索引擎 / 基于 LangChain / LangGraph 个人博客智能助手 —— ⚠️ 第三篇的标题里有一个 249px 的无断点长词，它与卡片 `line-clamp-1` 的关系见 `src/components/pages/projects/ProjectCard.astro` 的注释）
+├─ public/gallery/site-images/    ➕ **v1.87 相册「本站图片」**：8 张 PNG **原图按字节原样**（39.9 MB，未转码）+ 一份 README.md 文件名映射；封面 `cover.png`（7680×3296）
 ├─ assets/
 │  ├─ fonts/*.woff2               ✅ 本地字体（P0 已落地：3 个字体 11 个 woff2，约 205KB；**放 src 而非 public**，见 §14.3 T16）
 │  ├─ images/
@@ -305,6 +306,7 @@ src/
 | `scripts/import-posts.mjs` | R-CNT-01 / R-CNT-02 / R-CNT-03 / R-CNT-05 / R-CNT-07 | §9.2、§9.3 |
 | `scripts/verify-posts.mjs` | R-CNT-06 | §9.4 |
 | 去重规则 + 只读约定 | R-CNT-04 / R-CNT-08 | §9.1、§9.5 |
+| **`public/gallery/site-images/**`（v1.87：8 张原图 39.9 MB，字节原样）+ `src/config/galleryConfig.ts`（加 1 项）** | **R-GAL-01** | §3.1、`prd.md` §3.9B |
 | ~~`src/content/spec/guestbook.md`~~（**v1.83 已删除**）+ `commentConfig.ts`（保持 `none`；v1.49 清空上游演示端点） | R-CMT-01 / R-CMT-02 | §4 |
 | `deploy/nginx.conf` | R-DEP-01 / R-DEP-02 | §12.2、§12.3 |
 | 部署后回填清单 | R-DEP-03 | §12.4 |

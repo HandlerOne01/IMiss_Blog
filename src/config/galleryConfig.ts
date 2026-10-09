@@ -20,7 +20,20 @@ export const galleryConfig: GalleryConfig = {
 		//   · 上游示例相册「可爱流萤」（《崩坏：星穹铁道》主题示例，配 `public/gallery/` 下的同名目录）
 		//   · 「加密相册示例」（密码 123456 明文写在 desc 里，配 `public/gallery/` 下的同名目录）
 		// 配置项与 public/gallery/ 下的目录**必须成对增删**：只删目录会留下一个「0 张照片」的空相册，
-		// 只删配置会留下孤儿文件与孤儿路由。当前 albums 为空 → /gallery/ 渲染 I18nKey.galleryNoAlbums 空态。
+		// 只删配置会留下孤儿文件与孤儿路由。
+		//
+		// ── v1.87：第一个真相册（发起人给了 8 张原图，并选了「就要原图 PNG，无损」）──────
+		// 素材在 `public/gallery/site-images/`：**原图按字节原样**（未转码、未缩放，合计 39.9 MB，
+		// 相册图不过构建管线，放什么访客就下载什么）。
+		// 目录里有一张 `cover.png`（7680×3296 的塔罗图）→ `getAlbumCover()` 自动认它当封面，
+		// `scanAlbumPhotos()` 也会把它排在第一位；文件名 ↔ 原文件名的映射见该目录的 README.md。
+		{
+			id: "site-images",
+			name: "本站图片",
+			description: "站里用到的原创插画与参考图（爱弥斯主题）。",
+			date: "2026-10-09",
+			tags: ["爱弥斯", "插画"],
+		},
 	],
 
 	// 瀑布流最小列宽(px)，浏览器根据容器宽度自动计算列数，默认 240
