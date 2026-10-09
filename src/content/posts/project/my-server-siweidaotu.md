@@ -2,7 +2,7 @@
 title: "My_Server思维导图"
 published: 2026-07-24 14:37:11
 description: "🎯 项目定位 项目类型：基于 Linux 系统调用实现的 C++11 网络服务器框架 核心模式：Reactor 事件驱动 + 非阻塞 I/O + 主从事件循环 + 回调式业务层 能力边界 底层 TCP 网络通信 epoll I/O 多路…"
-category: "项目实战"
+category: "项目梳理"
 tags: ["项目实战", "My_Server"]
 series: "My_Server"
 seriesOrder: 2

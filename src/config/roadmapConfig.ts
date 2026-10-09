@@ -339,9 +339,9 @@ export const roadmapConfig: RoadmapConfig = {
 		},
 		{
 			id: "project",
-			name: "项目实战",
+			name: "项目梳理",
 			summary:
-				"两个从零写出来的项目：先 HTTP 小项目，再 My_Server 框架，最后搜索引擎；收尾是一篇本站自己的维护手册。",
+				"从零写出来的几个项目：先 HTTP 小项目，再 My_Server 框架，最后搜索引擎；收尾是项目展示页的文章版与一篇本站自己的维护手册。",
 			level: "实战",
 			stages: [
 				{ title: "HTTP 小项目", stops: [s("project", "http")] },
@@ -358,6 +358,17 @@ export const roadmapConfig: RoadmapConfig = {
 					stops: [
 						s("project", "cpp-sousuoyinqing-kechengbiji"),
 						s("project", "sousuoyinqingsiweidaotu"),
+					],
+				},
+				// v1.85 新增：把「项目」模块那 3 篇的**同一批内容**也做成文章（新分类「项目实战」）。
+				// ⚠️ 站内每一篇都必须能被路线页解释（R-PATH-04 的判据是"路线并集 == 站内总篇数"），
+				//    所以这 3 篇必须有停靠点；它们与上面三条主线讲的是同一批项目，单列一阶段说明来源。
+				{
+					title: "项目展示（文章版）",
+					stops: [
+						s("projects", "my-server"),
+						s("projects", "boost-search-engine"),
+						s("projects", "blog-agent"),
 					],
 				},
 				// v1.84 新增：本站自己的使用与维护手册（发起人：「创作一篇文章……教使用者如何使用本站」）。

@@ -2,7 +2,7 @@
 title: "搜索引擎思维导图"
 published: 2026-07-22 18:53:13
 description: "🎯 项目定位 搜索对象：Boost 1.82.0 HTML 文档 核心目标：输入关键词，返回按相关性排序的文档结果 总体模式：离线数据清洗 + 启动时建索引 + 在线查询服务 技术栈 C++11 Boost.Filesystem：递归枚…"
-category: "项目实战"
+category: "项目梳理"
 tags: ["项目实战", "搜索引擎"]
 series: "搜索引擎"
 seriesOrder: 2

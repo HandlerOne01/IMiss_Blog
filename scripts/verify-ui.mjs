@@ -1395,8 +1395,8 @@ async function main() {
 		// 另留一个可识别片段单独计数，好在"整句失配"时一眼看出是句子被截断还是整张卡没了。
 		// ⚠️ 改 `announcementConfig.ts` 里那句话，就要同步改这两个常量（代码注释里也钉了这句）。
 		const ANNOUNCEMENT_LIVE_FULL =
-			"本站已整理 134 篇技术笔记，并按 8 条主线排成学习路线（137 站）；站内搜索与桌宠对话均已上线。";
-		const ANNOUNCEMENT_LIVE_FRAGMENT = "134 篇技术笔记";
+			"本站已整理 137 篇技术笔记，并按 8 条主线排成学习路线（140 站）；站内搜索与桌宠对话均已上线。";
+		const ANNOUNCEMENT_LIVE_FRAGMENT = "137 篇技术笔记";
 		// 公告卡切片：`<widget-layout … data-id="announcement" …>…</widget-layout>`。
 		// 卡里**不嵌套** `widget-layout`，所以非贪婪匹配到的第一个闭合标签就是整张卡的边界。
 		const announcementCardsOf = (html) =>
@@ -4484,7 +4484,7 @@ async function main() {
 		// ⚠️ **必须带正向内容判据**（Task 3 审查修复）：只验"抽屉当前页项 == /roadmap/"的话，
 		//    一个"URL 换对了、但页面报错/空白"的落地也会满足（抽屉态是按 pathname 算的）——
 		//    那是典型的"判据空过"。这里改用正文特征：路线页独有的 `#roadmap-stats` 文本含
-		//    「134 篇 / 8 条主线」，且 8 个主线区块都在（采集项 `roadmapLanding`）。
+		//    「137 篇 / 8 条主线」，且 8 个主线区块都在（采集项 `roadmapLanding`）。
 		// ⚠️ Task 4 顺手删掉了原来那个 `!swupPage.rank`（"落地页不该有榜单板"）：采集器里的 rank
 		//    子对象已随排行模块删除，这个条件**恒为真**，留着就是一条永远成立的空判据。
 		const swupPage = facts["roadmap-via-swup"];
@@ -4494,7 +4494,7 @@ async function main() {
 			"经 Swup 点导航第 3 格能进 /roadmap/（落地页有正文、抽屉当前页态也对）",
 			swupPage?.nav === "clicked" &&
 				(swupPage?.mobileNavActiveItems ?? []).some((i) => i.href === "/roadmap/") &&
-				/134 篇/.test(landing?.stats ?? "") &&
+				/137 篇/.test(landing?.stats ?? "") &&
 				/8 条主线/.test(landing?.stats ?? "") &&
 				landing?.lineCount === 8,
 			`导航点击=${swupPage?.nav} ｜ 抽屉当前页=${JSON.stringify(swupPage?.mobileNavActiveItems)} ｜ 落地正文「${landing?.stats}」主线区块 ${landing?.lineCount} 个`,
@@ -4531,7 +4531,8 @@ async function main() {
 		// 六条判据一个字未改。
 		const rm = facts["roadmap-1440-roadmap"];
 		const rm390 = facts["roadmap-390-roadmap"];
-		const EXPECT_LINES = ["C++ 与 STL", "算法与数据结构", "Linux 系统", "网络", "MySQL", "面试八股", "项目实战", "AI 应用"];
+		// v1.85：第 7 条主线由「项目实战」改名为「项目梳理」（发起人要求；分类与数据库一起改）
+		const EXPECT_LINES = ["C++ 与 STL", "算法与数据结构", "Linux 系统", "网络", "MySQL", "面试八股", "项目梳理", "AI 应用"];
 
 		record("R-PATH-01", "路线页可访问且 8 条主线都在（顺序一致）",
 			!!rm && !rm.missing && JSON.stringify(rm.lineNames) === JSON.stringify(EXPECT_LINES),
@@ -4543,8 +4544,8 @@ async function main() {
 		record("R-PATH-01", "页内 8 个锚点与 8 个区块一一对应",
 			!!rm && rm.indexHrefs?.length === 8 && rm.indexHrefs.every((h) => rm.lineIds?.includes(h.slice(1))),
 			`索引 ${JSON.stringify(rm?.indexHrefs)} ｜ 区块 ${JSON.stringify(rm?.lineIds)}`);
-		record("R-PATH-02", "停靠点数 137（含 3 处跨线），跨线标记可见",
-			rm?.stopCount === 137 && rm?.crossCount === 3,
+		record("R-PATH-02", "停靠点数 140（含 3 处跨线），跨线标记可见",
+			rm?.stopCount === 140 && rm?.crossCount === 3,
 			`停靠点 ${rm?.stopCount} ｜ 跨线标记 ${rm?.crossCount}`);
 		record("R-PATH-03", "同名篇目成对定位：vector / list 的用法与模拟实现各指各的",
 			!!rm &&
@@ -4598,7 +4599,7 @@ async function main() {
 			siteCount !== null && rm?.uniqueHrefs === siteCount,
 			`路线页去重后 ${rm?.uniqueHrefs} 篇 ｜ 站内 ${siteCount ?? `读不到：${siteErr}`} 篇（dist/api/allPostMeta.json）｜ 停靠点 ${rm?.stopCount} 个，差值是跨线复用`);
 		record("R-PATH-05", "轻量行不含 <img>，且页顶数字与实算一致",
-			rm?.imgCount === 0 && /134 篇/.test(rm?.statsText ?? "") && /8 条主线/.test(rm?.statsText ?? ""),
+			rm?.imgCount === 0 && /137 篇/.test(rm?.statsText ?? "") && /8 条主线/.test(rm?.statsText ?? ""),
 			`img=${rm?.imgCount} ｜ 页顶「${rm?.statsText}」｜390px 溢出 ${rm390?.overflowX}px`);
 		// R-PATH-01：导航第 3 格（「文章」与「我的」之间）必须换成学习路线，且**不许挂子项**
 		// （8 条主线走页内锚点；桌面上挂 8 个子项会爆）
@@ -4675,8 +4676,8 @@ async function main() {
 		await goto(`${BASE}/roadmap/`);
 		record(
 			"R-PATH-05",
-			"关掉 JS 后 8 条主线 / 137 个停靠点 / 页顶数字都在（内容不依赖 JS）",
-			noJs?.lines === 8 && noJs?.stops === 137 && /134 篇/.test(noJs?.stats ?? ""),
+			"关掉 JS 后 8 条主线 / 140 个停靠点 / 页顶数字都在（内容不依赖 JS）",
+			noJs?.lines === 8 && noJs?.stops === 140 && /137 篇/.test(noJs?.stats ?? ""),
 			`线 ${noJs?.lines} 条 ｜ 停靠点 ${noJs?.stops} 个 ｜ 页顶「${(noJs?.stats ?? "").replace(/\s+/g, " ").trim()}」`,
 		);
 
@@ -6500,7 +6501,8 @@ async function main() {
 				missing.length ? `缺 ${missing.join("、")}` : `抽查 ${want.length} 篇都在`,
 			);
 			const cats = await (await fetch(`${BASE}/categories/`)).text();
-			const wantCats = ["Linux 网络", "八股文", "项目实战", "算法"];
+			// v1.85：分类重排后新增两个分类（项目梳理 / 本站维护），原来那 4 个仍在 → 一起抽查
+			const wantCats = ["Linux 网络", "八股文", "项目实战", "项目梳理", "本站维护", "算法"];
 			const missingCats = wantCats.filter((c) => !cats.includes(c));
 			record(
 				"R-CNT-02",

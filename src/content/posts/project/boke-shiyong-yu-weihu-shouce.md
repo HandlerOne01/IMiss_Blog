@@ -2,7 +2,7 @@
 title: "本站使用与维护手册"
 published: 2026-10-09 18:30:00
 description: "从新建一个 .md、插一张图、发一条动态，到把文章挂进学习路线、以及删除一篇文章要动哪些地方：本站各类内容分别放在哪个目录、哪些字段必填、改完要跑哪几条命令，都收在这一篇里。"
-category: "项目实战"
+category: "本站维护"
 tags: ["Astro", "写作流程", "Markdown", "站点维护"]
 lang: "zh_CN"
 draft: false

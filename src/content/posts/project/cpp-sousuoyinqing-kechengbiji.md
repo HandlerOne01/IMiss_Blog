@@ -2,7 +2,7 @@
 title: "C++ 搜索引擎 课程笔记"
 published: 2026-07-21 17:26:46
 description: "LEVEL — 字符串化运算符，LOG(NORMAL, ...) 展开为 log(\"NORMAL\", ...)，输出 [NORMAL] 而非 [1] FILE 和 LINE — 编译时硬替换，记录调用位置 四个日志等级常量目前未在 log…"
-category: "项目实战"
+category: "项目梳理"
 tags: ["项目实战", "搜索引擎"]
 series: "搜索引擎"
 seriesOrder: 1

@@ -2,7 +2,7 @@
 title: "HTTP"
 published: 2026-05-10 15:37:41
 description: "整个代码实现了一个经典的多进程并发 HTTP 静态 Web 服务器。它的核心思想是将网络传输层（TCP）和应用层（HTTP）解耦。"
-category: "项目实战"
+category: "项目梳理"
 tags: ["项目实战", "My_Server"]
 series: "My_Server"
 seriesOrder: 1

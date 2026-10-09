@@ -2,7 +2,7 @@
 title: "流程梳理"
 published: 2026-09-02 15:57:19
 description: "先看 EventLoop::Start()——整个框架的一切活动都发生在这个循环里"
-category: "项目实战"
+category: "项目梳理"
 tags: ["项目实战", "My_Server"]
 series: "My_Server"
 seriesOrder: 3
