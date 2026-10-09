@@ -2,10 +2,14 @@
  * 从两张设计源生成站点用到的所有图标产物
  *
  * 设计源（都在仓库根的 `design/`，**按字节原样提交**，不重画不压缩）：
- *   · `design/imiss-logo.png`   —— **纸飞机**（发起人 2026-10-07 给的站点标识）
- *        1254×1254、自带透明底，但飞机本体只占中间一条 1069×793 横带（上下各 230px 空留白）
- *        → 第一步先 `trim()` 到本体，否则塞进方形画布会白白小一圈。
- *        sha256 `0a6a8b451a05cf14…`（= 发起人给的文件本身）
+ *   · `design/imiss-logo.png`   —— **纸飞机**（发起人给的站点标识）
+ *        ⚠️ **v1.78 换过一次图**：现在是 **2026-10-09** 给的手绘涂鸦风纸飞机
+ *        （1536×1024、自带透明底，四周只有一点点空边：左右共 110px、上下共 49px
+ *        → `trim()` 后本体 **1426×975 = 1.463:1**）；
+ *        上一版是 2026-10-07 给的扁平三色纸飞机（1254×1254，本体 1069×793 = 1.348:1，
+ *        sha256 `0a6a8b451a05cf14…`），要对比去 git 历史取。
+ *        两版都先 `trim()` 到本体，否则塞进方形画布会白白小一圈。
+ *        sha256 `b9ea5b860aed0830…`（= 发起人这次给的文件本身）
  *   · `design/imiss-avatar.png` —— **爱弥斯人物插画**（发起人 2026-10-07 给的，486×487）
  *        sha256 `ae7554780e80650d…`（= 发起人给的文件本身）
  *
@@ -27,7 +31,7 @@
  *   · schema.org 的 `image` 要一个绝对 URL 能取的方图（用 486 那张，够 OG 与高清屏用）。
  *
  * ⚠️ 为什么设计源放 `design/` 而不是 `src/assets/`：`Navbar.astro` 用 `import.meta.glob`
- *    收 **`src/` 下的全部图片扩展名**（`../../` 起头的通配）→ 实测那张 541 KB 的纸飞机源图
+ *    收 **`src/` 下的全部图片扩展名**（`../../` 起头的通配）→ 实测那张 1.30 MB 的纸飞机源图
  *    会原样出现在 `dist/_astro/` 里、**零处引用**。设计源不是运行期资产，放在 `src/` 外
  *    既省死重，也让"设计源 vs 生成物"一目了然。
  *    ⚠️ 写这段注释时踩过：正文里直接写那个通配串会**提前闭合块注释**（通配里的星号加斜杠），
@@ -52,7 +56,7 @@ const AVATAR_OUT = "src/assets/images/avatar/imiss-avatar.webp";
 const FAVICON_DIR = "public/favicon";
 const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 };
 
-/** 裁掉四周透明留白，只留飞机本体（原图上下各 230px 是空的） */
+/** 裁掉四周透明留白，只留飞机本体（源图左右共 110px、上下共 49px 是空的） */
 function planeTrimmed() {
 	return sharp(LOGO_SRC).trim({ threshold: 1, background: TRANSPARENT });
 }
@@ -64,7 +68,7 @@ async function main() {
 		});
 	}
 
-	// ⚠️ `metadata()` 报的是**输入**尺寸（1254×1254），不是 trim 之后的结果 ——
+	// ⚠️ `metadata()` 报的是**输入**尺寸（1536×1024），不是 trim 之后的结果 ——
 	// 要拿真实尺寸必须把管线跑出来（这里只编码一次，够快）
 	const { info } = await planeTrimmed().toBuffer({ resolveWithObject: true });
 	console.log(
@@ -74,13 +78,16 @@ async function main() {
 	// 亮色导航栏：本体满宽导出（图是透明底，深浅主题下看到的都是纸飞机本身）
 	await planeTrimmed().resize({ width: LOGO_SIZE }).webp({ quality: 95, effort: 6 }).toFile(LOGO_LIGHT);
 
-	// 暗色导航栏：同图，轻微提亮 —— 飞机尾翼是深紫色，在深色导航栏上本来最弱，
-	// 提亮 8% 是为了让它不至于糊成一块（实测数据见 ARCH.md §4.1 R-ID-04 行）
-	await planeTrimmed()
-		.resize({ width: LOGO_SIZE })
-		.modulate({ brightness: 1.08 })
-		.webp({ quality: 95, effort: 6 })
-		.toFile(LOGO_DARK);
+	// 暗色导航栏：**同图、不提亮**。
+	// v1.78 换图时实测过：旧标识（扁平三色，深紫色尾翼）提亮 8% 是安全的 —— 可见像素里只有
+	// 10.9% 会碰到 ≥252。但新的手绘涂鸦纸飞机**以白纸面为主**，本就亮：不提亮时已有 16.6% 的
+	// 可见像素在 ≥252，一加提亮立刻把纸面整片推爆 —— brightness 1.02 就涨到 57.2%、
+	// 1.04 → 60.8%、1.08 → 69.9%（探针 `reports/_logo-brightness-probe.mjs`），
+	// 纸面连同浅蓝中折线、淡粉涂鸦一起被压成一片死白。深色底上白纸本来就够亮，
+	// 提亮换不到任何对比度，只赔画质，所以这一版**保留 1.0**（两份产物像素相同）。
+	// ⚠️ 依旧导出两个文件：`Navbar.astro` 按主题切 `[data-logo-theme]` 的两张图，
+	//    文件留着，省得为"两张恰好一样"去改组件。
+	await planeTrimmed().resize({ width: LOGO_SIZE }).webp({ quality: 95, effort: 6 }).toFile(LOGO_DARK);
 
 	// 侧栏头像 / schema.org：人物插画，方形（源图 486×487，差 1px 用 cover 抹平）
 	await fs.mkdir(path.dirname(AVATAR_OUT), { recursive: true });

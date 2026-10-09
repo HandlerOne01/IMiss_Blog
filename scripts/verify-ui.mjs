@@ -4046,8 +4046,9 @@ async function main() {
 	// 它们**都成立**，对本次改动是恒真的（与 v1.63 修掉的 navHasMusic 同类病）。
 	// 下面的判据钉**图本体**，按 v1.64 的分工分成两组（发起人 2026-10-07 定的，参考上游作者站的做法）：
 	//   **小图标 = 纸飞机**：① 32px favicon 是透明底、中央列上下都有透明带；
-	//                          ② 它的内容包围盒 ≈1.35:1（横向的飞机，不是 1:1 的方块）；
-	//                          ③ 导航栏 Logo 本体的固有尺寸 256×190。
+	//                          ② 它的内容包围盒 ≈1.46:1（横向的飞机，不是 1:1 的方块；
+	//                             v1.78 换了发起人新给的手绘涂鸦风纸飞机，本体 1426×975）
+	//                          ③ 导航栏 Logo 本体的固有尺寸 256×175（跟着新标识的比例）。
 	//   **大图标与侧栏头像 = 人物插画**：④ 180/192 是满幅不透明方图；
 	//                          ⑤ 侧栏头像与 192 图标**同源**（8×8 指纹差异极小），
 	//                             而 32px 小图标与它们**明显不同源**（负控，差异极大）。
@@ -4129,8 +4130,8 @@ async function main() {
 		);
 		record(
 			"R-ID-04",
-			"小图标（32px）主体是横向纸飞机（内容包围盒 ≈1.35:1，不是 1:1 方块）",
-			!!p && aspect >= 1.2 && aspect <= 1.5 && p.bboxW >= p.w * 0.95,
+			"小图标（32px）主体是横向纸飞机（内容包围盒 ≈1.46:1，不是 1:1 方块）",
+			!!p && aspect >= 1.2 && aspect <= 1.7 && p.bboxW >= p.w * 0.95,
 			p
 				? `内容包围盒 ${p.bboxW}×${p.bboxH} = ${aspect.toFixed(3)}:1（占画布宽 ${((p.bboxW / p.w) * 100).toFixed(1)}%）`
 				: `❌ 取像素失败：${JSON.stringify(faviconProbe)}`,
@@ -4146,8 +4147,8 @@ async function main() {
 		// （读的是从服务器取回的那张图的真像素）。
 		record(
 			"R-ID-04",
-			"导航栏 Logo 本体是横向纸飞机（固有尺寸 256×190，≈1.35:1）",
-			!!ln && attrAspect >= 1.2 && attrAspect <= 1.5 && natAspect >= 1.15 && natAspect <= 1.55,
+			"导航栏 Logo 本体是横向纸飞机（固有尺寸 256×175，≈1.46:1）",
+			!!ln && attrAspect >= 1.2 && attrAspect <= 1.7 && natAspect >= 1.15 && natAspect <= 1.75,
 			ln
 				? `标签固有尺寸 ${ln.attrW}×${ln.attrH} = ${attrAspect.toFixed(3)}:1 ｜ 实际加载（密度校正后，绝对值随视口）${ln.natW}×${ln.natH} = ${natAspect.toFixed(3)}:1 ｜ currentSrc=${ln.currentSrc}`
 				: "❌ 没取到 logo 的自然尺寸（[data-logo-theme] 找不到？）",
