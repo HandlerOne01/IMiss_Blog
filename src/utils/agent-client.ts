@@ -938,6 +938,55 @@ async function ensureAssistant(
 /* ── 主入口 ───────────────────────────────────────────────────────────────── */
 
 /**
+ * 历史里的一轮发言（调用方只传**看得见的上下文**：用户说的 + 她说的）。
+ * `notice` 那类系统提示不参与重放 —— 那是我们自己的 UI 文案，不是对话内容。
+ */
+export interface ChatTurn {
+	role: "human" | "ai";
+	text: string;
+}
+
+/**
+ * 把「最近 N 轮历史 + 当前这句」拼成一次 `input.messages`（v1.99，落地 §8.9.7 #5/#10）。
+ *
+ * 为什么这么拼、以及为什么**只在自愈时**用，见 `agentConfig.contextReplay` 的注释与
+ * 探针 `reports/_thread-replay-probe.mjs`（真后端实测：带历史 → 它记得暗号；不带 → 答不出）。
+ *
+ * 四条规则（都有断言钉住）：
+ *   ① 只认 `human` / `ai` 两种角色；
+ *   ② 调用方通常"先把用户这句写进历史，再发起提问" → **丢掉结尾与当前这句逐字重复的那条 human**；
+ *   ③ 从后往前最多取 `2 × rounds` 条，且**保证第一条是 human**（不能让它看到"以 AI 开头"的对话）；
+ *   ④ 每条超过 `maxCharsPerMessage` 就截断加省略号（检索轮答复实测 480~520 字，没必要整段带上）。
+ *
+ * 返回 `null` = 没有可重放的历史（调用方就只发当前这句）。
+ */
+export function buildReplayMessages(
+	message: string,
+	history: ChatTurn[] | undefined,
+	cfg: { rounds: number; maxCharsPerMessage: number },
+): { type: "human" | "ai"; content: string }[] | null {
+	if (!history?.length || cfg.rounds <= 0) return null;
+	const turns = history.filter((t) => t.role === "human" || t.role === "ai");
+	const current = message.trim();
+	const last = turns[turns.length - 1];
+	if (last && last.role === "human" && last.text.trim() === current) turns.pop();
+	const tail = turns.slice(Math.max(0, turns.length - cfg.rounds * 2));
+	// 只保留"从一轮的开头（human）起"的那一段
+	while (tail.length && tail[0].role === "ai") tail.shift();
+	if (!tail.length) return null;
+	const cut = (s: string): string => {
+		const t = s.trim();
+		return t.length > cfg.maxCharsPerMessage
+			? `${t.slice(0, cfg.maxCharsPerMessage)}…`
+			: t;
+	};
+	return [
+		...tail.map((t) => ({ type: t.role, content: cut(t.text) })),
+		{ type: "human" as const, content: current },
+	];
+}
+
+/**
  * 一轮完整问答（含 `interrupt` 续跑），**永不抛异常**。
  *
  * 调用方只需要看 `status`：
@@ -955,6 +1004,13 @@ export async function askAemeath(
 		signal?: AbortSignal;
 		events?: AgentStreamEvents;
 		lastReply?: string;
+		/**
+		 * 这次会话**看得见的历史**（用户/她交替，按时间正序）。
+		 * 只在"线程失效 → 新建线程"那条自愈路径上用（`agentConfig.contextReplay`）：
+		 * 后端的线程是内存 checkpoint，重启即失效，新线程默认**什么都不知道** ——
+		 * 传了它，前端就能把最近 N 轮一起重放过去（v1.99）。
+		 */
+		history?: ChatTurn[];
 	} = {},
 ): Promise<AgentTurn> {
 	const t0 = Date.now();
@@ -1127,6 +1183,31 @@ export async function askAemeath(
 			if (got === "__no-thread__") return mock("建线程失败（短缓存内不重试）");
 			if (got.startsWith("__thread-error__"))
 				return mock(`建线程失败：${got.slice("__thread-error__:".length)}`);
+			// ③b **新线程 + 重放最近 N 轮**（v1.99，落地 §8.9.7 #5/#10）：
+			//   上面那步只是"换了一条能用的线程"，新线程默认**什么上下文都没有**。
+			//   这里把"看得见的最近几轮 + 当前这句"一次带上去（探针实测后端认这种载荷、
+			//   而且真的记得：历史里写暗号 → 新问题问暗号 → 它答得出来）。
+			//   ⚠️ **原 payload 是 `command:{resume}` 时必须换成 `input`**：新线程没有待续跑的
+			//      `interrupt`，照发 `command` 只会再吃一个 4xx（自愈等于没做）。
+			//   ⚠️ 只在**这条路径**上重放：正常轮次线程自带上下文，每轮重放会让上下文翻倍。
+			const wasCommand = "command" in payload;
+			const replay = agentConfig.contextReplay?.enable
+				? buildReplayMessages(message, opts.history, agentConfig.contextReplay)
+				: null;
+			if (replay) {
+				payload = { input: { messages: replay } };
+				debugLog("replay", {
+					messages: replay.length,
+					historyTurns: opts.history?.length ?? 0,
+					fromCommand: wasCommand,
+				});
+			} else if (wasCommand) {
+				payload = { input: { messages: [{ type: "human", content: message }] } };
+				debugLog("replay", {
+					messages: 1,
+					reason: "没有可重放的历史（或 contextReplay 关掉）→ 至少别拿 command 打新线程",
+				});
+			}
 			// 重试一次**同一个 payload**：上一轮根本没跑起来（4xx），谈不上"重放半截答复"；
 			// `round--` 让这一轮不占用续跑配额（`MAX_RESUME_ROUNDS` 是给 interrupt 用的）
 			round--;

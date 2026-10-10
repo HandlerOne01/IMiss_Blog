@@ -8014,7 +8014,17 @@ async function main() {
 								const failing = window.__failNextRun;
 								window.__failNextRun = false;
 								// ⚠️ 状态要**等响应回来再记**：先乐观写常量会把"这一跳成没成"记死
-								window.__healLog.push({ run: window.__healLog.length + 1, url: u.replace(${JSON.stringify(LIVE_FAKE)}, ""), forced404: failing });
+								// v1.99：顺带把**请求载荷的形状**记下来（重放断言的唯一证据来源）——
+								//   只记"有几条消息、每条的头几个字与长度、以及是不是 command.resume"，
+								//   不记整段正文（日志会进 reports/，别把访客对话抄进去）。
+								let body = {};
+								try { body = JSON.parse((init && init.body) || "{}"); } catch (e) {}
+								const msgs = (((body.input || {}).messages) || []).map((m) => ({
+									type: String(m && m.type || ""),
+									head: String(m && m.content || "").slice(0, 24),
+									len: String(m && m.content || "").length,
+								}));
+								window.__healLog.push({ run: window.__healLog.length + 1, url: u.replace(${JSON.stringify(LIVE_FAKE)}, ""), forced404: failing, msgs, cmd: body.command ? String(body.command.resume) : null });
 								if (failing)
 									return Promise.resolve(new Response("Thread not found", { status: 404 }));
 								const idx = window.__healLog.length - 1;
@@ -8069,6 +8079,36 @@ async function main() {
 						q2Runs[1].url.includes("/threads/t2/") &&
 						tl.threads === 2,
 					`第 1 问「${(q1?.reply ?? "").replace(/\n/g, "⏎").slice(0, 30)}」（${q1?.ms}ms，建线程 ${log1.threads} 次、runs ${q1Runs} 次）；第 2 问「${(q2?.reply ?? "").replace(/\n/g, "⏎").slice(0, 30)}」（${q2?.ms}ms，runs 两跳 → ${JSON.stringify(q2Runs)}）；POST /threads 累计 ${tl.threads} 次 —— 即「第 2 问**复用第 1 问那个线程**（线程跨轮持有的证据）吃 404 → 自愈**新建** t2 → 重试一次成功」`,
+				);
+				// ── v1.99：自愈不止"换个线程重试"，还要**把最近几轮重放过去**（§8.9.7 #5/#10 的落地）──
+				// 判据落在"重试那一跳的**请求载荷**"上（证据来源：本段的 `__healLog` 记了 msgs / cmd）：
+				//   · 重试必须是 `input.messages`、**不能是 `command`**（新线程没有待续跑的 interrupt）；
+				//   · 恰好 3 条：[human 第 1 问, ai 第 1 轮答复, human 第 2 问]；
+				//   · 历史那头两条要**逐字等于**前两跳真正发出去的那两句 —— ⚠️ **不要硬编码「第一问」**：
+				//     CDP 合成输入会把字符打两遍（v1.91 的 R-AGT-12 就踩过：实际发出去的是「第第一一问问」），
+				//     所以"期望值"只能取**同一份流水里的地面真值**（第一版就是硬编码，判红 1 条）；
+				//   · 「第 2 问」在载荷里**只能出现一次**：调用方是"先把用户这句写进历史，再发起提问"，
+				//     不丢尾部那条重复的 human 这里就会出现两条一模一样的 —— 去重规则正是为它写的。
+				const hop1 = (log1.heal ?? [])[0] ?? null;
+				const hop2 = q2Runs[0] ?? null;
+				const retryHop = q2Runs[1] ?? null;
+				const retryMsgs = retryHop?.msgs ?? [];
+				const q1Sent = hop1?.msgs?.[0]?.head ?? "?";
+				const q2Sent = hop2?.msgs?.[0]?.head ?? "?";
+				record(
+					"R-AGT-13",
+					"线程失效重建时**重放最近 N 轮**：重试那一跳带的是 input.messages（不是 command），历史逐字正确且不重复",
+					!!retryHop &&
+						retryHop.cmd === null &&
+						retryMsgs.length === 3 &&
+						retryMsgs[0]?.type === "human" &&
+						retryMsgs[0]?.head === q1Sent &&
+						retryMsgs[1]?.type === "ai" &&
+						(retryMsgs[1]?.head ?? "").startsWith("自愈之后的答复") &&
+						retryMsgs[2]?.type === "human" &&
+						retryMsgs[2]?.head === q2Sent &&
+						retryMsgs.filter((m) => m.head === q2Sent).length === 1,
+					`重试那一跳（${retryHop?.url ?? "—"}）载荷：cmd=${JSON.stringify(retryHop?.cmd ?? null)}、${retryMsgs.length} 条消息 → ${retryMsgs.map((m) => `${m.type}:「${m.head}…」(${m.len} 字)`).join(" / ")}；期望 = [human「${q1Sent}」, ai「自愈之后的答复…」, human「${q2Sent}」]（**第 2 问只能出现 1 次**）—— 期望值取自前两跳发出去的**地面真值**（CDP 合成输入会把字打两遍，见 R-AGT-12），配置在 agentConfig.contextReplay（rounds 3 / 每条截断 800 字）`,
 				);
 			}
 

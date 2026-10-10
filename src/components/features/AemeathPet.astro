@@ -1349,6 +1349,16 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				// `pending` = 后端上一轮反问过（用户这句很可能是对它的回答）；
 				// 适配层再按约定词判一次，**不匹配就当新消息发**（契约：不匹配也不许报错）
 				lastReply: pending ? lastReply : undefined,
+				// **看得见的历史**（v1.99）：只在"后端重启 → 旧线程失效 → 新建线程"那条自愈路径上用，
+				// 适配层会把最近 N 轮重放给新线程（否则新线程什么都不知道，见 `agentConfig.contextReplay`）。
+				// ⚠️ `chatLog` 是**唯一事实来源**（DOM 每次开框按它重建），所以"重放的上下文"与
+				//    "访客在历史区里看到的东西"永远是同一份；`notice` 那类系统提示由适配层过滤掉。
+				history: chatLog
+					.filter((l) => l.role === "user" || l.role === "ai")
+					.map((l) => ({
+						role: l.role === "user" ? ("human" as const) : ("ai" as const),
+						text: l.text,
+					})),
 				events: {
 					onReply: (text) => {
 						// 中途的流式增量：会话变了就丢掉（不能往已经关掉的气泡里写）
