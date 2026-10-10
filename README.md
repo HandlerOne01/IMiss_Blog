@@ -113,7 +113,8 @@ pnpm verify:gateway # 期望输出：`网关检查 51 项：通过 51 / 失败 0
 | `pnpm: 无法将"pnpm"项识别为…` | 没装 pnpm：`npm i -g pnpm` |
 | 安装依赖卡住/报 `ETIMEDOUT` | 忘了加 `--registry=https://registry.npmmirror.com` |
 | 启动报端口被占用 | 上一台的窗口还开着；关掉它，或 `pnpm dev --port 4322` |
-| 现在**还没有**真实内容 | 正常：项目/动态/相册/书签导航还是空态（上游示例已在 v1.47 全删，`/projects/`、`/dynamic/`、`/gallery/`、`/booknav/` 等内容等你给，见 `PROJECT_STATUS.md` §1）。**关于页 v1.51 已换成中立版**；桌宠与 Agent 都已经做完（P3 / P5），连不上后端时桌宠走本地台词 |
+| `pnpm dev` **启动时**抛 `transport invoke timed out after 60000ms`（`{"name":"fetchModule"}`）后退出码 1 | **冷启动超过了 Vite 写死的 60 秒模块加载超时**（v1.97 实测，见 `ARCH.md` §14.3 **T93**）：改过 `astro.config.mjs`（或内容库缓存失效）后**第一次**启动要做一次全量内容重建 + 依赖预打包，本机实测**约 52 秒**，而 Vite 模块加载的 invoke 超时是 `transport.timeout ?? 6e4` = **60 秒写死**（机器一忙就翻过去）。**解决：再跑一次 `pnpm dev`**（暖启动实测 **7~9 秒**）。⚠️ 若**每次**都这样，先看日志里有没有 `Failed to run dependency scan` —— 那是另一码事（`ARCH.md` §14.3 **T89**） |
+| ~~现在**还没有**真实内容~~ **（v1.97 更正：这一行早就过期了）** | 站上现在真的有：**137 篇文章 / 8 条主线 140 站的学习路线 / 3 个项目 / 1 条动态 / 相册 8 张原图 / 书签 6 组 39 个 / 1 首音乐 / 会聊天的桌宠（连不上后端时走本地台词）**；评论区与留言**明确不做**（v1.89）。仍然空着的是**番剧 / 轻小说两页的开关**（要 MAL 的 `username`+`Client ID` 与 VNDB 的 `userId`，阻塞项 **B-05**），以及「按北京时间选首屏素材」（**R-BG-06**，等时段规则）—— 都在 `PROJECT_STATUS.md` §4 |
 
 ## 常用命令
 
