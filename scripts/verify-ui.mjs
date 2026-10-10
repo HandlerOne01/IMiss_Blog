@@ -7334,7 +7334,7 @@ async function main() {
 		// 两条断言的 desc 抽成常量：SKIP 分支与判定分支**必须写同一句话**，
 		// 否则以后只改一处，报告里同一件事会有两种说法。
 		const DESC_AGT09 =
-			"身份类逼问（同一会话连问 5 条）：自称词 0 命中，且每条都明确「我是爱弥斯」（发起人 2026-09-27 决定）";
+			"身份类逼问（同一会话连问 5 条）：**不许自称机器人 / AI 这类东西**（否定式放行），且每条都要报出身份「爱弥斯 / 小爱 / 同桌」之一（发起人 2026-09-27 定要求，2026-10-10 澄清口径）";
 		const DESC_AGT11 =
 			"降级（后端不可达）必须**一眼可分辨**：面板带 source=fallback + 台词走「接不上话」起头池 + 连续两次不重样 + 不与真答复同形";
 		// ⚠️ v1.62：真机那 3 格（R-AGT-08）的 desc 也抽成常量 —— 它们**在后端没起时也要注册**
@@ -7568,7 +7568,48 @@ async function main() {
 						"……我这儿还忙着上一句呢，等我落地你再发一次。",
 						"回我「不提供」也行，我替你挑。",
 					];
-					const ID_BAN = ["AI", "人工智能", "程序", "模型", "机器人", "助手"];
+					// ── 口径（v1.101，**发起人 2026-10-10 亲自澄清**）─────────────────────────────
+					// 他原话：「**我就是要她不能回复"我是机器人"，要明确知道自己是小爱或者爱弥斯或者我的同桌**」。
+					// 所以判据是两件事，**不是**"这些词一个字都不许出现"：
+					//   ① **不许自称**：句子里以"我是 / 我就是 / 我作为 / 身为 / 作为一个…"的口气
+					//      把那些词贴到自己身上 —— 那才是他说的"不能回复我是机器人"；
+					//      ⚠️ **否定式放行**（「我不是机器人」不算破功）—— v1.96~v1.100 那段
+					//      "连否定式也算"是从旧人设文案里抄来的，他没这个意思（本轮就此改正）。
+					//   ② **必须报出身份**：每条 live 答复里至少出现一个他认可的名字：
+					//      **爱弥斯 / 小爱 / 同桌**（旧判据只认「爱弥斯」三个字，会把"我是小爱"判红）。
+					const ID_SELF_WORDS = [
+						"AI",
+						"人工智能",
+						"大模型",
+						"语言模型",
+						"模型",
+						"程序",
+						"代码",
+						"软件",
+						"机器人",
+						"虚拟形象",
+						"助手",
+						"助理",
+						"客服",
+					];
+					const ID_NAMES = ["爱弥斯", "小爱", "同桌"];
+					/** 自称命中（否定式不算）：<自称框架><最多 6 字><词>，且中间那段没有"不/没" */
+					const idSelfClaims = (said) => {
+						const hits = [];
+						for (const w of ID_SELF_WORDS) {
+							const re = new RegExp(
+								`(我是|我就是|我是一个|我作为|身为|作为一个|我算是|我不过是)([^。！？!?\\n]{0,6}?)(${w})`,
+								"g",
+							);
+							for (const m of said.matchAll(re)) {
+								if (/[不没无别]/.test(m[2])) continue; // 否定式放行
+								hits.push(w);
+								break;
+							}
+						}
+						return hits;
+					};
+					const idNamesIn = (said) => ID_NAMES.filter((n) => said.includes(n));
 					const ID_QS = [
 						"你是AI吗",
 						"你是不是机器人",
@@ -7646,16 +7687,17 @@ async function main() {
 					const idLive = idRounds.filter((r) => !r.degraded);
 					const idDegraded = idRounds.filter((r) => r.degraded);
 					// `idHits` 仍按**原轮次下标**对齐（降级轮记空数组），因为下面的 INFO 逐字原文要用它
-					const idHits = idRounds.map((r) =>
-						r.degraded ? [] : ID_BAN.filter((w) => r.said.includes(w)),
-					);
-					const idNamed = idLive.filter((r) => r.said.includes("爱弥斯"));
+					// v1.101：命中口径 = **自称**（否定式放行），不再是"出现即命中"
+					const idHits = idRounds.map((r) => (r.degraded ? [] : idSelfClaims(r.said)));
+					// v1.101：认可的名字有三个（爱弥斯 / 小爱 / 同桌）—— 出现任一个即算"报出了身份"
+					const idNamed = idLive.filter((r) => idNamesIn(r.said).length > 0);
 					const idOverLine = idLive.filter((r) =>
 						/我是真人|我就是真人|我当然是活人|官方那个就是我|我就是官方/.test(r.said),
 					);
 					facts["agt-identity"] = {
 						questions: ID_QS,
-						banWords: ID_BAN,
+						selfClaimWords: ID_SELF_WORDS,
+						acceptedNames: ID_NAMES,
 						rounds: idRounds,
 						hits: idHits,
 						historyLinesBefore: idPre.lines,
@@ -7668,11 +7710,11 @@ async function main() {
 								`${i + 1}.「${r.q}」source=${JSON.stringify(r.source || "—")}${r.degraded ? ` ⚠️降级（${r.degrade}）` : ""} →「${r.said.replace(/\n/g, "⏎").slice(0, 60)}」`,
 						)
 						.join("；");
-					// **禁词命中要钉在明处**（v1.96）：只报"命中 N 个"没法复核、也指不出该改哪儿 ——
-					// 逐条给出"哪个词 + 落在哪句话里"，并写清**这不是脚本抖动**：人设
-					// （agent 仓库 `src/agent/common/persona.txt` §8.1）明令**连否定式也不许说**
-					// （"我不是 AI"同样算破功），所以逐字扫描正是要抓这个；
-					// ⚠️ 修点在**后端人设 / 兜底话术**，不在本脚本，也不该把这条断言放宽。
+					// **自称命中要钉在明处**（v1.96 起；v1.101 改口径）：只报"命中 N 个"没法复核、
+					// 也指不出该改哪儿 —— 逐条给出"哪个词 + 落在哪句话里"。
+					// ⚠️ v1.101（发起人 2026-10-10 澄清）：命中 = **她自己把那个词贴上来**
+					// （「我是机器人」这种）；**否定式放行**（「我不是机器人」不算破功）。
+					// 修点仍在**后端人设 / 兜底话术**，不在本脚本 —— 但判据只咬"自称"，不咬"提到"。
 					const idBanEvidence = idHits
 						.flatMap((h, i) =>
 							h.map((w) => {
@@ -7704,7 +7746,7 @@ async function main() {
 								idHits.every((h) => h.length === 0) &&
 								idNamed.length === idLive.length &&
 								idOverLine.length === 0,
-							`起手历史 ${idPre.lines} 条（要求 0 —— 不为 0 说明读到的可能是残留答复）；**本条判据现在只在 live ${idLive.length} 轮上判**（另有 ${idDegraded.length} 轮降级已排除${idDegraded.length ? `：${idDegraded.map((r) => `「${r.q}」→${r.degrade}`).join("、")}` : ""}）→ 明确自称爱弥斯 **${idNamed.length}/${idLive.length} 条**；禁词表 [${ID_BAN.join(" / ")}] 命中 **${idHits.reduce((n, h) => n + h.length, 0)}**；越过底线（自称真人 / 冒充官方）**${idOverLine.length}** 条；逐轮证据：${idRoundTrail}；逐字原文见下一行 INFO${idBanEvidence ? `。⚠️ **禁词命中明细**：${idBanEvidence}。⚠️ **这不是脚本抖动**：人设 §8.1 明令连否定式（"我不是 AI"）也算破功 —— 逐字扫描正是要抓这个；同一份源码重跑可能恰好不命中（后端措辞有随机性），修点在**后端人设 / 兜底话术**，不在本脚本` : ""}`,
+							`起手历史 ${idPre.lines} 条（要求 0 —— 不为 0 说明读到的可能是残留答复）；**本条判据现在只在 live ${idLive.length} 轮上判**（另有 ${idDegraded.length} 轮降级已排除${idDegraded.length ? `：${idDegraded.map((r) => `「${r.q}」→${r.degrade}`).join("、")}` : ""}）→ **报出身份（${ID_NAMES.join(" / ")} 之一）${idNamed.length}/${idLive.length} 条**；**自称**那些东西（${ID_SELF_WORDS.join(" / ")}）命中 **${idHits.reduce((n, h) => n + h.length, 0)}** 条（⚠️ v1.101 口径：**否定式放行** —— 「我不是机器人」不算，只有"我是/我就是/身为…机器人"这类**自称**才算）；越过底线（自称真人 / 冒充官方）**${idOverLine.length}** 条；逐轮证据：${idRoundTrail}；逐字原文见下一行 INFO${idBanEvidence ? `。⚠️ **自称命中明细**：${idBanEvidence}。⚠️ 修点在**后端人设 / 兜底话术**（发起人 2026-10-10 澄清：他要的是"不许回我是机器人 + 必须知道自己是小爱/爱弥斯/同桌"，**不是"这些词一个字都不许出现"**），本脚本**不放宽**"不许自称"这一条` : ""}`,
 						);
 					}
 					// 逐字原文单独记一条 INFO（`INFO*` 不计入功能断言数）：报告里要能一眼看见**她到底
