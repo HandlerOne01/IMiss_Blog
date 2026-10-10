@@ -907,7 +907,7 @@ if result is not None:
 
 **顺序表在内存中有两种结构**
 
-![img](https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/1190058-20180420215901088-712002711.png)
+![img](/images/posts/qitajishuzhan/01.png)
 
 存储表信息的单元与元素存储区以连续的方式安排在一块存储区里，两部分数据的整体形成一个完整的顺序表对象。一体式结构整体性强，易于管理。但是由于数据元素存储区域是表对象的一部分，顺序表创建后，元素存储区就固定了。分离式结构中表对象里只保存与整个表有关的信息（即容量和元素个数），实际数据元素存放在另一个独立的元素存储区里，通过链接与基本表对象关联。一旦表需要扩充，对于一体式结构来说，就要重新申请一块更大的空内存区域，将所有元素放入其中，再清空旧的内存区域。对于分离式结构来说，则需要将链接地址更新一下，顺序表对象是不变的。
 
@@ -1262,7 +1262,7 @@ rebase变基会破坏分支
 
 ## 多线程调试
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203151449773.png" alt="这里写图片描述" style="zoom: 80%;float:left" />
+<img src="/images/posts/qitajishuzhan/04.png" alt="这里写图片描述" style="zoom: 80%;float:left" />
 
 - info threads
 
@@ -1360,7 +1360,7 @@ min 指定了编译当前的cmake需要的最old的版本号，如果cmake版本
 
 云原生是一种**构建和运行应用程序的方法**，是一套技术体系和方法论。云原生（CloudNative）是一个组合词，Cloud+Native。Cloud表示应用程序位于云中，而不是传统的数据中心；Native表示应用程序从设计之初即考虑到云的环境，原生为云而设计，**在云上以最佳姿势运行**，充分利用和发挥云平台的弹性+分布式优势。云原生是一种**构建和运行应用程序的方法**，是一套技术体系和方法论。云原生（CloudNative）是一个组合词，Cloud+Native。Cloud表示应用程序位于云中，而不是传统的数据中心；Native表示应用程序从设计之初即考虑到云的环境，原生为云而设计，**在云上以最佳姿势运行**，充分利用和发挥云平台的弹性+分布式优势。
 
-![img](https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/172df2b96424af31~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp)
+![img](/images/posts/qitajishuzhan/02.webp)
 
 **总而言之，符合云原生架构的应用程序应该是：采用开源堆栈（K8S+Docker）进行容器化，基于微服务架构提高灵活性和可维护性，借助敏捷方法、DevOps支持持续迭代和运维自动化，利用云平台设施实现弹性伸缩、动态调度、优化资源利用率。**
 
@@ -1693,7 +1693,7 @@ Linux文件系统由bootfs 和rootfs 两部分组成
 
 - 第二层是root文件系统rootfs ，称为base iamge，然后再往上可以叠加其他的镜像文件，如下
 
-  <img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/image-20220831224150304.png" alt="image-20220831224150304" style="zoom:80%;float:left" />
+  <img src="/images/posts/qitajishuzhan/05.png" alt="image-20220831224150304" style="zoom:80%;float:left" />
 
 - 统一文件系统（Union File System）技术能够将不同的层整合成一个文件系统，为这些层提供了一个统一的视角，这样就隐藏了多层的存在，在用户的角度看来，只存在一个文件系统
 
@@ -1905,7 +1905,7 @@ Kubernetes 通过声明式配置，真正让开发人员能够理解应用的状
 
 然后最简单的情况是只有一台应用服务器（WEB服务器＋数据库服务器），这一台应用服务器做了三件事，或者说包含了三个模块，分别是IO处理单元，业务逻辑处理单元，存储处理单元。这种基本个人写个小项目的话都是在一台电脑上集成了这三个模块。
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/6floJZsDgdaRmzN.png" alt="image-20220713200207105" style="float: left;" />
+<img src="/images/posts/qitajishuzhan/06.png" alt="image-20220713200207105" style="float: left;" />
 
 随着业务的增大，并发请求逐渐增多，我们就可以把这三个模块都拆开，每个模块分别用很多台及其去处理，这也是大型服务器项目的思想。
 
@@ -1927,7 +1927,7 @@ Kubernetes 通过声明式配置，真正让开发人员能够理解应用的状
 
   服务器架构如下：
 
-  <img src="https://s2.loli.net/2022/07/13/L6mdyHGukUxAM8e.png" alt="image-20220713213447128" style="zoom:80%;float:left" />
+  <img src="/images/posts/qitajishuzhan/07.png" alt="image-20220713213447128" style="zoom:80%;float:left" />
 
   一般我们业务都会用专业的缓存数据库， nosql当做缓存来使用
 
@@ -1945,23 +1945,23 @@ Kubernetes 通过声明式配置，真正让开发人员能够理解应用的状
 
   **分库/垂直分区**
 
-  <img src="https://s2.loli.net/2022/07/15/63FULbxNqI9VdW1.png" alt="image-20220715113300067" style="zoom:80%;float:left" />
+  <img src="/images/posts/qitajishuzhan/08.png" alt="image-20220715113300067" style="zoom:80%;float:left" />
 
   **分表/水平分区**
 
-  <img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/J6r9ALnQVCYazqi.png" alt="image-20220715113321046" style="zoom:80%;float:left" />
+  <img src="/images/posts/qitajishuzhan/09.png" alt="image-20220715113321046" style="zoom:80%;float:left" />
 
 - 数据库没啥问题了，然后对业务处理拆分
 
   客户或者服务器访问浏览器，有动态请求和静态请求，如下图
 
-  <img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/oN4eZOxrV1WwPjf.png" alt="image-20220715101502443" style="zoom: 50%; float: left;" />
+  <img src="/images/posts/qitajishuzhan/10.png" alt="image-20220715101502443" style="zoom: 50%; float: left;" />
 
   静态请求就是html、js、cs这种，动态请求就是asp.net、JSP、PHP这种。所以自然而然，服务器也分为了HTTP server(Apache、Nginx)和Application server(Tomcat)。  
 
 - 客户端和服务器之间的缓存处理
 
-  <img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/GExqMm9cUgdDZ7k.png" alt="image-20220715102452185" style="zoom:67%;float:left" />
+  <img src="/images/posts/qitajishuzhan/11.png" alt="image-20220715102452185" style="zoom:67%;float:left" />
 
   1. 浏览器缓存
   2. 前端页面缓存squid
@@ -2004,7 +2004,7 @@ Kubernetes 通过声明式配置，真正让开发人员能够理解应用的状
 
   然后分地区的去建立服务体系，如下：
 
-  ![image-20220715113508791](https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/kKYlvH9GiMx8WXu.png)
+  ![image-20220715113508791](/images/posts/qitajishuzhan/03.png)
 
   > DFS分布式文件系统，如：Lustre\HDFS\GFS\TFS\FreeNas等
   >
@@ -2103,7 +2103,7 @@ AMD知道自己造不出能与IA64兼容的处理器，于是它把x86扩展一�
 
 **寄存器结构**
 
-<img src="http://www.cs.virginia.edu/~evans/cs216/guides/x86-registers.png" alt="img" style="zoom:50%;float:left" />
+<img src="/images/posts/qitajishuzhan/12.png" alt="img" style="zoom:50%;float:left" />
 
 X86处理器中有8个32位的通用寄存器。由于历史的原因，EAX通常用于计算，ESP指示栈指针(用于指示栈顶位置)，而EBP则是基址指针（用于指示子程序或函数调用的基址指针）。
 
@@ -2145,7 +2145,7 @@ sub指令指示第一个操作数减去第二个操作数，并将相减后的�
 
 ## **编译器结构**
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/202210112125246.webp" alt="WeChat9e495da1ca23eadd95534196d2a44530.png" style="zoom: 23%;float:left" />
+<img src="/images/posts/qitajishuzhan/13.webp" alt="WeChat9e495da1ca23eadd95534196d2a44530.png" style="zoom: 23%;float:left" />
 
 ## 词法分析
 
@@ -2153,7 +2153,7 @@ sub指令指示第一个操作数减去第二个操作数，并将相减后的�
 
 $token:<种别码，属性值>$，token有两个分量，种别码和属性
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/202210112135470.webp" alt="截屏2021-03-13 下午3.57.00.png" style="zoom: 50%;float:left" />
+<img src="/images/posts/qitajishuzhan/14.webp" alt="截屏2021-03-13 下午3.57.00.png" style="zoom: 50%;float:left" />
 
 > - **一词一码**：关键字是唯一的且事先可以确定，为每个关键字分配一个种别码
 > - **多词一码**：标识符统一作为一类单词分配同一个种别码，为了区分不同的标示符，用token的第二个分量“属性值”存放不同标示符具体的字面值

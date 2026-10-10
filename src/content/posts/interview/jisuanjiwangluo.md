@@ -86,7 +86,7 @@ comment: true
 HTTP协议是以ASCⅡ码传输，建立在TCP/IP协议之上的应用层规范。
 HTTP请求报文由请求行（request line）、请求头部（header）、空行和请求数据四个部分组成，下图是请求报文的一般格式。
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202204081412753.jpeg" alt="enter" style="float: left;" />
+<img src="/images/posts/jisuanjiwangluo/05.jpg" alt="enter" style="float: left;" />
 
 - 请求换行
 
@@ -101,7 +101,7 @@ HTTP请求报文由请求行（request line）、请求头部（header）、空�
   >
   > POST将请求参数封装在HTTP的请求数据中，可以大量的传递数据，理论上对数据得大小的没有限制，但实际各个WEB服务器会规定对post提交数据大小进行限制。而且可以不显示在URL中。一个post的http请求如下：
   >
-  > <img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/1207920-20190708160109318-1680528296.png" alt="wireshark" style="zoom: 67%;float:left" />
+  > <img src="/images/posts/jisuanjiwangluo/06.png" alt="wireshark" style="zoom: 67%;float:left" />
 
   **POST方法向服务器提交数据，比如表单的数据的提交。GET的方法一般用于获取/查询资源信息。**
 
@@ -133,7 +133,7 @@ HTTP请求报文由请求行（request line）、请求头部（header）、空�
 
 HTTP响应报文是由状态行、响应头部、空行和响应包体四个部分组成，如下图所示：
 
-<img src="https://img2018.cnblogs.com/blog/1207920/201907/1207920-20190708160115618-73171525.png" alt="description here" style="float: left;" />
+<img src="/images/posts/jisuanjiwangluo/33.png" alt="description here" style="float: left;" />
 
 状态行（status line）代替了请求行。状态行通过提供一个状态码来说明请求情况。
 
@@ -174,7 +174,7 @@ HTTP响应报文是由状态行、响应头部、空行和响应包体四个部�
 
   服务器返回给客户端的文本信息，如下图：
 
-  <img src="https://s2.loli.net/2022/04/08/CpVYWPQyARMmTln.png" alt="http" style="float: left;" />
+  <img src="/images/posts/jisuanjiwangluo/07.png" alt="http" style="float: left;" />
 
 ### http的无状态性
 
@@ -186,7 +186,7 @@ HTTP响应报文是由状态行、响应头部、空行和响应包体四个部�
 
 ### 浏览器控制台中的http报文
 
-  ![浏览器控制台http请求报文](https://s2.loli.net/2022/04/08/hnVyHgKIqD35RSz.png)
+  ![浏览器控制台http请求报文](/images/posts/jisuanjiwangluo/01.png)
 
 ## https和http区别
 
@@ -208,9 +208,9 @@ HTTP响应报文是由状态行、响应头部、空行和响应包体四个部�
 
 https的ssl连接过程如下图：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203071410891.png" alt="img" style="zoom:80%;float:left" />
+<img src="/images/posts/jisuanjiwangluo/08.png" alt="img" style="zoom:80%;float:left" />
 
-![img](https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203071411049.png)
+![img](/images/posts/jisuanjiwangluo/02.png)
 
 ## SSL/TLS密钥交换算法
 
@@ -228,7 +228,7 @@ https的ssl连接过程如下图：
 
   比如有一个网址：`https://www.webserver.com/dir/file`，其解析过程如下图所示：
 
-  ![img](https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203211344104.png)
+  ![img](/images/posts/jisuanjiwangluo/03.png)
 
 - **2、浏览器确定了服务器和文件名后，会产生HTTP请求消息**
 
@@ -254,7 +254,7 @@ https的ssl连接过程如下图：
 
   网卡收到来自内核协议栈的数据后，会在开头加上报头和起始帧分界符，在末尾加上帧校验序列，如下图
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203211409575.png" alt="图片" style="zoom: 50%; float: left;" />
+  <img src="/images/posts/jisuanjiwangluo/09.png" alt="图片" style="zoom: 50%; float: left;" />
 
 - **6、到达交换机**
 
@@ -294,7 +294,7 @@ traceroute to static.dns.iqiyi.com (121.9.221.96), 64 hops max, 52 byte packets
 
 从源主机向目标主机发送IP数据报，并按顺序将TTL设置为从1开始递增的数字（假设为N），导致第N个节点（中间节点 or 目标主机）丢弃数据报并返回出错信息。源主机根据接收到的错误信息，确定到达目标主机路径上的所有节点的IP，以及对应的耗时。原理图如下：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203211441013.jpeg" alt="img" style="zoom:80%;float:left" />
+<img src="/images/posts/jisuanjiwangluo/10.jpg" alt="img" style="zoom:80%;float:left" />
 
 - 问题1：用的UDP还是TCP协议
 
@@ -380,7 +380,7 @@ TCP网络编程最本质的是处理三个半事件：
 
 一张图就能说明问题
 
-<img src="https://s2.loli.net/2022/07/15/DMzIaVSKu3O4nBm.png" alt="img" style="float: left;" />
+<img src="/images/posts/jisuanjiwangluo/11.png" alt="img" style="float: left;" />
 
 ## HTTP1.0和HTTP1.1的一些区别
 
@@ -400,7 +400,7 @@ HTTP1.0最早在网页中使用是在1996年，那个时候只是使用一些较
 
 http2.0起初是通过SPDY协议而来的，SPDY是一个由 Google 主导的研究项目发明的HTTP替代协议。Google为了减少加载延迟而开发的，通过使用例如压缩，多路复用，优化等。 SPDY位于HTTP之下、TCP/SSL之上，这样可以轻松兼容老版本的HTTP协议，同时可以使用已有的SSL功能。SPDY优化了HTTP1.X的请求延迟，解决了HTTP1.X的安全性
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/2020-10-25T152800.png" alt="2020-10-25T152800.png" style="zoom:80%;float:left" />
+<img src="/images/posts/jisuanjiwangluo/12.png" alt="2020-10-25T152800.png" style="zoom:80%;float:left" />
 
 ### 新特性1：二进制分帧
 
@@ -418,7 +418,7 @@ TCP连接相当于两根管道（一个用于服务器到客户端，一个用�
 
 HTTP 性能优化的关键并不在于高带宽，而是低延迟。TCP 有个慢启动的特性，起初会限制连接的最大速度，如果数据成功传输，会随着时间的推移提高传输的速度。由于这种原因，让原本就具有突发性和短时性的 HTTP 连接变的十分低效。HTTP/2 通过让所有数据流共用同一个连接，可以更有效地使用 TCP 连接，让高带宽也能真正的服务于 HTTP 的性能提升。
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/2020-10-25T154800.png" alt="2020-10-25T154800.png" style="zoom:80%;float:left" />
+<img src="/images/posts/jisuanjiwangluo/13.webp" alt="2020-10-25T154800.png" style="zoom:80%;float:left" />
 
 ### 新特性3：头压缩
 
@@ -482,7 +482,7 @@ HTTP 性能优化的关键并不在于高带宽，而是低延迟。TCP 有个�
 
    > **MSS和MTU**
    >
-   > <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202202250931939.png" alt="MSS与MTU的关系_令牌环网" style="float: left;" />
+   > <img src="/images/posts/jisuanjiwangluo/14.png" alt="MSS与MTU的关系_令牌环网" style="float: left;" />
    >
    > **MTU**：maximum transmission unit，最大传输单元，由硬件规定，如以太网的MTU为1500字节。主要在数据链路层
    >
@@ -492,7 +492,7 @@ HTTP 性能优化的关键并不在于高带宽，而是低延迟。TCP 有个�
 
 - UDP首部格式
 
-  ​	<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210822162147.webp" alt="img" style="zoom:67%;" />
+  ​	<img src="/images/posts/jisuanjiwangluo/15.webp" alt="img" style="zoom:67%;" />
 
   1. 源端口号。需要对方回信时候可以用，不需要回复可以设置为0
 
@@ -504,7 +504,7 @@ HTTP 性能优化的关键并不在于高带宽，而是低延迟。TCP 有个�
 
 - TCP首部格式
 
-  ![img](https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210822162156.jpeg)
+  ![img](/images/posts/jisuanjiwangluo/04.jpg)
 
   1. 源端口（16位）和目的端口（16位）
 
@@ -534,7 +534,7 @@ HTTP 性能优化的关键并不在于高带宽，而是低延迟。TCP 有个�
 
 TCP 是**面向连接的、可靠的、基于字节流**的传输层通信协议。
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202202250915293.png" alt="image-20220225091459903" style="zoom:67%; float:left" />
+<img src="/images/posts/jisuanjiwangluo/16.png" alt="image-20220225091459903" style="zoom:67%; float:left" />
 
 **面向连接**：一定是「一对一」才能连接，不能像 UDP 协议可以一个主机同时向多个主机发送消息，也就是一对多是无法做到的；
 
@@ -542,7 +542,7 @@ TCP 是**面向连接的、可靠的、基于字节流**的传输层通信协议
 
 **字节流**：(无边界+有序的概念)消息是「没有边界」的，所以无论我们消息有多大都可以进行传输。并且消息是「有序的」，当「前一个」消息没有收到的时候，即使它先收到了后面的字节，那么也不能扔给应用层去处理，同时对「重复」的报文会自动丢弃。
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202202250919337.png" alt="image-20220225091921269" style="zoom:67%; float:left" />
+<img src="/images/posts/jisuanjiwangluo/17.png" alt="image-20220225091921269" style="zoom:67%; float:left" />
 
 TCP四元组可以唯一的确定一个连接。所以有一个问题比如：有一个 IP 的服务器监听了一个端口，它的 TCP 的最大连接数是多少？
 
@@ -550,7 +550,7 @@ TCP四元组可以唯一的确定一个连接。所以有一个问题比如：�
 
 ## ☆TCP三次握手
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210822164519.png" alt="UDP 报文" style="zoom: 67%;" />
+<img src="/images/posts/jisuanjiwangluo/18.png" alt="UDP 报文" style="zoom: 67%;" />
 
 注意该图客户端课服务器端分别所处于的阶段，客户端由两个阶段，服务器方有三个。
 
@@ -679,7 +679,7 @@ ISN不是固定的， 如果是固定的，攻击者很容易猜出后续的确�
 
 对于第三次握手，此时客户端已经处于连接状态，他已经知道服务器的接收、发送能力是正常的了，所以可以携带数据是情理之中。
 
-## ☆TCP四次挥手<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210822184132.png" alt="UDP 报文" style="zoom:67%;" />
+## ☆TCP四次挥手<img src="/images/posts/jisuanjiwangluo/19.png" alt="UDP 报文" style="zoom:67%;" />
 
 TCP是全双工的通信，因此收发双方都各有一个写缓存和读缓存。
 
@@ -806,7 +806,7 @@ Linux的默认值如下：
 
 - 重传机制
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203211141026.png" alt="image" style="zoom:67%;float:left" />
+<img src="/images/posts/jisuanjiwangluo/20.png" alt="image" style="zoom:67%;float:left" />
 
 ## 重传机制
 
@@ -814,7 +814,7 @@ Linux的默认值如下：
 
 超时重传指的是发送数据包在一定的时间周期内没有收到相应的ACK，等待一定的时间，超时之后就认为这个数据包丢失，就会重新发送。这个等待时间被称为RTO.
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202202282307594.png" alt="image-20220228230707468" style="zoom: 67%; float: left;" />
+<img src="/images/posts/jisuanjiwangluo/21.png" alt="image-20220228230707468" style="zoom: 67%; float: left;" />
 
 检测丢失segment的方法从概念上讲还是比较简单的，每一次开始发送一个TCP segment的时候，就启动重传定时器，定时器的时间一开始是一个预设的值（Linux 规定为1s），随着通讯的变化以及时间的推移，这个定时器的溢出值是不断的在变化的，有相关算法计算RTO，如果在ACK收到之前，定时器到期，协议栈就会认为这个片段被丢失，重新传送数据。
 
@@ -830,7 +830,7 @@ TCP在实现重传机制的时候，需要保证能够在同一时刻有效的�
 
 看一张图你就明白了什么叫做快速重传。
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203010948839.png" alt="image-20220301094802223" style="zoom:67%;float:left" />
+<img src="/images/posts/jisuanjiwangluo/22.png" alt="image-20220301094802223" style="zoom:67%;float:left" />
 
 当seq1发送后被接收方收到，接收方会返回一个ACK2和一个同步报文段。但是seq2没有到达接收方，则后面不论接收方收到了那个数据都是回ACk2，当发送方连续收到了三个ACK2就表明seq2没有被接收方收到，就会重发。但是问题在于通过重复确认机制，我们每次只能传送一个包，如果有多个包丢失，在传送过程中可能会造成timeout，造成带宽利用率下降
 
@@ -846,7 +846,7 @@ SACK是一个TCP的选项，来允许TCP单独确认非连续的片段，用于�
 
 还有一个实现重传机制的方式就是sack（选择性确认）。如果开启sack，每一个sack段记录的是已经收到的连续的包，sack段与sack段之间断片的，也就是还没收到的（可能已经丢失，也可能是reorder）。通过sack段便可以知道多个可能已经丢失的包，这样便可以一次性的重传，而不是一个一个重传，避免因等待时间长造成的timeout问题。
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203011009627.png" style="zoom:80%;float:left" />
+<img src="/images/posts/jisuanjiwangluo/23.png" style="zoom:80%;float:left" />
 
 要注意的是开启sack选项，也是有弊端的，因为丢包意味着网络很可能已经拥塞，这时如果一次重传多个包，很可能会造成网络更加拥塞。
 
@@ -860,7 +860,7 @@ SACK是一个TCP的选项，来允许TCP单独确认非连续的片段，用于�
 
 - 发送窗口
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203022252110.png" alt="image-20220302225203971" style="float: left;" />
+  <img src="/images/posts/jisuanjiwangluo/24.png" alt="image-20220302225203971" style="float: left;" />
 
   其中2和3部分是需要重点关注的。有两个指针和一个位偏移量来控制着窗口的大小。
 
@@ -918,13 +918,13 @@ TCP不能无脑发，如果接收方处理能差，发送方还无脑发送时�
 
 如下图所示：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203022325749.png" alt="image-20220302232524645" style="float: left;" />
+<img src="/images/posts/jisuanjiwangluo/25.png" alt="image-20220302232524645" style="float: left;" />
 
 - **慢启动**
 
   TCP在刚建立连接后，就会一点一点的提高发送数据包的速率，规则是：**当发送方每收到一个ACK确认报文，就会将拥塞窗口CWND的大小+1。**如图所示：
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203041150919.png" alt="image-20220304115053693" style="zoom:50%;float:left" />
+  <img src="/images/posts/jisuanjiwangluo/26.png" alt="image-20220304115053693" style="zoom:50%;float:left" />
 
   CNWD也不是无限增长的，总有一个门限阈值，记作ssthresh。当cnwd小于这个阈值的时候就用慢启动算法，当大于等于这个阈值的时候就是用拥塞避免算法。
 
@@ -1081,7 +1081,7 @@ tcp报文传输的数据很小，甚至小于头部20字节的时候，由于报
 
 IP协议（Internet Protocol，互联网协议），是TCP/IP协议栈中最核心的协议之一，通过IP地址，保证了联网设备的唯一性，实现了网络通信的面向无连接和不可靠的传输功能。
 
-![img](https://img-blog.csdn.net/20170301092349308)
+![img](/images/posts/jisuanjiwangluo/32.png)
 
 **版本**：IP协议的版本，目前的IP协议版本号为4，下一代IP协议版本号为6。
 
@@ -1208,11 +1208,11 @@ IP协议（Internet Protocol，互联网协议），是TCP/IP协议栈中最核�
 
   > ICMP报文格式如图所示：
   >
-  > <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20211207161151.png" alt="ICMP 报文" style="zoom: 50%;" />
+  > <img src="/images/posts/jisuanjiwangluo/27.png" alt="ICMP 报文" style="zoom: 50%;" />
 
   > 其中注意ICMP的**类型**字段，可以分为两大类：**查询报文类型和差错报文类型**，如图所示：
   >
-  > <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20211207161829.png" alt="常见的 ICMP 类型" style="zoom:50%;" />
+  > <img src="/images/posts/jisuanjiwangluo/28.png" alt="常见的 ICMP 类型" style="zoom:50%;" />
   >
   > - 查询报文类型
   >
@@ -1256,17 +1256,17 @@ IP协议（Internet Protocol，互联网协议），是TCP/IP协议栈中最核�
 
     主机A会构建一个**ICMP回送请求消息数据报**，这个数据报最重要的字段是**类型和序号**。回送消息请求的类型是8，序号的作用是为了区分连续ping的时候发出的多个数据包。因此每发送一个请求数据包，序号就会自动加1，同时为了计算往返时间RTT，还在报文的数据部分插入发送时间，因此报文如下图：
 
-    <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20211207164700.png" alt="主机 A 的 ICMP 回送请求报文" style="zoom:67%;" />
+    <img src="/images/posts/jisuanjiwangluo/29.png" alt="主机 A 的 ICMP 回送请求报文" style="zoom:67%;" />
 
   - 协议栈所做的事情
 
     ICMP报文和目的地址一同交给IP层进行封装，构建一个IP数据包：
 
-    <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20211207164804.png" alt="主机 A 的 IP 层数据包" style="zoom:67%;" />
+    <img src="/images/posts/jisuanjiwangluo/30.png" alt="主机 A 的 IP 层数据包" style="zoom:67%;" />
 
     为了在数据链路层进行传输，加入MAC头：
 
-    <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20211207164945.png" alt="主机 A 的 MAC 层数据包" style="zoom:67%;" />
+    <img src="/images/posts/jisuanjiwangluo/31.png" alt="主机 A 的 MAC 层数据包" style="zoom:67%;" />
 
   - 在物理线路中传输
 

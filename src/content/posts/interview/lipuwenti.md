@@ -47,7 +47,7 @@ comment: true
 
 6）用户层init依据inittab文件来设定运行等级
 
-​		<img src="https://s2.loli.net/2022/01/18/Fg8kXYQtSjJ6uVx.png" alt="img" style="zoom: 80%;" />
+​		<img src="/images/posts/lipuwenti/01.png" alt="img" style="zoom: 80%;" />
 
 > - BIOS和UEFI（Unified Extensible Firmware Interface）则是取代传统BIOS的，相比传统BIOS来说，它更易实现，容错和纠错特性也更强。
 > - **MBR与GPT：**MBR是传统的分区表类型，当一台电脑启动时，它会先启动主板上的BIOS系统，BIOS再从硬盘上读取MBR主引导记录，硬盘上的MBR运行后，就会启动操作系统，但最大的缺点则是不支持容量大于2T的硬盘。而GPT是另一种更先进的磁盘系统分区方式，它的出现弥补了MBR这个缺点，最大支持`18EB`的硬盘，是基于`UEFI`使用的磁盘分区架构。
@@ -150,7 +150,7 @@ scrum的团队不需要那么大，十几个人即可。
 
 > **下面先给出scrum的模型：**
 >
-> <img src="http://image.woshipm.com/wp-files/2017/09/z7yrIA5t0m3jjwEYlJll.png" alt="img" style="zoom:80%;float:left" />
+> <img src="/images/posts/lipuwenti/02.png" alt="img" style="zoom:80%;float:left" />
 
 **scrum所包含的角色**
 

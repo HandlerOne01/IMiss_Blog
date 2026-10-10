@@ -41,7 +41,7 @@ comment: true
 
 此外还有继承权限的问题，如下图：
 
-<img src="https://images2015.cnblogs.com/blog/1048430/201611/1048430-20161107095657280-1519112029.png" alt="img" style="float: left;" />
+<img src="/images/posts/cpp/19.png" alt="img" style="float: left;" />
 
 **多态**
 
@@ -373,7 +373,7 @@ c++主要引入了类这种东西，要进行初始化必须考虑到相应的�
 
 动态初始化也叫运行时初始化。主要是指需要经过函数调用才能完成的初始化或者是类的初始化，一般来说是局部静态类对象的初始化和局部静态变量的初始化。
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20190424220313563.png" alt="在这里插入图片描述" style="zoom: 60%; float: left;" />
+<img src="/images/posts/cpp/01.png" alt="在这里插入图片描述" style="zoom: 60%; float: left;" />
 
 下面是我自己的实验的一段代码：
 
@@ -732,7 +732,7 @@ T(T&& a){
 
 move实际上它并不能移动任何东西，它唯一的功能是将一个左值强制转换为一个右值引用。如果是一些基本类型比如int和char[10]定长数组等类型，使用move的话仍然会发生拷贝（因为没有对应的移动构造函数）。所以，move对于含资源（堆内存或句柄）的对象来说更有意义。
 
-<img src="https://s2.loli.net/2022/08/16/XBnWOEMSLg7AdsU.jpg" alt="img" style="zoom: 67%;float:left" /><img src="https://s2.loli.net/2022/08/16/UgBS4WOh61dTDEq.jpg" alt="img" style="zoom: 67%;" />
+<img src="/images/posts/cpp/02.jpg" alt="img" style="zoom: 67%;float:left" /><img src="/images/posts/cpp/03.jpg" alt="img" style="zoom: 67%;" />
 
 **第四行代码：**
 
@@ -997,7 +997,7 @@ Test t2(1);//正确
 
 > 我碰到了一种必须使用友元的情况。如下图
 >
-> <img src="https://s2.loli.net/2022/08/16/7vWarITSkPYHOdK.png" alt="image-20220816221227150" style="zoom:50%;float:left" />
+> <img src="/images/posts/cpp/04.png" alt="image-20220816221227150" style="zoom:50%;float:left" />
 >
 > 上述代码由于使用了priority_queue，而且每个成员是一个结构体，所以需要重新定义std::less的比较方式，所以在结构体重重载了`<`号，这个时候重载运算符需要用到友元。因为std::less类中的比较运算符需要调用struct中的，因此需要把结构体中的设置为友元。
 
@@ -1019,7 +1019,7 @@ Brass &pb = dilly;
 
 > 用到的情形举例：比如你有个游戏，游戏里有个虚基类叫「怪物」，有纯虚函数 「攻击」。然后派生出了三个子类「狼」「蜘蛛」「蟒蛇」，都实现了自己不同的「攻击」函数，比如狼是咬人，蜘蛛是吐丝，蟒蛇把你缠起来～～。然后出现好多怪物的时候就可以定义一个 虚基类指针数组，把各种怪物的指针给它，然后迭代循环的时候直接 monster[i]->attack() 攻击玩家就行了，如下图：
 >
-> <img src="https://pic1.zhimg.com/80/27e97e90be9ac729167740ee5c66a8ea_720w.jpg?source=1940ef5c" alt="img" style="float: left;" />
+> <img src="/images/posts/cpp/05.png" alt="img" style="float: left;" />
 
 ### 虚函数工作原理
 
@@ -1027,7 +1027,7 @@ c++没有强制规定虚函数的实现方式。**编译器中主要用虚表指
 
 先直接上图，然后再看一下虚函数的执行过程：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202201211638057.png" alt="img" style="float: left;" />
+<img src="/images/posts/cpp/06.png" alt="img" style="float: left;" />
 
 当调用一个对象对应的函数时，通过对象内存中的vptr找到一个虚函数表（注意这虚函数表既不在堆上，也不再栈上）。虚函数表内部是一个函数指针数组，记录的是该类各个虚函数的首地址。然后调用对象所拥有的函数。
 
@@ -1035,19 +1035,19 @@ c++没有强制规定虚函数的实现方式。**编译器中主要用虚表指
 
 - 原始基类的虚函数表
 
-  <img src="https://images2015.cnblogs.com/blog/364303/201608/364303-20160815123956531-397793609.png" alt="img" style="float: left;" />
+  <img src="/images/posts/cpp/20.png" alt="img" style="float: left;" />
 
 - 单继承时的虚函数（**无重写基类虚函数**）
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/364303-20160815124419156-189096231.png" alt="img" style="float: left;" />
+  <img src="/images/posts/cpp/07.png" alt="img" style="float: left;" />
 
 - 单继承时的虚函数（**重写基类虚函数**）
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/364303-20160815124615562-420906064.png" alt="img" style="float: left;" />
+  <img src="/images/posts/cpp/08.png" alt="img" style="float: left;" />
 
 - 多重继承时的虚函数（Derived ::public Base1,public Base2）
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/364303-20160815125139921-1422683315.png" alt="img" style="float: left;" />
+  <img src="/images/posts/cpp/09.png" alt="img" style="float: left;" />
 
 这样就会有内存和执行速度方面的成本：
 
@@ -1573,7 +1573,7 @@ c++结构体中默认是public继承。
 
 ### 什么不能被继承？
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202201221602391.png" alt="在这里插入图片描述" style="zoom:80%;float:left" />
+<img src="/images/posts/cpp/10.png" alt="在这里插入图片描述" style="zoom:80%;float:left" />
 
 **1、构造函数**
 
@@ -1793,7 +1793,7 @@ if(!result){
 
 说这个之前要说一下类对象的内存结构：
 
-<img src="https://img-blog.csdnimg.cn/20190405172522761.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L01PVV9JVA==,size_16,color_FFFFFF,t_70" alt="img" style="zoom:80%;float:left" />
+<img src="/images/posts/cpp/21.png" alt="img" style="zoom:80%;float:left" />
 
 **向上类型转换：**upcast，把派生类的指针或引用转换成基类的指针或者引用是安全的（或者说基类指针指向派生类）；因为用转换后的指针只能访问基类部分的函数时候，都可以访问，肯定安全。这个是隐式转换，c++认为是安全的。
 
@@ -2694,7 +2694,7 @@ public:
 
 事实上，(“abc”,“hello”) 这样的 Key、Value 数据并不会直接存储在 Hash 表的数组中，因为数组要求存储固定数据类型，主要目的是每个数组元素中要存放固定长度的数据。所以，数组中存储的是 Key、Value 数据元素的地址指针。一旦发生 Hash 冲突，只需要将相同下标，不同 Key 的数据元素添加到这个链表就可以了。查找的时候再遍历这个链表，匹配正确的 Key。
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203071623899.png" alt="阿里架构师数据结构原理：Hash表的时间复杂度为什么是O(1)？" style="zoom:80%;float:left" />
+<img src="/images/posts/cpp/11.png" alt="阿里架构师数据结构原理：Hash表的时间复杂度为什么是O(1)？" style="zoom:80%;float:left" />
 
 ## sizeof相关面试题
 
@@ -2906,7 +2906,7 @@ int get_max(int& a){
 
 坏处是①静态链接的文件体积太大。②如果库函数更新的话需要重新链接。③在内存中会存在多分拷贝，因为每个程序都会存在一份库函数，如下图：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203201437522.png" alt="img" style="float: left;" />
+<img src="/images/posts/cpp/12.png" alt="img" style="float: left;" />
 
 静态库的生成使用如下命令：
 
@@ -2922,7 +2922,7 @@ ar -crv libadd.a add.o
 
 我们把静态链接与动态链接做一个这样子的比喻：把链接过程看做我们平时学习时做笔记的过程。我们平时学习时准备一本笔记本专门记录我们的学习笔记，比如在某本书的某一页上看到一个很好很有用的知识，这时候我们有两种方法记录在我们的笔记本上。一种是直接把那一页的内容全部抄写一遍到笔记本上（静态链接）；另一种是我们在笔记本上做个简单的记录（动态链接），比如写上：xxx知识点在《xxx》的xxx页。从这两种方法中我们可以很清楚地知道两种方式的特点。第一种方式的优点就是我们在复习的时候就很方便，不用翻阅其它书籍了，但是缺点也很明显，就是占用笔记本的空间很多，这种方法很快就把我们的笔记本给写满了。第二种方式的优点就是很省空间，缺点就是每当我们复习的时候，手头上必须备着相关的参考书籍，比如我们去教室复习的时候，就得背着一大摞书去复习，这样我们复习的效率可能就没有那么高了。
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203201443321.jpeg" alt="img" style="float: left;" />
+<img src="/images/posts/cpp/13.jpg" alt="img" style="float: left;" />
 
 ## 动态编译和静态编译
 
@@ -2991,7 +2991,7 @@ int main(int argc, char *argv[])
 
 输出如下：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203301037301.png" alt="图片" style="zoom:50%;float:left" />
+<img src="/images/posts/cpp/14.png" alt="图片" style="zoom:50%;float:left" />
 
 我们知道先入栈的占高地址，从结果看出入栈的顺序依次为`z->y->x`，即压栈顺序从右至左。
 
@@ -3258,7 +3258,7 @@ class B2:public virtual A;
 
 class D:public B1,public B2;
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210104152509818.png" alt="img" style="zoom:80%;float:left" />
+<img src="/images/posts/cpp/15.png" alt="img" style="zoom:80%;float:left" />
 
 上述就是菱形继承会产生两个问题。首先是空间问题，不节省空间。类B中有类A的数据，类C中也有。其次是二义性，歧义问题。当类D调用类A中的数据时候，到底是走类B的还是走类D的？如下：
 
@@ -3271,7 +3271,7 @@ void seta(int a){ C::m_a = a; }	// C类中的m_a
 
 > C++标准库中的 iostream 类就是一个虚继承的实际应用案例。iostream 从 istream 和 ostream 直接继承而来，而 istream 和 ostream 又都继承自一个共同的名为 base_ios 的类，是典型的菱形继承。此时 istream 和 ostream 必须采用虚继承，否则将导致 iostream 类中保留两份 base_ios 类的成员。
 >
-> <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210104152649800.png" alt="img" style="zoom:80%;float:left" />
+> <img src="/images/posts/cpp/16.png" alt="img" style="zoom:80%;float:left" />
 
 **引入虚继承和直接继承会有什么区别呢**
 
@@ -3638,7 +3638,7 @@ vector是动态空间，随着元素的加入它内部机制会自行空充空�
 
 vector底层是一个**动态数组**，包含三个迭代器，start和finish之间是已经被使用的空间范围，end_of_storage是整块连续空间包括备用空间的尾部。如图：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210906132837.png" alt="在这里插入图片描述" style="zoom: 33%;" />
+<img src="/images/posts/cpp/17.png" alt="在这里插入图片描述" style="zoom: 33%;" />
 
 ### vector内存增长机制
 
@@ -3757,7 +3757,7 @@ vector().swap(Vec); //清空Vec的内存；
 
 ### vector的插入复杂度
 
-<img src="https://img-blog.csdnimg.cn/20190804120900612.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2xpa2VfdGhhdA==,size_16,color_FFFFFF,t_70" alt="img" style="zoom: 50%; float: left;" />
+<img src="/images/posts/cpp/22.png" alt="img" style="zoom: 50%; float: left;" />
 
 ### vector为什么是成倍增长而不是固定大小的一个容量呢？
 
@@ -3789,7 +3789,7 @@ vector是单向开口的连续线性空间，deque是一种双向开口的连续
 
 deque 容器存储数据的空间是由一段一段等长的连续空间构成，各段空间之间并不一定是连续的，可以位于在内存的不同区域。
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203101434582.gif" alt="deque容器的底层存储机制" style="float: left;" />
+<img src="/images/posts/cpp/18.gif" alt="deque容器的底层存储机制" style="float: left;" />
 
 采用一块所谓的map作为主控，这里的map实际上是一块大小连续的空间，其中每一个元素我们称之为节点node，都指向了另一段连续线性空间，成为缓冲区，缓冲期才是deque的真正存储空间主体。
 

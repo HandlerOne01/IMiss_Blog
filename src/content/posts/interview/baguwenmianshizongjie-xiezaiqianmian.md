@@ -13,10 +13,10 @@ comment: true
 > 本文为**自用学习笔记**，内容转载整理自他人（含外链图片）。
 > 如涉侵权，请联系后**立刻删除**。
 
-[![PyPi Version](https://img.shields.io/pypi/v/mmdnn.svg)](https://pypi.org/project/mmdnn/)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![PyPi Version](/images/posts/baguwenmianshizongjie-xiezaiqianmian/01.svg)](https://pypi.org/project/mmdnn/)
+[![License](/images/posts/baguwenmianshizongjie-xiezaiqianmian/02.svg)](LICENSE)
 [![Linux](https://travis-ci.org/Microsoft/MMdnn.svg?branch=master)](https://travis-ci.org/Microsoft/MMdnn)
-![Language](https://img.shields.io/badge/language-c++-brightgreen)
+![Language](/images/posts/baguwenmianshizongjie-xiezaiqianmian/03.svg)
 
 # 写在前面
 2024.09.09

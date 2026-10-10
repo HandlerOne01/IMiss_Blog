@@ -282,7 +282,7 @@ Singleton::~Singleton()
 
 观察者模式所做的工作其实就是在解耦，让耦合的双方都依赖于抽象而不是具体，从而使得各自的变化都不会影响另一边的变化。当一个对象的改变需要改变其他对象的时候，而且它不知道具体有多少对象有待改变的时候，应该考虑使用观察者模式。一旦观察目标的状态发生改变，所有的观察者都将得到通知。具体来说就是被观察者需要用一个容器比如vector存放所有观察者对象，以便状态发生变化时给观察着发通知。观察者内部需要实例化被观察者对象的实例（需要前向声明）
 
-<img src="https://s2.loli.net/2022/07/09/mXhfzvFaTi6BApy.webp" alt="img" style="zoom:80%;float:left" />
+<img src="/images/posts/shejimoshi/01.webp" alt="img" style="zoom:80%;float:left" />
 
 **观察者模式中主要角色--2个接口,2个类**
 

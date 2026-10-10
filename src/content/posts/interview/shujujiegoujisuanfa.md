@@ -57,7 +57,7 @@ void * my_memcpy(void *dst, const void *src, size_t count){
 
 # 十大排序算法
 
-![这里是引用](https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210828133536.png)
+![这里是引用](/images/posts/shujujiegoujisuanfa/01.png)
 
 > 排序算法的稳定性：在具有多个相同关键字的记录中，若经过排序这些记录的次序保持不变，说排序算法是稳定的。
 
@@ -67,7 +67,7 @@ void * my_memcpy(void *dst, const void *src, size_t count){
 
   动画演示如图：
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210828142217.gif" alt="在这里插入图片描述" style="zoom: 50%;float:left" />
+  <img src="/images/posts/shujujiegoujisuanfa/03.gif" alt="在这里插入图片描述" style="zoom: 50%;float:left" />
 
   代码如下：
 
@@ -98,7 +98,7 @@ void * my_memcpy(void *dst, const void *src, size_t count){
 
   图片演示：
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210828142548.png" alt="在这里插入图片描述" style="zoom:50%;float:left" />
+  <img src="/images/posts/shujujiegoujisuanfa/04.png" alt="在这里插入图片描述" style="zoom:50%;float:left" />
 
   代码如下：
 
@@ -132,7 +132,7 @@ void * my_memcpy(void *dst, const void *src, size_t count){
 
 图解：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210829093855.gif" alt="在这里插入图片描述" style="zoom:80%;float:left" />
+<img src="/images/posts/shujujiegoujisuanfa/05.gif" alt="在这里插入图片描述" style="zoom:80%;float:left" />
 
 代码：
 
@@ -156,7 +156,7 @@ void Bubble_Sort(int a[],int length) {
 
 图解：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210829105353.png" alt="在这里插入图片描述" style="zoom: 33%;float:left" />
+<img src="/images/posts/shujujiegoujisuanfa/06.png" alt="在这里插入图片描述" style="zoom: 33%;float:left" />
 
 代码：
 
@@ -188,7 +188,7 @@ void Select_Sort(int a[],int length) {
 
 **图解：**
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210829090937.png" alt="在这里插入图片描述" style="zoom:67%;float:left" />
+<img src="/images/posts/shujujiegoujisuanfa/07.png" alt="在这里插入图片描述" style="zoom:67%;float:left" />
 
 代码：
 
@@ -227,13 +227,13 @@ void shellsort3(int a[], int n)
 
 图解：“基准值就是第一个元素”
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210829100212.png" alt="在这里插入图片描述" style="zoom:67%;float:left" />
+<img src="/images/posts/shujujiegoujisuanfa/08.png" alt="在这里插入图片描述" style="zoom:67%;float:left" />
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210829100236.png" alt="在这里插入图片描述" style="zoom:67%;float:left" />
+<img src="/images/posts/shujujiegoujisuanfa/09.png" alt="在这里插入图片描述" style="zoom:67%;float:left" />
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210829100243.png" alt="在这里插入图片描述" style="zoom:67%;float:left" />
+<img src="/images/posts/shujujiegoujisuanfa/10.png" alt="在这里插入图片描述" style="zoom:67%;float:left" />
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210829100307.png" alt="在这里插入图片描述" style="zoom:67%;float:left" />
+<img src="/images/posts/shujujiegoujisuanfa/11.png" alt="在这里插入图片描述" style="zoom:67%;float:left" />
 
 1）设置两个变量I、J，排序开始的时候：I=0，J=N-1；
 
@@ -291,7 +291,7 @@ void Quick_Sort(int a[],int low,int high) {
 
 图解：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210829112449.gif" alt="在这里插入图片描述" style="zoom:50%;float:left" />
+<img src="/images/posts/shujujiegoujisuanfa/12.gif" alt="在这里插入图片描述" style="zoom:50%;float:left" />
 
 基本思想：
 
@@ -345,7 +345,7 @@ void Heap_Sort(int a[],int length) {
 
 图解：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210829134401.jpeg" alt="在这里插入图片描述" style="zoom:67%;float:left" />
+<img src="/images/posts/shujujiegoujisuanfa/13.jpg" alt="在这里插入图片描述" style="zoom:67%;float:left" />
 
 代码：
 
@@ -402,7 +402,7 @@ void Merge_Sort(int a[], int low, int high) {
 
 **图解：**
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210829135544.gif" alt="计数排序" style="zoom:67%;" />
+<img src="/images/posts/shujujiegoujisuanfa/14.gif" alt="计数排序" style="zoom:67%;" />
 
 代码：
 
@@ -444,7 +444,7 @@ void Count_Sort(int a[],int length) {
 
 **图解：**
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210829140105.gif" alt="在这里插入图片描述" style="zoom: 50%; float: left;" />
+<img src="/images/posts/shujujiegoujisuanfa/15.gif" alt="在这里插入图片描述" style="zoom: 50%; float: left;" />
 
 代码：
 
@@ -507,7 +507,7 @@ void Radix_Sort(int b[],int length) {
 
 **图解：**
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210829144129.png" alt="image-20210829144129297" style="zoom: 80%;float:left" />
+<img src="/images/posts/shujujiegoujisuanfa/16.png" alt="image-20210829144129297" style="zoom: 80%;float:left" />
 
 代码：
 
@@ -684,11 +684,11 @@ void bucketSort(int arr[], int len) {
 
 **字符串匹配问题：**字符串 P 是否为字符串 S 的子串？如果是，它出现在 S 的哪些位置？” 其中 S 称为主串；P 称为模式串。如下图：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203251651887.png" alt="img" style="zoom:33%;float:left" />
+<img src="/images/posts/shujujiegoujisuanfa/17.png" alt="img" style="zoom:33%;float:left" />
 
 **最容易想到的方法：Brute-Force**
 
-<img src="https://s2.loli.net/2022/03/25/jXKIPsz9qxmnVW4.png" style="zoom: 25%;float:left" />
+<img src="/images/posts/shujujiegoujisuanfa/18.png" style="zoom: 25%;float:left" />
 
 暴力法的时间复杂度是$O(|P|*(|S|-|P|+1)) = O(|P|*|S|) = O(mn)$
 
@@ -696,7 +696,7 @@ void bucketSort(int arr[], int len) {
 
 kmp算法就是尽量利用残余信息，不用逐个比字符串。其思路下面这个图就解释清楚了：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203251813852.png" alt="img" style="zoom:25%;float:left" />
+<img src="/images/posts/shujujiegoujisuanfa/19.png" alt="img" style="zoom:25%;float:left" />
 
 即我们可以不用一个一个往后挪这比较，而是往后挪好几个身位去比较。这个时候挪多少个位置呢？需要next数组去帮我们。
 
@@ -778,7 +778,7 @@ AVL树主要的难点在于插入和删除
 
   但是2-3查找树引入了3节点，表示一个节点中有两个关键字和三个节点。
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210830095228.jpeg" alt="img" style="zoom:67%;" />
+  <img src="/images/posts/shujujiegoujisuanfa/20.jpg" alt="img" style="zoom:67%;" />
 
 - 性质
 
@@ -810,7 +810,7 @@ AVL树和红黑树都是由二叉树繁衍而来，这两个数有不同的适�
 4. 任意一个节点到每个叶子节点的路径上都包含数量相同的黑节点（这个时候null节点不算进去）
 5. 每个叶子节点（NULL）都是黑色的。（红黑树吧null节点当做了叶子节点）
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210830101402.jpeg" alt="img" style="zoom:67%;float:left" />
+<img src="/images/posts/shujujiegoujisuanfa/21.jpg" alt="img" style="zoom:67%;float:left" />
 
 - 左旋和右旋
 
@@ -859,11 +859,11 @@ B树有用度定义的，有用阶定义的。在这里我写的话就用阶的�
 
 下图所示就是一个阶为4的B树：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210829202308.png" alt="clip_image002" style="float: left;" />
+<img src="/images/posts/shujujiegoujisuanfa/22.png" alt="clip_image002" style="float: left;" />
 
 B+树的叶子节点内部结构如下图：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203271806151.jpeg" alt="img" style="zoom:67%;float:left" />
+<img src="/images/posts/shujujiegoujisuanfa/23.jpg" alt="img" style="zoom:67%;float:left" />
 
 本质上说叶子节点存储的也不是数据，而是数据指针，指向磁盘中的数据。
 
@@ -871,7 +871,7 @@ B+树的叶子节点内部结构如下图：
 
 - **查找**
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203121123001.png" alt="img" style="zoom:150%;float:left" />
+  <img src="/images/posts/shujujiegoujisuanfa/24.png" alt="img" style="zoom:150%;float:left" />
 
   如上图所示，根据根节点004和008可得，有小于004，大于004小于008和大于008三种情况，分别对应三个子树，就这样查找如果树结构里面没有包含所要查找的节点则返回null，总体来说，B树的搜索流程跟普通二叉搜索树的搜索流程大体类似。
 
@@ -889,21 +889,21 @@ B+树的叶子节点内部结构如下图：
      >
      > 1. 未插入元素前：
      >
-     >    <img src="https://segmentfault.com/img/remote/1460000020416580" alt="img" style="zoom:80%;float:left" />
+     >    <img src="/images/posts/shujujiegoujisuanfa/46.png" alt="img" style="zoom:80%;float:left" />
      >
      > 2. 插入22后，图如下，就不满足5阶B树的定义了
      >
-     >    <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203271041828.png" alt="img" style="zoom:80%;float:left" />
+     >    <img src="/images/posts/shujujiegoujisuanfa/25.png" alt="img" style="zoom:80%;float:left" />
      >
      > 3. 分裂中间基准点40
      >
-     >    <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203271042772.png" alt="img" style="zoom:80%;float:left" />
+     >    <img src="/images/posts/shujujiegoujisuanfa/26.png" alt="img" style="zoom:80%;float:left" />
      >
      > 4. 接着插入23，25，39，然后继续分裂，如下：
      >
-     >    <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203271043750.png" alt="img" style="zoom:70%;float:left" />
+     >    <img src="/images/posts/shujujiegoujisuanfa/27.png" alt="img" style="zoom:70%;float:left" />
      >
-     >    <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203271043889.png" alt="img" style="zoom:70%;float:left" />
+     >    <img src="/images/posts/shujujiegoujisuanfa/28.png" alt="img" style="zoom:70%;float:left" />
      >
      > 以上就是B树的插入过程。
 
@@ -936,7 +936,7 @@ B+树是b树的一种变体，广泛的用在存储引擎中。
 
 如下图所示：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203271125492.png" alt="image-20220327112534330" style="zoom: 67%;float:left" />
+<img src="/images/posts/shujujiegoujisuanfa/29.png" alt="image-20220327112534330" style="zoom: 67%;float:left" />
 
 >
 
@@ -944,7 +944,7 @@ B+树是b树的一种变体，广泛的用在存储引擎中。
 
   **查询单个元素**
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203271336870.jpeg" alt="img" style="zoom:80%;float:left" />
+  <img src="/images/posts/shujujiegoujisuanfa/30.jpg" alt="img" style="zoom:80%;float:left" />
 
   比如说查询元素59。第一次磁盘IO，访问根节点。然后发现59<=[59,97]，访问当前节点的第一个孩子节点。第二次磁盘IO，发现59>=[15,44,59]，访问当前节点的第三个孩子节点。第三次磁盘IO，访问叶子节点[51,59]，顺序遍历内部节点找到59
 
@@ -956,13 +956,13 @@ B+树是b树的一种变体，广泛的用在存储引擎中。
 
   为了更好地对比B树和B+树他们区间查询的优势，我先说一下B树的，查询21<=key<=63
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203271345334.jpeg" alt="img" style="zoom: 50%; float: left;" />
+  <img src="/images/posts/shujujiegoujisuanfa/31.jpg" alt="img" style="zoom: 50%; float: left;" />
 
   首先找到21所在的节点，上图中在叶子节点。然后从关键字21开始进行中序遍历，关键字依次为37、44、51、59、72、63。不考虑中序遍历过程的压栈和入栈操作，磁盘IO就多了两次(72、63)
 
   再来看B+树的区间查找：
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203271410643.jpeg" alt="img" style="zoom:80%;float:left" />
+  <img src="/images/posts/shujujiegoujisuanfa/32.jpg" alt="img" style="zoom:80%;float:left" />
 
   根据每个节点的索引找到叶子节点[21、37、44]后找到左端点21，接着不需要中序遍历，而是链表形式的遍历，从21找到63，没有任何额外的磁盘IO操作
 
@@ -977,15 +977,15 @@ B+树是b树的一种变体，广泛的用在存储引擎中。
 
   1.  若被插入关键字所在的结点，其含有关键字数目小于阶数 M，则直接插入；
 
-     <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203271415782.gif" alt="img" style="zoom: 67%;float:left" />
+     <img src="/images/posts/shujujiegoujisuanfa/33.gif" alt="img" style="zoom: 67%;float:left" />
 
   2. 若被插入关键字所在的结点，其含有关键字数目等于阶数 M，则需要将该结点分裂为两个结点，一个结点包含 `⌊M/2⌋` ，另一个结点包含 `⌈M/2⌉` 。同时，将`⌈M/2⌉`的关键字上移至其双亲结点。假设其双亲结点中包含的关键字个数小于 M，则插入操作完成。
 
-     <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203271417517.gif" alt="img" style="zoom: 39%;float:left" />
+     <img src="/images/posts/shujujiegoujisuanfa/34.gif" alt="img" style="zoom: 39%;float:left" />
 
   3. 在第 2 情况中，如果上移操作导致其双亲结点中关键字个数大于 M，则应继续分裂其双亲结点。
 
-     <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203271418620.gif" alt="img" style="zoom: 67%;float:left" />
+     <img src="/images/posts/shujujiegoujisuanfa/35.gif" alt="img" style="zoom: 67%;float:left" />
 
 - **删除**
 
@@ -1018,7 +1018,7 @@ LRU(Least Recently Used) 即最近最少使用，属于典型的内存淘汰机�
 
 根据数据的历史访问记录来进行淘汰数据，其核心思想是“如果数据最近被访问过，那么将来被访问的几率也更高”，其思路如下图所示：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203281451446.png" alt="img" style="zoom: 50%;float:left" />
+<img src="/images/posts/shujujiegoujisuanfa/36.png" alt="img" style="zoom: 50%;float:left" />
 
 该算法需要达到两个目的：①可以轻易的更新最新的访问数据。②轻易的找出最近最少未使用的数据。所以要用到哈希表+双向链表实现。利用map，获取key对应的value是O(1)，利用双向链表，实现新增和删除都是O(1)。
 
@@ -1026,7 +1026,7 @@ LRU(Least Recently Used) 即最近最少使用，属于典型的内存淘汰机�
 
 LRU数据结构如下图：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203281937301.jpeg" alt="HashLinkedList" style="zoom:67%;float:left" />
+<img src="/images/posts/shujujiegoujisuanfa/37.jpg" alt="HashLinkedList" style="zoom:67%;float:left" />
 
 根据上图我们可以分析一下：
 
@@ -1321,7 +1321,7 @@ LRU数据结构如下图：
 
   > 其实分治算法的思想用一张图就可以概括清楚：
   >
-  > <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20211207200935.png" alt="img" style="zoom: 33%;" />
+  > <img src="/images/posts/shujujiegoujisuanfa/38.png" alt="img" style="zoom: 33%;" />
   >
   > 可以看到分的过程是均分，这样的话分和治的过程都像是一个二叉树形状，那么求最底下一层即叶子节点，就是logn。
 
@@ -1329,7 +1329,7 @@ LRU数据结构如下图：
 
   > **治的阶段本质上要解决的问题是将两个已经有序的子序列合并成一个有序序列**
   >
-  > <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20211207201424.png" alt="img" style="zoom:33%;" />
+  > <img src="/images/posts/shujujiegoujisuanfa/39.png" alt="img" style="zoom:33%;" />
   >
   > 从上图中可以看到治的思想是对于两个子数组而言的，用两个指针的思想。看图就行了，不想细说了。
 
@@ -1385,7 +1385,7 @@ LRU数据结构如下图：
 
   > 下列表格是快排和归并排序在时间复杂度上的比较：
   >
-  > ![这里写图片描述](https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20211207204923.png)
+  > ![这里写图片描述](/images/posts/shujujiegoujisuanfa/02.png)
 
 - **稳定性**
 
@@ -1420,15 +1420,15 @@ LRU数据结构如下图：
      >
      >    比如下图i=4开始构建，正常的思路是i=0开始，但是这样我们得遍历整个数组，这是没必要的。因为堆是一种完全二叉树，所以我们只需要遍历一半就能知道所有的数组值，所以i=4是从i=n/2-1得来的
      >
-     >    <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20211212115655.jpeg" alt="img" style="zoom: 50%;" />
+     >    <img src="/images/posts/shujujiegoujisuanfa/40.jpg" alt="img" style="zoom: 50%;" />
      >
-     >    <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20211212115726.jpeg" alt="img" style="zoom:50%;" />
+     >    <img src="/images/posts/shujujiegoujisuanfa/41.jpg" alt="img" style="zoom:50%;" />
      >
-     >    <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20211212115740.jpeg" alt="img" style="zoom:50%;" />
+     >    <img src="/images/posts/shujujiegoujisuanfa/42.jpg" alt="img" style="zoom:50%;" />
      >
-     >    <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20211212115800.jpeg" alt="img" style="zoom:50%;" />
+     >    <img src="/images/posts/shujujiegoujisuanfa/43.jpg" alt="img" style="zoom:50%;" />
      >
-     >    <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20211212115819.jpeg" alt="img" style="zoom:50%;" />
+     >    <img src="/images/posts/shujujiegoujisuanfa/44.jpg" alt="img" style="zoom:50%;" />
 
   2. 下沉排序阶段或上升排序阶段。从下往上的堆化叫做下沉又叫做sink()，而从下往上的堆化叫做上升又叫做swim()。
 
@@ -1529,7 +1529,7 @@ LRU数据结构如下图：
 
 3. 就常数项来说，快排< 归并 < 堆
 
-   <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20211210114013.png" alt="image-20211210114012869" style="zoom:80%;" />
+   <img src="/images/posts/shujujiegoujisuanfa/45.png" alt="image-20211210114012869" style="zoom:80%;" />
 
 **问：什么场景下用归并比用快排好？**
 

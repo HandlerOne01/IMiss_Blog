@@ -90,6 +90,16 @@ pnpm verify:ui    # 再另开一个终端窗口跑这个
 pnpm verify:posts   # 期望输出：`✅ verify:posts 通过：138 篇 0 错误、5 个警告`（有错误则退出码 1）
 ```
 
+改了**文章正文里的图片引用**（尤其是又做了一次"外链图转存到站内"）时，另跑一次**图片外链自检**（v1.104 新增；三重核对：正文还剩哪些第三方图床引用 / 迁移进来的文件在 `dist/` 里在不在且字节一致 / 有没有本地路径成了没人引用的孤儿；**退出码就是结论**）：
+
+```powershell
+node scripts/verify-b13-images.mjs  # 期望输出：`AUDIT OK: every remaining hotlink is an explained download failure`（退出码 0）
+node scripts/b13-census.mjs         # 想重算"改前 / 改后"两份外链数字时用它（写 reports/_b13-census.json）
+```
+
+> ⚠️ **它不把条数写死**：判据是"**剩下的每一处第三方图床引用，都必须在 `reports/_b13-mapping.json` 里有对应的下载失败记录**"——所以将来若又删掉几张源图，它不会假红，而是让你在映射表里补一条理由。
+> **v1.104 的实测结果**：改前 10 篇共 **230 处**正文图片外链 / **226 个**去重 URL → 转存 **226 张正文图**到 `public/images/posts/<slug>/`（含 3 个徽章共 229 个文件），**剩 4 处**（`labuladong.gitee.io` / `segmentfault.com` / `s2.loli.net` 均 404、`upload-images.jianshu.io` TLS 证书不匹配 —— 源图在对方那里已经没了，按"不许为了好看而删引用"的口径原样保留）。
+
 跑完界面验收后，再跑一次**文档自检**（它拿上面这次实测的数字当基准，核对三份文档有没有跟着更新）：
 
 ```powershell
@@ -135,11 +145,15 @@ pnpm verify:gateway # 期望输出：`网关检查 51 项：通过 51 / 失败 0
 | `node scripts/import-posts.mjs --batch 1` | 迁移旧博客笔记（**默认 dry-run 只出报告**；加 `--write` 才落盘。详见下面「迁移旧笔记」一节） |
 | `node scripts/convert-wallpaper.mjs` | 把 `dosc/photo` 的 4 张壁纸转成 webp（桌面 + 移动两套），改壁纸素材时用 |
 | `pnpm make:logo` | 从 `design/` 下两张设计源出图：**纸飞机**（`imiss-logo.png`）→ 导航栏 Logo 与 32px 标签页图标；**人物插画**（`imiss-avatar.png`）→ 128/180/192 大图标 + 侧栏头像 |
+| `node scripts/verify-b13-images.mjs` | **图片外链自检**（v1.104）：正文剩余第三方图床引用 / `dist/` 里的本地图片是否存在且字节一致 / 有无孤儿路径；**剩的每一处都必须在 `reports/_b13-mapping.json` 里有下载失败记录**，否则判红（退出码 1）。改完正文图片引用后跑一次 |
+| `node scripts/b13-census.mjs` | 重算"改前（`git HEAD`）/ 改后（工作区）"两份外链图片数字（同一个函数算两遍），写 `reports/_b13-census.json` |
 | `pnpm format` / `pnpm lint` | Biome 格式化 / 检查并安全修复（`biome … --write ./src ./scripts`）。⛔ **本项目不要跑这两条**：它会改写 `scripts/verify-ui.mjs` 里 CDP 模板字符串中的正则并顺带重排十几个无关文件（陷阱 T75，见 `ARCH.md` §14.3）。要保格式只对动过的文件跑 `npx biome check <files>` |
 | `pnpm new-post` | 新建文章脚手架 |
 | `pnpm lqips` | 重新生成 `src/constants/lqips.json`（图片占位色） |
 
 **构建不依赖外网**：字体走本地文件（`src/assets/fonts/`，**不要**改回 `fontsource`/`npm` 等远端 provider，它们会在构建期访问 jsdelivr 并直接失败）；VNDB 封面下载保持关闭；番剧页（MyAnimeList）在未配置凭据时整段跳过；GitHub 卡片步骤失败会回落已提交的缓存。因此断网也能 `pnpm build`。
+
+> ⚠️ **v1.104 补上了一个曾经的例外**：文章正文里的**外链图片**本身不参与构建，但 `/og/*` 那一层在本机到 `cdn.jsdelivr.net` 的 TLS 被重置时曾把整条 `pnpm build` 拖挂（v1.102 / v1.103 两轮只能**临时关掉 `generateOgImages`** 才跑完）。八股那批的 **226 张正文图已转存到站内** `public/images/posts/<slug>/`（正文改相对路径）之后，构建与访客访问都不再依赖别人的图床 —— 见上面「图片外链自检」与 `PROJECT_STATUS.md` §4 的 B-13 行。
 
 ## 目录说明（本站相关部分）
 

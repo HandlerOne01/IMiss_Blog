@@ -36,11 +36,11 @@ mysql是一个数据库管理系统，开源免费。
 
 ## MySQL都有哪些存储引擎？说一说InnoDB
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203111336301.png" alt="img_009790b51a88771c9d9d3a4ebd577f16.png" style="zoom: 50%; float: left;" />
+<img src="/images/posts/shujuku/04.png" alt="img_009790b51a88771c9d9d3a4ebd577f16.png" style="zoom: 50%; float: left;" />
 
 ### MySQL存储架构
 
-<img src="https://s2.loli.net/2022/03/11/TlkW6FZCePBjIHu.jpg" alt="Logical-View-of-MySQL-Architecture" style="zoom: 33%;float:left" />
+<img src="/images/posts/shujuku/05.jpg" alt="Logical-View-of-MySQL-Architecture" style="zoom: 33%;float:left" />
 
 第一层用于连接、线程处理的部分并不是 MySQL 『发明』的，很多服务都有类似的组成部分；
 
@@ -52,11 +52,11 @@ mysql是一个数据库管理系统，开源免费。
 
 在 InnoDB 存储引擎中，所有的数据都被**逻辑地**存放在表空间中，表空间（tablespace）是存储引擎中最高的存储逻辑单位，在表空间的下面又包括段（segment）、区（extent）、页（page）：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203111411301.png" style="zoom: 33%; float: left;" />
+<img src="/images/posts/shujuku/06.png" style="zoom: 33%; float: left;" />
 
 同一个数据库实例的所有表空间都有相同的页大小；默认情况下，表空间中的页大小都为 16KB，当然也可以通过改变 `innodb_page_size` 选项对默认大小进行修改，需要注意的是不同的页大小最终也会导致区大小的不同：
 
-<img src="https://s2.loli.net/2022/03/11/FJWSP4floqdGVwL.jpg" style="float: left;" />
+<img src="/images/posts/shujuku/07.jpg" style="float: left;" />
 
 从图中可以看出，在 InnoDB 存储引擎中，一个区的大小最小为 1MB，页的数量最少为 64 个。
 
@@ -84,7 +84,7 @@ MySQL 使用 InnoDB 存储表时，会将**表的定义**和**数据，索引**�
 
 三范式就是要消除传递依赖,消除冗余,就是各种信息只在一个地方存储,不出现在多张表中（很多时候会牺牲第三范式）。比如下图这样：
 
-<img src="https://cdn.learnku.com/uploads/images/201910/28/47109/Xbpo9xTUFe.png!large" alt="MySQL 三大范式" style="float: left;" />
+<img src="/images/posts/shujuku/21.png" alt="MySQL 三大范式" style="float: left;" />
 
 第三范式需要确保数据表中的每一列数据都和主键直接相关，而不能间接相关。比如在设计一个订单数据表的时候，可以将客户编号作为一个外键和订单表建立相应的关系。而不可以在订单表中添加关于客户其它信息（比如姓名、所属公司等）的字段。
 
@@ -320,7 +320,7 @@ InnoDB 支持多种粒度的锁，也就是**行锁**和**表锁**；为了支�
 
 目前计算机使用的主存基本都是随机读写存储器（RAM），现代RAM的结构和存取原理比较复杂，所以这里就抽象出一个十分简单的存取模型来说明RAM的工作原理。
 
-![img](https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203121404235.png)
+![img](/images/posts/shujuku/01.png)
 
 从抽象角度看，主存是一系列的存储单元组成的矩阵，每个存储单元存储固定大小的数据。每个存储单元有唯一的地址，现代主存的编址规则比较复杂，这里将其简化成一个二维地址：通过一个行地址和一个列地址可以唯一定位到一个存储单元。上
 
@@ -335,7 +335,7 @@ InnoDB 支持多种粒度的锁，也就是**行锁**和**表锁**；为了支�
 
 索引一般以文件形式存储在磁盘上，索引检索需要磁盘I/O操作。与主存不同，磁盘I/O存在机械运动耗费，因此磁盘I/O的时间消耗是巨大的。
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203121412182.png" style="zoom:80%;" /><img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203121412649.png" style="zoom: 67%;" />
+<img src="/images/posts/shujuku/08.png" style="zoom:80%;" /><img src="/images/posts/shujuku/09.png" style="zoom: 67%;" />
 
 一个个磁盘，磁盘由磁道和扇区组成
 
@@ -355,7 +355,7 @@ InnoDB 支持多种粒度的锁，也就是**行锁**和**表锁**；为了支�
 >
 > InnoDB存储引擎也有自己的最小储存单元——页（Page），一个页的大小是默认16K。
 >
-> ![img](https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203121421667.webp)
+> ![img](/images/posts/shujuku/02.webp)
 
 - 首先说Btree
 
@@ -450,7 +450,7 @@ InnoDB 支持多种粒度的锁，也就是**行锁**和**表锁**；为了支�
   >
   > 由此看出，隔离级别越高，所需要消耗的MySQL性能越大（如事务并发严重性），为了平衡二者，一般建议设置的隔离级别为可重复读，MySQL默认的隔离级别也是可重复读。
 
-  ​	<img src="https://s2.loli.net/2022/01/18/PhWqMHs96L3rlTO.png" alt="img"  />
+  ​	<img src="/images/posts/shujuku/10.png" alt="img"  />
 
   - 读未提交
 
@@ -581,7 +581,7 @@ optimize table cxuan005;
 
 **小表驱动大表**
 
-![img](https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/171401a253f1cac9~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp)
+![img](/images/posts/shujuku/03.webp)
 
 **避免全表扫描**
 
@@ -758,7 +758,7 @@ AOF 方式不能保证绝对不丢失数据，目前常见的操作系统中，�
 
 Redis 是使用了一个「哈希表」保存所有键值对，哈希表的最大好处就是让我们可以用 O(1) 的时间复杂度来快速查找到键值对。哈希表其实就是一个数组，数组中的元素叫做哈希桶。哈希桶存放的是指向键值对数据的指针,这样通过指针就能找到键值对数据，然后因为键值对的值可以保存字符串对象和集合数据类型的对象，所以键值对的数据结构中并不是直接保存值本身，而是保存了 void * key 和 void * value 指针，分别指向了实际的键对象和值对象，这样一来，即使值是集合数据，也可以通过 void * value 指针找到。如图：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203132208185.png" alt="image-20220313220842101" style="zoom:80%;float:left" /><img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203132209926.png" alt="image-20220313220916793" style="zoom:50%;" />
+<img src="/images/posts/shujuku/11.png" alt="image-20220313220842101" style="zoom:80%;float:left" /><img src="/images/posts/shujuku/12.png" alt="image-20220313220916793" style="zoom:50%;" />
 
 特别说明：void * key 和 void * value 指针指向的是 **Redis 对象**，Redis 中的每个对象都由 redisObject 结构表示
 
@@ -768,7 +768,7 @@ Redis 是使用了一个「哈希表」保存所有键值对，哈希表的最�
 
 Redis中的字符串，不是 C 语言中的字符串（即以空字符’\0’结尾的字符数组），是自己构建了一种名为 **简单动态字符串（simple dynamic string,SDS**）的抽象类型，并将 SDS 作为 Redis的默认字符串表示。其数据结构如下所示：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203131740250.png" alt="image-20220313174005132" style="zoom: 67%; float: left;" />
+<img src="/images/posts/shujuku/13.png" alt="image-20220313174005132" style="zoom: 67%; float: left;" />
 
 > 上图中，uint8_t表示8位无符号整数
 
@@ -785,7 +785,7 @@ Redis中的字符串，不是 C 语言中的字符串（即以空字符’\0’�
 
 压缩列表的构成如下：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203132212852.png" alt="img" style="zoom:80%;float:left" />
+<img src="/images/posts/shujuku/14.png" alt="img" style="zoom:80%;float:left" />
 
 1. zlbytes，记录整个压缩列表占用对内存字节数；
 2. zltail，记录压缩列表「尾部」节点距离起始地址由多少字节，也就是列表尾的偏移量；
@@ -832,7 +832,7 @@ Redis 只有在 Zset 对象的底层实现用到了跳表，跳表的优势是�
 
 链表在查找元素的时候，因为需要逐一查找，所以查询效率非常低，时间复杂度是O(N)，于是就出现了跳表。**跳表是在链表基础上改进过来的，实现了一种「多层」的有序链表**，这样的好处是能快读定位数据。如图：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203132220846.png" alt="img" style="zoom: 67%;" />
+<img src="/images/posts/shujuku/15.png" alt="img" style="zoom: 67%;" />
 
 如果我们要在链表中查找节点 4 这个元素，只能从头开始遍历链表，需要查找 4 次，而使用了跳表后，只需要查找 2 次就能定位到节点 4，因为可以在头节点直接从 L2 层级跳到节点 3，然后再往前遍历找到节点 4。
 
@@ -846,11 +846,11 @@ Redis 只有在 Zset 对象的底层实现用到了跳表，跳表的优势是�
 
 quicklist 解决办法，**通过控制每个链表节点中的压缩列表的大小或者元素个数，来规避连锁更新的问题。因为压缩列表元素越少或越小，连锁更新带来的影响就越小，从而提供了更好的访问性能。**
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203132224976.png" alt="img" style="zoom:67%;" />
+<img src="/images/posts/shujuku/16.png" alt="img" style="zoom:67%;" />
 
 ### 使用场景
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202204051333652.png" style="zoom: 50%; float: left;" />
+<img src="/images/posts/shujuku/17.png" style="zoom: 50%; float: left;" />
 
 ## 避免缓存穿透的利器之BloomFilter
 
@@ -918,7 +918,7 @@ redis是非阻塞IO+IO多路复用的技术来实现的
 
 Linux的IO多路复用机制是指一个线程处理多个IO流，也就是select/epoll机制。
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203131703393.jpeg" alt="img" style="float: left;" />
+<img src="/images/posts/shujuku/18.jpg" alt="img" style="float: left;" />
 
 ## Redis怎么统计在线用户
 
@@ -933,7 +933,7 @@ Linux的IO多路复用机制是指一个线程处理多个IO流，也就是selec
 
 ## redis，讲讲缓存一致性问题
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203132237449.jpeg" alt="img" style="zoom: 50%; float: left;" /><img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203132237909.jpeg" alt="img" style="zoom: 50%;" />
+<img src="/images/posts/shujuku/19.jpg" alt="img" style="zoom: 50%; float: left;" /><img src="/images/posts/shujuku/20.jpg" alt="img" style="zoom: 50%;" />
 
 果你的业务处于起步阶段，流量非常小，那无论是读请求还是写请求，直接操作数据库即可。但随着业务量的增长，你的项目请求量越来越大，这时如果每次都从数据库中读数据，那肯定会有性能问题。这个阶段通常的做法是，引入「缓存」来提高读性能，架构模型如上图。当下优秀的缓存中间件，当属 Redis 莫属，它不仅性能非常高，还提供了很多友好的数据类型，可以很好地满足我们的业务需求。但引入缓存之后，你就会面临一个问题：之前数据只存在数据库中，现在要放到缓存中读取，具体要怎么存呢?
 

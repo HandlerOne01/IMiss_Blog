@@ -33,7 +33,7 @@ comment: true
 
 进程和线程的相同点要远远大于不同点。主要依据就是在 Linux 中，无论进程还是线程，都是抽象成了 task 任务，在源码里都是用 task_struct 结构来实现的。
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/202210121007426.png" alt="图片" style="zoom:67%;float:left" />
+<img src="/images/posts/caozuoxitong/02.png" alt="图片" style="zoom:67%;float:left" />
 
 对于线程来讲，所有的字段都是和进程一样的（本来就是一个结构体来表示的）。包括状态、pid、task 树关系、地址空间、文件系统信息、打开的文件信息等等字段，线程也都有。在 Linux 下的线程还有另外一个名字，叫轻量级进程。
 
@@ -41,11 +41,11 @@ comment: true
 
 **对于线程来说**，我们假如一个进程下创建了多个线程出来。那么每个线程的 pid 都是不同的。但是我们一般又需要记录线程是属于哪个进程的。这时候，tgid 就派上用场了，通过 tgid 字段来表示自己所归属的进程 ID。
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/202210121011428.png" alt="图片" style="zoom:80%;float:left" />
+<img src="/images/posts/caozuoxitong/03.png" alt="图片" style="zoom:80%;float:left" />
 
 事实上，进程线程创建的时候，使用的函数看起来不一样。但实际在底层实现上，最终都是使用同一个函数来实现的。
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/202210121013610.png" alt="图片" style="zoom:67%;float:left" />
+<img src="/images/posts/caozuoxitong/04.png" alt="图片" style="zoom:67%;float:left" />
 
 创建进程时使用的 fork 系统调用，创建线程的 clone 系统调用几乎和 fork 差不多，也一样使用的是内核里的 do_fork 函数，最后走到 copy_process 来完整创建。不过创建过程的区别是二者在调用 do_fork 时传入的 clone_flags 里的标记不一样！。
 
@@ -60,11 +60,11 @@ comment: true
 
 对于线程来讲，其地址空间 mm_struct、目录信息 fs_struct、打开文件列表 files_struct 都是和创建它的任务共享的。如图：
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/202210121018707.png" alt="图片" style="zoom: 67%;float:left" />
+<img src="/images/posts/caozuoxitong/05.png" alt="图片" style="zoom: 67%;float:left" />
 
 对于进程来讲，地址空间 mm_struct、挂载点 fs_struct、打开文件列表 files_struct 都要是独立拥有的，都需要去申请内存并初始化它们。如图：
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/202210121018755.png" alt="图片" style="zoom:67%;float:left" />
+<img src="/images/posts/caozuoxitong/06.png" alt="图片" style="zoom:67%;float:left" />
 
 在 Linux 内核中并没有对线程做特殊处理，还是由 task_struct 来管理。从内核的角度看，用户态的线程本质上还是一个进程。只不过和普通进程比，稍微“轻量”了那么一些。那么线程具体能轻量多少呢？我之前曾经做过一个进程和线程的上下文切换开销测试。进程的测试结果是一次上下文切换平均 2.7 - 5.48 us 之间。线程上下文切换是 3.8 us左右。总的来说，进程线程切换还是没差太多。
 
@@ -203,7 +203,7 @@ cpu执行指令的信息会保存在寄存器中，这个寄存器叫做程序�
 
   **信号量表示资源的数量。** **P操作** 会把信号量-1，-1之后如果信号量的值<0，则表示资源已经被占用，进程需要阻塞等待。如果信号量-1后>= 0，表明进程可以正常执行。**V操作**跟P操作正好相反。
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210819115755.png" alt="img" style="zoom:50%;float:left" />
+  <img src="/images/posts/caozuoxitong/07.png" alt="img" style="zoom:50%;float:left" />
 
   1. 进程 A 在访问共享内存前，先执行了 P 操作，由于信号量的初始值为 1，故在进程 A 执行 P 操作后信号量变为 0，表示共享资源可用，于是进程 A 就可以访问共享内存。
 
@@ -319,7 +319,7 @@ consumer(){
 
 > **问题描述：**如下图所示
 >
-> <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/1858706-20191207225016969-138155882.png" alt="img" style="zoom: 67%;float:left" />
+> <img src="/images/posts/caozuoxitong/08.png" alt="img" style="zoom: 67%;float:left" />
 >
 > 哲学家只有两件事情，吃饭和思考。每个哲学家的两边都有叉子，只有当拥有左面和右面的叉子时候才能吃饭，吃完饭后放下叉子思考。
 >
@@ -475,7 +475,7 @@ consumer(){
 
   反馈表示如果有新的进程加入优先级高的队列时，立刻停止当前正在运行的进程，转而去运行优先级高的队列；
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203181732936.jpeg" alt="多级反馈队列" style="zoom: 67%;float:left" />
+  <img src="/images/posts/caozuoxitong/09.png" alt="多级反馈队列" style="zoom: 67%;float:left" />
 
   其工作流程如下：
 
@@ -714,7 +714,7 @@ consumer(){
 
        银行家算法的执行有个前提条件，即要求进程预先提出自己的最大资源请求，并假设系统拥有固定的资源总量。
 
-       <img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/1358881-20191125165114981-1954446360.png" alt="img" style="zoom:80%;float:left" />
+       <img src="/images/posts/caozuoxitong/10.png" alt="img" style="zoom:80%;float:left" />
 
 # 虚拟内存
 
@@ -767,14 +767,14 @@ consumer(){
 
 分段机制下的虚拟地址由两部分组成，**段选择子**和**段内偏移量**。
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/aHR0cHM6Ly9zdGF0aWMwMS5pbWdrci5jb20vdGVtcC8zYTk5NGVmMGY0M2M0NmE4YjY1OWQ0MjY5NTBmYmRlMy5wbmc" alt="内存分段-寻址的方式" style="zoom: 33%;float:left" />
+<img src="/images/posts/caozuoxitong/11.png" alt="内存分段-寻址的方式" style="zoom: 33%;float:left" />
 
 - 段选择子就保存在段寄存器里面。段选择子里面最重要的是段号，用作段表的索引。段表里面保存的是这个段的基地址、段的界限和特权等级等。
 - 虚拟地址中的段内偏移量应该位于 0 和段界限之间，如果段内偏移量是合法的，就将段基地址加上段内偏移量得到物理内存地址。
 
 虚拟地址是通过段表与物理地址进行映射的，分段机制会把程序的虚拟地址分成 4 个段，每个段在段表中有一个项，在这一项找到段的基地址，再加上偏移量，于是就能找到物理内存中的地址，如下图：
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/aHR0cHM6Ly9zdGF0aWMwMS5pbWdrci5jb20vdGVtcC8yYjEzOGRjZWI0OTI0YTE3ODQ1ZGE2ZjAzNDlhMjE0Ny5wbmc" alt="内存分段-虚拟地址与物理地址" style="zoom:50%;float:left" />
+<img src="/images/posts/caozuoxitong/12.png" alt="内存分段-虚拟地址与物理地址" style="zoom:50%;float:left" />
 
 如果要访问段 3 中偏移量 500 的虚拟地址，我们可以计算出物理地址为，段 3 基地址 7000 + 偏移量 500 = 7500。
 
@@ -791,13 +791,13 @@ consumer(){
 
 在没有虚拟内存的计算机上，系统直接将虚拟地址送到内存总线上，读写操作使用具有同样地址的物理内存字。在使用虚拟内存的情况下，虚拟地址不是直接被送到内存总线上的，而是被送往内存管理单元MMU，然后MMU把虚拟地址映射为物理内存地址
 
-> <img src="https://s2.loli.net/2022/01/09/1NDpgGZf6xSyVjA.png" alt="img" style="zoom: 40%;float:left" />
+> <img src="/images/posts/caozuoxitong/13.png" alt="img" style="zoom: 40%;float:left" />
 >
 > 在这里MMU是作为CPU芯片的一部分，通常就是这样的。
 
 **具体页表中虚拟地址与物理内存地址之间的映射关系如下：**
 
-> <img src="https://s2.loli.net/2022/01/09/Tiycz1fOpubvhZk.png" alt="img" style="zoom: 33%;float:left" />
+> <img src="/images/posts/caozuoxitong/14.png" alt="img" style="zoom: 33%;float:left" />
 >
 > 上图可以看到虚拟地址被划分成多个页面组成的单位，而物理内存地址中对应的是页框的概念。页面和页框的大小通常是一样的，在这里是4KB作为例子，实际系统中可能是512KB-1GB。上图虚拟地址空间有64KB，物理内存有32KB，因此由16个虚拟页面和8个页框。请记住，ram和也磁盘之间的交换总是以整个页面为单位进行的。
 >
@@ -809,7 +809,7 @@ consumer(){
 
 **MMU的内部操作：**
 
-> <img src="https://s2.loli.net/2022/01/09/kZnBWuoVwvmclsF.png" alt="img" style="zoom:33%;float:left" />
+> <img src="/images/posts/caozuoxitong/15.png" alt="img" style="zoom:33%;float:left" />
 >
 > 输入虚拟地址8196的二进制在最底下即0010000000000100，用MMU映射机进行映射，这16位虚拟地址被分解成4位的页号+12位的偏移量。4位页号表示16个页面，是页面的索引，12位的位偏移可以为一页内的全部4096个字节编址。
 
@@ -817,13 +817,13 @@ consumer(){
 
 虚拟地址到物理地址的映射可以概括如下：虚拟地址被分成虚拟页号+偏移量。虚拟页号是一个页表的索引，可以有该索引即页面号找到对应的页框号，然后将该页框号放到16位地址的前4位，替换掉虚拟页号，就形成了送往内存的地址。可以参考上面那个图中，两个二进制字符串的替换形式。如下图：
 
-<img src="https://s2.loli.net/2022/01/09/JTyb39umxQ6Zhtg.png" alt="img" style="zoom:40%;float:left" />
+<img src="/images/posts/caozuoxitong/16.png" alt="img" style="zoom:40%;float:left" />
 
 页表的目的是将虚拟页面映射为页框，从数学角度说页表是一个函数，输入参数是虚拟页号，输出结果是物理页框号。
 
 页表的结构如下：
 
-<img src="https://s2.loli.net/2022/08/14/bxrp8vDNqh4TfyM.png" alt="img" style="zoom:40%;float:left" />
+<img src="/images/posts/caozuoxitong/17.png" alt="img" style="zoom:40%;float:left" />
 
 页表项中最重要的字段就是`页框号(Page frame number)`。毕竟，页表到页框最重要的一步操作就是要把此值映射过去。下一个比较重要的就是`在/不在`位，如果此位上的值是 1，那么页表项是有效的并且能够被`使用`。如果此值是 0 的话，则表示该页表项对应的虚拟页面`不在`内存中，访问该页面会引起一个`缺页异常(page fault)`。`保护位(Protection)` 告诉我们哪一种访问是允许的，啥意思呢？最简单的表示形式是这个域只有一位，**0 表示可读可写，1 表示的是只读**。`修改位(Modified)` 和 `访问位(Referenced)` 会跟踪页面的使用情况。当一个页面被写入时，硬件会自动的设置修改位。修改位在页面重新分配页框时很有用。如果一个页面已经被修改过（即它是 `脏` 的），则必须把它写回磁盘。如果一个页面没有被修改过（即它是 `干净`的），那么重新分配时这个页框会被直接丢弃，因为磁盘上的副本仍然是有效的。这个位有时也叫做 `脏位(dirty bit)`，因为它反映了页面的状态。`访问位(Referenced)` 在页面被访问时被设置，不管是读还是写。这个值能够帮助操作系统在发生缺页中断时选择要淘汰的页。不再使用的页要比正在使用的页更适合被淘汰。这个位在后面要讨论的`页面置换`算法中作用很大。最后一位用于禁止该页面被高速缓存，这个功能对于映射到设备寄存器还是内存中起到了关键作用。通过这一位可以禁用高速缓存。具有独立的 I/O 空间而不是用内存映射 I/O 的机器来说，并不需要这一位。
 
@@ -864,7 +864,7 @@ TLB 其实就是一种内存缓存，用于减少访问内存所需要的时间�
 
 下面给出流程图：
 
-<img src="https://s2.loli.net/2022/08/14/dWTfKnlxpzNi8hP.png" alt="img" style="zoom: 33%; float: left;" />
+<img src="/images/posts/caozuoxitong/18.png" alt="img" style="zoom: 33%; float: left;" />
 
 **软件 TLB 管理**
 
@@ -878,7 +878,7 @@ TLB 其实就是一种内存缓存，用于减少访问内存所需要的时间�
 
 TLB 软件管理会有两种 TLB 失效问题，当一个页访问在内存中而不在 TLB 中时，将产生 `软失效(soft miss)`，那么此时要做的就是把页表更新到 TLB 中（我们上面探讨的过程），而不会产生磁盘 I/O，处理仅仅需要一些机器指令在几纳秒的时间内完成。然而，当页本身不在内存中时，将会产生`硬失效(hard miss)`，那么此时就需要从磁盘中进行页表提取，硬失效的处理时间通常是软失效的百万倍。在页表结构中查找映射的过程称为 `页表遍历(page table walk)`。如图：
 
-<img src="https://s2.loli.net/2022/08/14/D49RITltVkQBxL3.png" alt="img" style="zoom:33%;float:left" />
+<img src="/images/posts/caozuoxitong/19.png" alt="img" style="zoom:33%;float:left" />
 
 上面的这两种情况都是理想情况下出现的现象，但是在实际应用过程中情况会更加复杂，未命中的情况可能既不是硬失效又不是软失效。一些未命中可能更`软`或更`硬`。比如，如果页表遍历的过程中没有找到所需要的页，那么此时会出现三种情况：
 
@@ -902,7 +902,7 @@ TLB 软件管理会有两种 TLB 失效问题，当一个页访问在内存中�
 
   任何进程的切换都会更换活动页表集，Linux中为每一个进程维护了一个tast_struct结构体（进程描述符PCB），其中tast_struct->mm_struct结构体成员用来保存该进程页表。在进程切换的过程中，内核把新的页表的地址写入CR3控制寄存器。CR3中含有页目录表的物理内存基地址，如下图：
 
-  <img src="https://s2.loli.net/2022/08/14/eBafURrZNoKQGWT.jpg" alt="img" style="float: left;" />
+  <img src="/images/posts/caozuoxitong/20.jpg" alt="img" style="float: left;" />
 
 - **为什么省空间？**
 
@@ -910,7 +910,7 @@ TLB 软件管理会有两种 TLB 失效问题，当一个页访问在内存中�
 
   如果每个页表项都存在对应的映射地址那也就算了，但是，绝大部分程序仅仅使用了几个页，也就是说，只需要几个页的映射就可以了，如下图（左），进程1的页表，只用到了0,1,1024三个页，剩下的1048573页表项是空的，这就造成了巨大的浪费，为了避免内存浪费，计算机系统开发人员想出了一个方案，多级页表。
 
-  <img src="https://s2.loli.net/2022/01/11/cvkzM8LfD1ZWmVF.png" alt="页表是啥以及为啥多级页表能够节省空间_页表项" style="zoom: 33%;" /><img src="https://s2.loli.net/2022/08/14/P7wSgfFzGpeUyHC.png" alt="02" style="zoom: 50%;" />
+  <img src="/images/posts/caozuoxitong/21.png" alt="页表是啥以及为啥多级页表能够节省空间_页表项" style="zoom: 33%;" /><img src="/images/posts/caozuoxitong/22.png" alt="02" style="zoom: 50%;" />
 
   下面计算一下上图（右）的内存占用情况，对于一级页表来说，假设一个表项是4B，则
 
@@ -924,7 +924,7 @@ TLB 软件管理会有两种 TLB 失效问题，当一个页访问在内存中�
 
 - **《深入理解计算机操作系统》 中的解释**
 
-  <img src="https://s2.loli.net/2022/08/14/zfxEt5rRb47YVqh.png" alt="img" style="zoom: 80%;float:left" />
+  <img src="/images/posts/caozuoxitong/23.png" alt="img" style="zoom: 80%;float:left" />
 
   假设32位的虚拟地址被划分为10位的PT1域、10位的PT2域和12位的偏移量域，工作过程如下：当一个虚拟地址被送到MMU时，MMU首先提取PT1域并把该值作为访问顶级页表的索引。由于虚拟空间为32G，顶级页表有2^10(PT1)^=1024个表项，则二级页表有2^10(PT2)^=1024个表项，每一个二级页表都含有虚拟地址对应物理地址的页框号，该页框号与偏移量结合便形成物理地址，放到地址总线送入内存中。
 
@@ -942,7 +942,7 @@ TLB 软件管理会有两种 TLB 失效问题，当一个页访问在内存中�
 >
 > 如果散列表中的槽数与机器中物理页面数一样多，那么散列表的冲突链的长度将会是 1 个表项的长度，这将会大大提高映射速度。一旦页框被找到，新的（虚拟页号，物理页框号）就会被装在到 TLB 中。
 >
-> <img src="https://s2.loli.net/2022/08/14/TujXUp9YxwOdDGe.png" alt="img" style="zoom: 47%;float:left" />
+> <img src="/images/posts/caozuoxitong/24.png" alt="img" style="zoom: 47%;float:left" />
 >
 >
 >
@@ -1139,7 +1139,7 @@ TLB 软件管理会有两种 TLB 失效问题，当一个页访问在内存中�
 
 linux进程在32位处理器下的虚拟空间内存布局，从高地址到低地址
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210831210023.png" alt="img" style="zoom:87%;float:left" />
+<img src="/images/posts/caozuoxitong/25.png" alt="img" style="zoom:87%;float:left" />
 
 - 内核空间，从C000000-FFFFFFFF
 
@@ -1269,7 +1269,7 @@ linux进程在32位处理器下的虚拟空间内存布局，从高地址到低�
 
 # 操作系统是怎么进行进程管理的？
 
-![img](https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210901111845.jpeg)
+![img](/images/posts/caozuoxitong/01.jpg)
 
 如果问到进程管理，就从进程通信，同步和死锁三大块来说！
 
@@ -1284,7 +1284,7 @@ linux进程在32位处理器下的虚拟空间内存布局，从高地址到低�
 
 mmap是一种内存映射文件的方法，即将一个文件或者其它对象映射到进程的地址空间，实现文件磁盘地址和进程虚拟地址空间中一段虚拟地址的一一对映关系。实现这样的映射关系后，进程就可以采用指针的方式读写操作这一段内存，而系统会自动回写脏页面到对应的文件磁盘上，即完成了对文件的操作而不必再调用read,write等系统调用函数。相反，内核空间对这段区域的修改也直接反映用户空间，从而可以实现不同进程间的文件共享。
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203181050391.png" alt="img" style="float: left;" />
+<img src="/images/posts/caozuoxitong/26.png" alt="img" style="float: left;" />
 
 ## mmap的过程—原理
 
@@ -1368,7 +1368,7 @@ C语言中使用malloc可以分配一段连续的内存空间。在c/c++开发�
 
 **跟brk/sbrk/mmap这三个系统调用函数有关**
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203181113652.png" style="zoom:80%;float:left" />
+<img src="/images/posts/caozuoxitong/27.png" style="zoom:80%;float:left" />
 
 上图是一个堆内存的分布，其实在堆内存有三段空间，第一段是映射好的，指针可以访问的；第二段是未映射的地址空间，访问这段空间会报错；第三段是无法使用的空间。其中映射好的空间和未映射的空间由一个brk指针分割。所以如果要增加实际堆的可用大小，就可以移动brk指针。
 
@@ -1390,7 +1390,7 @@ brk函数将break指针直接设置为某个地址，而sbrk将break指针从当
 
 由于brk/sbrk/mmap属于系统调用，如果每次申请内存，都调用这三个函数中的一个，那么每次都要产生系统调用开销（即cpu从用户态切换到内核态的上下文切换，这里要保存用户态数据，等会还要切换回用户态），这是非常影响性能的；其次，这样申请的内存容易产生碎片，因为堆是从低地址到高地址，如果低地址的内存没有被释放，高地址的内存就不能被回收。鉴于此，**malloc采用的是内存池的实现方式**，malloc内存池实现方式更类似于STL分配器和memcached的内存池，先申请一大块内存，然后将内存分成不同大小的内存块，然后用户申请内存时，直接从内存池中选择一块相近的内存块即可。
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/bins.png" alt="img" style="float: left;" />
+<img src="/images/posts/caozuoxitong/28.png" alt="img" style="float: left;" />
 
 如上图，内存池保存在bins这个长128的数组中，每个元素都是一双向个链表。
 
@@ -1430,7 +1430,7 @@ free释放内存时，有两种情况：
 1. chunk和top chunk相邻，则和top chunk合并
 2. chunk和top chunk不相邻，则直接插入到unsorted_list中
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/topChunk.png" alt="img" style="float: left;" />
+<img src="/images/posts/caozuoxitong/29.png" alt="img" style="float: left;" />
 
 如上图示: top chunk是堆顶的chunk，堆顶指针brk位于top chunk的顶部。移动brk指针，即可扩充top chunk的大小。当top chunk大小超过128k(可配置)时，会触发malloc_trim操作，调用sbrk(-size)将内存归还操作系统。
 
@@ -1801,7 +1801,7 @@ mutex 是在 futex 的基础上用的内存共享变量来实现的，如果共�
 
 中断机制：CPU在执行指令时，收到某个中断信号转而去执行预先设定好的代码，然后再返回到原指令流中继续执行，这就是中断机制。
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/v2-984a49f70998a485499a461af510d93f_720w.jpg" alt="img" style="zoom:58%;float:left" />
+<img src="/images/posts/caozuoxitong/30.jpg" alt="img" style="zoom:58%;float:left" />
 
 ### 中断作用
 
@@ -1845,7 +1845,7 @@ mutex 是在 futex 的基础上用的内存共享变量来实现的，如果共�
 
 ### 中断框架结构
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/v2-04deecf318b2d29bc93f4761458767b7_720w.jpg" alt="img" style="float: left;" />
+<img src="/images/posts/caozuoxitong/31.jpg" alt="img" style="float: left;" />
 
 ## 中断流程
 
@@ -1857,7 +1857,7 @@ CPU收到中断信号后会首先把一些数据push到内核栈上，保存的�
 
 保存完被中断程序的信息之后，就要去执行中断处理程序了。CPU会根据当前中断信号的向量号去查询中断向量表找到中断处理程序。CPU是如何获得当前中断信号的向量号的呢，如果是CPU异常可以在CPU内部获取，如果是指令中断，在指令中就有向量号，如果是硬件中断，则可以从中断控制器中获取中断向量号。那CPU又是怎么找到中断向量表呢，是通过IDTR寄存器。如下
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/v2-ecb600122a69838ebe4d08cbf1e39b51_720w.jpg" alt="img" style="zoom:50%;Float:left" />
+<img src="/images/posts/caozuoxitong/32.jpg" alt="img" style="zoom:50%;Float:left" />
 
 CPU现在已经把被中断的程序现场保存到内核栈上了，又得到了中断向量号，然后就根据中断向量号从中断向量表中找到对应的门描述符，对描述符做一番安全检查之后，CPU就开始执行中断处理函数。
 
@@ -1891,7 +1891,7 @@ tee( )函数
 
 如果服务端要提供文件传输的功能，我们能想到的最简单的方式是：将磁盘上的文件读取出来，然后通过网络协议发送给客户端。传统 I/O 的工作方式是，数据读取和写入是从用户空间到内核空间的复制，而内核空间的数据是通过操作系统层面的 I/O 接口从磁盘读取或写入。其过程如下图所示：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203231452388.webp" alt="img" style="zoom: 50%;Float:left" />
+<img src="/images/posts/caozuoxitong/33.webp" alt="img" style="zoom: 50%;Float:left" />
 
 可以想想一下这个过程。服务器读从磁盘读取文件的时候，发生一次系统调用，产生用户态到内核态的转换，将磁盘文件拷贝到内核的内存中。然后将位于内核内存中的文件数据拷贝到用户的缓冲区中。用户应用缓冲区需要将这些数据发送到socket缓冲区中，进行一次用户态到内核态的转换，复制这些数据。此时这些数据在内核的socket的缓冲区中，在进行一次拷贝放到网卡上发送出去。
 
@@ -1907,13 +1907,13 @@ tee( )函数
 
 - mmap/write 方式
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203231457223.webp" alt="image" style="zoom:80%;float:left" />
+  <img src="/images/posts/caozuoxitong/34.webp" alt="image" style="zoom:80%;float:left" />
 
   把数据读取到内核缓冲区后，应用程序进行写入操作时，直接把内核的`Read Buffer`的数据复制到`Socket Buffer`以便写入，这次内核之间的复制也是需要CPU的参与的。
 
 - sendfile 方式
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203231500195.webp" alt="image" style="zoom:80%;float:left" />
+  <img src="/images/posts/caozuoxitong/35.webp" alt="image" style="zoom:80%;float:left" />
 
   可以看到使用sendfile后，没有用户空间的参与，一切操作都在内核中进行。但是还是需要1次拷贝
 
@@ -1925,7 +1925,7 @@ tee( )函数
 
 - splice 方式
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203231510067.png" style="zoom:80%; float:left" />
+  <img src="/images/posts/caozuoxitong/36.png" style="zoom:80%; float:left" />
 
   其实就是CPU 在内核空间的读缓冲区（read buffer）和网络缓冲区（socket buffer）之间建立管道（pipeline）直接把数据传过去了，不去要CPU复制了
 
@@ -1977,7 +1977,7 @@ mmap 将内核中读缓冲区（read buffer）的地址与用户空间的缓冲�
 
 ## CPU访问内存的过程
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/202210121543281.png" alt="img" style="zoom:80%;float:left" />
+<img src="/images/posts/caozuoxitong/37.png" alt="img" style="zoom:80%;float:left" />
 
 # Linux任务调度
 

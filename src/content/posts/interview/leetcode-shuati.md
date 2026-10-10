@@ -13,7 +13,7 @@ comment: true
 > 本文为**自用学习笔记**，内容转载整理自他人（含外链图片）。
 > 如涉侵权，请联系后**立刻删除**。
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210805105705.jpeg" alt="preview" style="zoom:80%;float:left" />
+<img src="/images/posts/leetcode-shuati/03.jpg" alt="preview" style="zoom:80%;float:left" />
 
 # 算法题常用API
 
@@ -139,7 +139,7 @@ static bool compare(const string& s1, const string& s2)
   >
   > 双指针找中点+反转一部分节点
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210801220710.jpeg" alt="img" style="zoom:50%;" />
+<img src="/images/posts/leetcode-shuati/04.jpg" alt="img" style="zoom:50%;" />
 
 ```cpp
 bool isPalindrome(ListNode* head) {  
@@ -292,7 +292,7 @@ bool hasCycle(ListNode *head) {
 >
 > 1. 判断有无环
 >
-> 2. <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202203062007367.png" alt="fig1" style="zoom: 25%;float:left" />
+> 2. <img src="/images/posts/leetcode-shuati/05.png" alt="fig1" style="zoom: 25%;float:left" />
 >
 >    *a*+(n+1)b+nc=2(a+b)⟹*a*=c+(n−1)(b+c)
 >
@@ -326,7 +326,7 @@ ListNode *detectCycle(ListNode *head) {
 >
 > 我们可以设想假设设定了双指针 p 和 q 的话，当 q 指向末尾的 NULL，p 与 q 之间相隔的元素个数为 n 时，那么删除掉 p 的下一个指针就完成了要求。
 >
-> <img src="https://pic.leetcode-cn.com/cc43daa8cbb755373ce4c5cd10c44066dc770a34a6d2913a52f8047cbf5e6e56-file_1559548337458" alt="img" style="zoom:67%;" />
+> <img src="/images/posts/leetcode-shuati/27.gif" alt="img" style="zoom:67%;" />
 
 ```cpp
 ListNode* removeNthFromEnd(ListNode* head, int n) {        
@@ -719,7 +719,7 @@ ListNode* reverse(ListNode* begin, ListNode* end){
 
 #### [83. 删除排序链表中的重复元素](https://leetcode-cn.com/problems/remove-duplicates-from-sorted-list/)
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210808144428.jpg" alt="b805fe719e7b0bce53d3e78d4575ed3" style="zoom: 33%;" />
+<img src="/images/posts/leetcode-shuati/06.jpg" alt="b805fe719e7b0bce53d3e78d4575ed3" style="zoom: 33%;" />
 
 > 思路如图所示，很好理解。
 
@@ -834,7 +834,7 @@ ListNode* deleteDuplicates(ListNode* head) {
 
 - 双指针递归的做法
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202202271639896.png" alt="image-20220227163934553" style="zoom: 80%; float:left" />
+  <img src="/images/posts/leetcode-shuati/07.png" alt="image-20220227163934553" style="zoom: 80%; float:left" />
 
   这也不失为一种思路
 
@@ -873,11 +873,11 @@ public:
 
   时间复杂度$O(n)$
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202202281707570.png" alt="image-20220228170737345" style="zoom:80%; float:left" />
+  <img src="/images/posts/leetcode-shuati/08.png" alt="image-20220228170737345" style="zoom:80%; float:left" />
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202202281708322.png" alt="image-20220228170847124" style="zoom:80%; float:left" />
+  <img src="/images/posts/leetcode-shuati/09.png" alt="image-20220228170847124" style="zoom:80%; float:left" />
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202202281710287.png" alt="image" style="zoom:80%; float:left" />
+  <img src="/images/posts/leetcode-shuati/10.png" alt="image" style="zoom:80%; float:left" />
 
   第三步就是拆分
 
@@ -1022,7 +1022,7 @@ vector<vector<int>> res;
 
 > 还是老样子，关注局部的三个节点，根左右，然后写出代码。
 >
-> <img src="https://assets.leetcode.com/uploads/2019/02/14/116_sample.png" alt="img" style="zoom: 50%;" />
+> <img src="/images/posts/leetcode-shuati/11.png" alt="img" style="zoom: 50%;" />
 >
 > 关键点不是2->3这种一个根节点下的节点，而是5->6这种不在同一个根节点下的。因此要借助5和6的上层节点2,3来解决问题。通过2到3，再到6，就可以链接5和6
 
@@ -1151,9 +1151,9 @@ TreeNode* constructMaximumBinaryTree(vector<int>& nums) {
 >
 >  这道题的思路用一下图片即可说明：
 >
->  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210810161450.webp" alt="图片" style="zoom:50%;" />
+>  <img src="/images/posts/leetcode-shuati/12.webp" alt="图片" style="zoom:50%;" />
 >
->  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210810161720.webp" alt="图片" style="zoom:50%;" />
+>  <img src="/images/posts/leetcode-shuati/13.webp" alt="图片" style="zoom:50%;" />
 >
 >  > [详细思路可以看这里](https://mp.weixin.qq.com/s/OlpaDhPDTJlQ5MJ8tsARlA)
 
@@ -1458,7 +1458,7 @@ public:
 
 这个题就是完全二叉树的性质，给一个二叉树，然后判断有几个节点，下图很能说明情况：
 
-<img src="https://s2.loli.net/2022/07/02/OPbd9LInaW2ql4s.png" alt="222.完全二叉树的节点个数" style="zoom: 67%; float: left;" />
+<img src="/images/posts/leetcode-shuati/14.png" alt="222.完全二叉树的节点个数" style="zoom: 67%; float: left;" />
 
 如果是满二叉树，直接就是$2^n-1$，如果不是满二叉树，那么就往下递归呗
 
@@ -3218,7 +3218,7 @@ int findLengthOfLCIS(vector<int>& nums) {
 
 - 这道题动态规划不太好想，如果画个图会好一点，因此我就随便在网上找一张图了。
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210924115530.png" alt="7EFA9A32B19DA856AB78C8D29AD55875.png" style="zoom: 33%;float:left" />
+  <img src="/images/posts/leetcode-shuati/15.jpg" alt="7EFA9A32B19DA856AB78C8D29AD55875.png" style="zoom: 33%;float:left" />
 
   这张图对于理解二维dp数组很有帮助
 
@@ -3579,7 +3579,7 @@ int maxUncrossedLines(vector<int>& nums1, vector<int>& nums2) {
 
   如下图一，很自然的，当T索引为0时候，对应的第0列就是当前字符在T中出现位置的下标，没有的标-1就行；
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20211012114139.jpg" alt="451f324be3121d731c1bd49ae62db5d" style="zoom: 15%;float:left" />
+  <img src="/images/posts/leetcode-shuati/16.jpg" alt="451f324be3121d731c1bd49ae62db5d" style="zoom: 15%;float:left" />
 
   ```c
   /*ahbgdc这个T字符串构成的数组如下：重点在于从后往前构造会简单很多*/
@@ -3833,7 +3833,7 @@ int countSubstrings(string s) {
 
 最重要的是下面的这张图：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20211019201940.webp" alt="图片" style="zoom: 25%;" />
+<img src="/images/posts/leetcode-shuati/17.webp" alt="图片" style="zoom: 25%;" />
 
 - 注意事项，一定要注意两层是$dp[i][j]=a$，三层的话肯定是最里面一层for有个变量temp，然后跳开里面这层才是dp赋值
 
@@ -4286,7 +4286,7 @@ int monotoneIncreasingDigits(int n) {
 
 - 思路：
 
-  ![img](https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202202011631483.png)
+  ![img](/images/posts/leetcode-shuati/01.png)
 
   我们就根据上图这个例子来分析一下：
 
@@ -4361,7 +4361,7 @@ int monotoneIncreasingDigits(int n) {
 
 - 思路
 
-  ![img](https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202202022158316.png)
+  ![img](/images/posts/leetcode-shuati/02.png)
 
   **在遍历的过程中相当于是要找每一个字母的边界，如果找到之前遍历过的所有字母的最远边界，说明这个边界就是分割点了。此时前面出现过所有字母，最远也就到这个边界了。**
 
@@ -4556,7 +4556,7 @@ int monotoneIncreasingDigits(int n) {
   >
   > 下图表现得最为直观：
   >
-  > <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210814164606.png" alt="图片" style="zoom: 67%; float: left;" />
+  > <img src="/images/posts/leetcode-shuati/18.png" alt="图片" style="zoom: 67%; float: left;" />
 
   代码模板如下：
 
@@ -4684,7 +4684,7 @@ vector<vector<int>> res;
 
 下面这幅图就是本题的思路
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210815083126.png" alt="77.组合1.png" style="zoom:50%;" />
+<img src="/images/posts/leetcode-shuati/19.png" alt="77.组合1.png" style="zoom:50%;" />
 
 ```cpp
 vector<vector<int>> res;
@@ -4991,7 +4991,7 @@ bool jarge(string s){
 
 同样不能出现重复，因此for循环从start开始
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/20210818130700.png" alt="图片" style="zoom: 67%;float:left" />
+<img src="/images/posts/leetcode-shuati/20.png" alt="图片" style="zoom: 67%;float:left" />
 
 ```cpp
 vector<vector<int>> res;
@@ -5052,7 +5052,7 @@ void back_tracing(vector<int>& nums, int start, vector<bool>& use_check){
 
      不加use_check数组的话，对于同一层元素，如果有重复我们就是不能用它，如下图：
 
-     <img src="https://s2.loli.net/2022/07/02/YFRVWpXcPklhd83.webp" alt="图片" style="zoom: 67%; float: left;" />
+     <img src="/images/posts/leetcode-shuati/21.webp" alt="图片" style="zoom: 67%; float: left;" />
 
      对于同一树枝来说，第三层得自己[1 ,2]，第四层的[1, 2, 2]如果不加use_check数组，肯定得不到122这个数组,当if判断的时候就跳过了，但我们还要用到2，所以上述代码不合适。
 
@@ -5743,7 +5743,7 @@ void dfs(vector<vector<char>>& grid, int row, int col){
 
 重要思路：将水的流向反转，假设太平洋和大西洋的水 从低向高 “攀登”，分别能到达哪些位置，分别用 p_visited 和 a_visited 表示。两者的交集就代表能同时流向太平洋和大西洋的位置。
 
-<img src="https://cdn.jsdelivr.net/gh/guaguaupup/cloudimg/data/image-20220614224944482.png" alt="image-20220614224944482" style="zoom: 50%; float:left" />
+<img src="/images/posts/leetcode-shuati/22.png" alt="image-20220614224944482" style="zoom: 50%; float:left" />
 
 ```cpp
 vector<vector<int>> pacificAtlantic(vector<vector<int>>& heights) {
@@ -6092,7 +6092,7 @@ OK那么第一种情况，假如左边部分的最后一个叫做left_end是小�
 
 第二种情况就是大多数情况，即left_end的值是大于right_start的值的，这个时候我们怎么删除呢？当时做到这点的时候我一直有一个误区，就是以为要把左边部分+中间部分或者中间部分+右边部分全部删除，看谁删除的数量最小就可以了，为啥会用到二分法呢？后来仔细思考了一下不对的，不一定要把左边区间或右边区间全部删除！如下图：
 
-<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/image-20220423105700886.png" alt="image-20220423105700886" style="zoom:80%;float:left" />
+<img src="/images/posts/leetcode-shuati/23.png" alt="image-20220423105700886" style="zoom:80%;float:left" />
 
 依次查找左边部分的每一个元素在右边部分出现的位置，然后函数中间的这么多元素就可以了。因为这样就不用把左边的全部删除，因为把左边全部删除是错误的思路，左边的一部分可以和右边的有序元素拼接在一起
 
@@ -6297,9 +6297,9 @@ int findPeakElement(vector<int>& nums) {
 
   快慢指针解决掉它
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202202241511888.jpeg" alt="WechatIMG734.jpeg" style="zoom: 33%;float:left" />
+  <img src="/images/posts/leetcode-shuati/24.jpg" alt="WechatIMG734.jpeg" style="zoom: 33%;float:left" />
 
-  <img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/202202241511346.jpeg" alt="WechatIMG735.jpeg" style="zoom:33%;float:left" />
+  <img src="/images/posts/leetcode-shuati/25.jpg" alt="WechatIMG735.jpeg" style="zoom:33%;float:left" />
 
   slow = m+p，fast = m+p+q+p
   因为fast走一圈相当于slow走两圈，所以有2*slow = fast，可以得到**m=q**
@@ -6510,7 +6510,7 @@ vector<int> corpFlightBookings(vector<vector<int>>& bookings, int n) {
 
 **输入：**`nums = [[1,5],[2,6],[5,6],[6,-1],[4,-1]]`
 
-**输出：**<img src="https://cdn.jsdelivr.net/gh/luogou/cloudimg/data/image-20220420094227305.png" alt="image-20220420094227305" style="zoom:50% ;" />
+**输出：**<img src="/images/posts/leetcode-shuati/26.png" alt="image-20220420094227305" style="zoom:50% ;" />
 
 [题目链接](https://mp.weixin.qq.com/s/sUCc-vnndEhy8nZ3A5ma_Q)
 
