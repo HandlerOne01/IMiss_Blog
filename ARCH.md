@@ -2,8 +2,8 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | v1.95 |
-| 最后更新 | 2026-10-09 |
+| 文档版本 | v1.96 |
+| 最后更新 | 2026-10-10 |
 | 关联文档 | `prd.md`（需求编号 R-xxx 的来源）、`PROJECT_STATUS.md`（阶段与阻塞项） |
 | 基线代码 | 上游模板基线 v6.16.8（站点信息里中性显示为「博客版本 v6.16.8」），Astro 7.3.2 + Svelte 5 + Swup + Tailwind 4，静态输出 |
 
@@ -191,7 +191,7 @@ src/
 | R-WDG-04 | `src/config/sidebarConfig.ts` | 不改（确认清单） | 保持左侧 `profile`/`announcement`/`music`/`categories`/`tags`，右侧 `dynamic`/`stats`/`siteInfo`/`calendar`/`sidebarToc`，两个 `advertisement` 保持 `enable: false`；移动端底部组件保持现状。⚠️ **v1.63 补记**：左侧那一格 `music`（`position: "top"`）在 **v1.47~v1.62 期间因为 `showInNavbar`/`showInSidebar` 被置 `false` 而**不渲染**（配置一直在、只是渲不出来），v1.63 恢复播放器后**重新出现在左栏**；本行的清单**一字未改**（它本来就是"保留 `music`"的口径），变化发生在 `src/config/musicConfig.ts` 那两个开关上 |
 | R-BG-01 | `scripts/convert-wallpaper.mjs`（新增）+ `src/assets/images/DesktopWallpaper/imiss-d*.webp` + `backgroundWallpaper.ts` | 新增 + 改值 | 见 §6.1 |
 | R-BG-02 | `backgroundWallpaper.ts`（`src.playerUrl`）+ `public/assets/videos/*` | 改值 + 新增资源 | 见 §6.2 |
-| R-BG-03 | `backgroundWallpaper.ts` 的 `common.homeText` | 改值 | ⚠️ **P1 已提前处理一部分**（因为它是"站点身份 + 打赏移除"的盲区，见 §14.3 T18）：横幅 `links` 里模板作者的 GitHub / 邮箱 / **Sponsor 打赏入口**已全部删除，换成 RSS + Atom；主标题从模板默认标题（`Lovely <上游主题名>!`）换成本站名占位。**正式横幅文案仍等发起人定稿（B-10）** |
+| R-BG-03 | `backgroundWallpaper.ts` 的 `common.homeText` | 改值 | ⚠️ **P1 已提前处理一部分**（因为它是"站点身份 + 打赏移除"的盲区，见 §14.3 T18）：横幅 `links` 里模板作者的 GitHub / 邮箱 / **Sponsor 打赏入口**已全部删除，换成 RSS + Atom；主标题从模板默认标题（`Lovely <上游主题名>!`）换成本站名占位。**⚠️ v1.96 更正：副标题早在 v1.77 就是发起人给的 5 句**（一字未改照抄，见 `prd.md` R-BG-03），**B-10 已关闭** —— 这里此前那句"正式横幅文案仍等发起人定稿"是过期口径。仍是占位/关闭状态的只有**横幅的链接图标行**（要发起人给图标 + 地址才开） |
 | R-BG-04 | `backgroundWallpaper.ts` 的 `banner.position` + `common.dimOpacity` | 改值 | `position` 控制 cover 取景锚点（默认 `"0% 20%"` 保头脸），`dimOpacity` 控制暗罩（默认 0.2）；换素材后按 §6.4 复量 |
 | ~~R-RANK-01 ~ R-RANK-07~~ | ~~见 §5.2 文件清单~~ | **v1.41 已随排行模块删除**（R-RANK 在 `prd.md` 里标「已废弃」保号；那一格改由 R-PATH 学习路线承担 —— 落点见本表下方的 R-PATH 行） | —— |
 | **R-PATH-01 ~ R-PATH-06** | `src/config/roadmapConfig.ts` + `src/types/roadmapConfig.ts` + `src/utils/roadmap-utils.ts`（新增）+ `src/pages/roadmap.astro` + `src/components/pages/roadmap/*` + `src/styles/pages/roadmap.css` | 新增 | 见 **§5**；纯静态零 JS，页顶数字构建期实算，篇目用 `slug` + `category` 成对定位（解析不到**构建期直接失败**） |

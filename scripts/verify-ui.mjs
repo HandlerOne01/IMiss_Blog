@@ -7544,6 +7544,20 @@ async function main() {
 								`${i + 1}.「${r.q}」source=${JSON.stringify(r.source || "—")}${r.degraded ? ` ⚠️降级（${r.degrade}）` : ""} →「${r.said.replace(/\n/g, "⏎").slice(0, 60)}」`,
 						)
 						.join("；");
+					// **禁词命中要钉在明处**（v1.96）：只报"命中 N 个"没法复核、也指不出该改哪儿 ——
+					// 逐条给出"哪个词 + 落在哪句话里"，并写清**这不是脚本抖动**：人设
+					// （agent 仓库 `src/agent/common/persona.txt` §8.1）明令**连否定式也不许说**
+					// （"我不是 AI"同样算破功），所以逐字扫描正是要抓这个；
+					// ⚠️ 修点在**后端人设 / 兜底话术**，不在本脚本，也不该把这条断言放宽。
+					const idBanEvidence = idHits
+						.flatMap((h, i) =>
+							h.map((w) => {
+								const said = idRounds[i].said;
+								const sent = said.split(/(?<=[。！？!?\n])/).find((s) => s.includes(w)) ?? said;
+								return `第 ${i + 1} 轮问「${idRounds[i].q}」命中「${w}」，原句：「${sent.trim().slice(0, 80)}」`;
+							}),
+						)
+						.join("；");
 					if (idLive.length === 0) {
 						// **全部轮次都降级**（后端不可用 / 文章库不可用）→ 这才是"环境未就绪、无从判定"：
 						// 按既有的 SKIP 约定记账（`pass=true` + `skipped=true`；M12 起全脚本统一成这一种，
@@ -7566,7 +7580,7 @@ async function main() {
 								idHits.every((h) => h.length === 0) &&
 								idNamed.length === idLive.length &&
 								idOverLine.length === 0,
-							`起手历史 ${idPre.lines} 条（要求 0 —— 不为 0 说明读到的可能是残留答复）；**本条判据现在只在 live ${idLive.length} 轮上判**（另有 ${idDegraded.length} 轮降级已排除${idDegraded.length ? `：${idDegraded.map((r) => `「${r.q}」→${r.degrade}`).join("、")}` : ""}）→ 明确自称爱弥斯 **${idNamed.length}/${idLive.length} 条**；禁词表 [${ID_BAN.join(" / ")}] 命中 **${idHits.reduce((n, h) => n + h.length, 0)}**；越过底线（自称真人 / 冒充官方）**${idOverLine.length}** 条；逐轮证据：${idRoundTrail}；逐字原文见下一行 INFO`,
+							`起手历史 ${idPre.lines} 条（要求 0 —— 不为 0 说明读到的可能是残留答复）；**本条判据现在只在 live ${idLive.length} 轮上判**（另有 ${idDegraded.length} 轮降级已排除${idDegraded.length ? `：${idDegraded.map((r) => `「${r.q}」→${r.degrade}`).join("、")}` : ""}）→ 明确自称爱弥斯 **${idNamed.length}/${idLive.length} 条**；禁词表 [${ID_BAN.join(" / ")}] 命中 **${idHits.reduce((n, h) => n + h.length, 0)}**；越过底线（自称真人 / 冒充官方）**${idOverLine.length}** 条；逐轮证据：${idRoundTrail}；逐字原文见下一行 INFO${idBanEvidence ? `。⚠️ **禁词命中明细**：${idBanEvidence}。⚠️ **这不是脚本抖动**：人设 §8.1 明令连否定式（"我不是 AI"）也算破功 —— 逐字扫描正是要抓这个；同一份源码重跑可能恰好不命中（后端措辞有随机性），修点在**后端人设 / 兜底话术**，不在本脚本` : ""}`,
 						);
 					}
 					// 逐字原文单独记一条 INFO（`INFO*` 不计入功能断言数）：报告里要能一眼看见**她到底
@@ -8359,6 +8373,9 @@ async function main() {
 								scroll: { top: Math.round(b.scrollTop), h: b.scrollHeight, client: b.clientHeight },
 								overflowY: getComputedStyle(b).overflowY,
 								floatCount: floats.length,
+								// v1.96：把浮动控件的矩形也带出来 —— 只报"重叠了几个"没法做几何判据，
+								// 而 R-PET-11 的偶发红正是"判 side 写死、不看几何"造成的（见那条断言的注释）
+								floats,
 								floatOverlap: floats.filter((f) => overlap(panel, f)).length,
 								petOverlap: petBox ? overlap(panel, petBox) : null,
 								insideViewport: panel.l >= 0 && panel.t >= 0 && panel.r <= innerWidth && panel.b <= innerHeight,
@@ -8564,38 +8581,107 @@ async function main() {
 			const MARKERS = ["R1:", "R2:", "R3:", "R4:"];
 			{
 				// 「避开右下角浮动按钮列」这条约束要**在按钮真的可见时**验，否则是空过
-				// （1440×900 停在页顶时 `floatCount=0`，那时候"重叠 0 个"什么都没证明）。
-				// 造一个"右侧宽度够、但会压住按钮"的场面：宠物 x≈900 → 面板若贴右，右边缘 ≈1374
-				// 会压在按钮列（左沿 ≈1340）上；带约束的算法必须**主动改走左侧**。
+				// （1440×900 停在页顶时 floatCount=0，那时候"重叠 0 个"什么都没证明）。
+				// ⚠️⚠️ v1.96 修偶发红（同源码重跑时好时坏）：**判据从"side 必须是 left"换成"几何"**。
+				//   旧判据把 side=left 写死，而决定选边的余量只有几十 px：合成拖拽的落点有 ±50px 误差
+				//   （v1.95 那次实际落在 x≈850 而不是 900）→ 右侧**真的还放得下** → 贴右、且与按钮列
+				//   一个像素都不重叠（行为完全正确）却被判红。修法两头都做：
+				//     ① 场景**收敛**：按实测误差把宠物往右补到位，直到"无视按钮列贴右就会压上按钮"成立；
+				//     ② 判据改成几何 + 实现里 `rightEdgeFor` 的契约：贴右时面板右沿必须让到
+				//        "按钮列左沿 − 12px"之外；贴左则天然满足。硬不变量仍是"与浮动控件重叠 0 个"。
 				await cdp.send("Runtime.evaluate", { expression: `window.scrollTo(0, 1400); true`, returnByValue: true });
-				await sleep(700);
-				await cdp.send("Runtime.evaluate", {
-					expression: `(() => {
-						const el = document.getElementById("pet-body");
-						const r = el.getBoundingClientRect();
-						const sx = r.left + r.width / 2, sy = r.top + r.height / 2;
-						const o = { bubbles: true, pointerId: 51, button: 0 };
-						el.dispatchEvent(new PointerEvent("pointerdown", { ...o, clientX: sx, clientY: sy }));
-						el.dispatchEvent(new PointerEvent("pointermove", { ...o, clientX: sx + 6, clientY: sy + 6 }));
-						el.dispatchEvent(new PointerEvent("pointermove", { ...o, clientX: 962, clientY: sy }));
-						el.dispatchEvent(new PointerEvent("pointerup", { ...o, clientX: 962, clientY: sy }));
-						return true;
-					})()`,
-					returnByValue: true,
-				});
-				await sleep(500);
-				const gFloat = await chatPanel();
+				// 按钮列是**滚动之后才出现**的（BackToTop）→ 按条件等它真上屏，不用固定 sleep 赌
+				let floatSeen = 0;
+				for (let k = 0; k < 24 && floatSeen < 1; k++) {
+					await sleep(150);
+					floatSeen = (await chatPanel())?.floatCount ?? 0;
+				}
+				/** 两个矩形是否相交（与页面里那份 `overlap()` 同口径） */
+				const rectHit = (a, c) => !(a.r <= c.l || a.l >= c.r || a.b <= c.t || a.t >= c.b);
+				/** 面板与宠物之间的实际间隙（左右任一侧都能量出来；量不到时兜底 10 = menuGap 实测值） */
+				const gapOf = (g) =>
+					!g?.panel
+						? 10
+						: g.side === "left"
+							? g.pet.l - g.panel.r
+							: g.side === "right"
+								? g.panel.l - g.pet.r
+								: 10;
+				/** "无视浮动按钮列"时右侧摆位会落在哪（纵向口径 = placePanel 的"顶部对齐宠物顶部"） */
+				const naiveRightOf = (g) => {
+					const gap = gapOf(g);
+					return { l: g.pet.r + gap, r: g.pet.r + gap + g.panel.w, t: g.panel.t, b: g.panel.b };
+				};
+				/** 拖宠物：落点用**实测**收敛（连续两次采样位置不变才算落定，最多 2s） */
+				const dragPetCx = async (cx, cy, pid) => {
+					await cdp.send("Runtime.evaluate", {
+						expression: `(() => {
+							const el = document.getElementById("pet-body");
+							const r = el.getBoundingClientRect();
+							const sx = r.left + r.width / 2, sy = r.top + r.height / 2;
+							const o = { bubbles: true, pointerId: ${pid}, button: 0 };
+							el.dispatchEvent(new PointerEvent("pointerdown", { ...o, clientX: sx, clientY: sy }));
+							el.dispatchEvent(new PointerEvent("pointermove", { ...o, clientX: sx + 6, clientY: sy + 6 }));
+							el.dispatchEvent(new PointerEvent("pointermove", { ...o, clientX: ${cx}, clientY: ${cy} }));
+							el.dispatchEvent(new PointerEvent("pointerup", { ...o, clientX: ${cx}, clientY: ${cy} }));
+							return true;
+						})()`,
+						returnByValue: true,
+					});
+					let prev = null;
+					for (let k = 0; k < 14; k++) {
+						await sleep(150);
+						const g = await chatPanel();
+						if (g?.side && prev && g.pet.l === prev.pet.l && g.panel.l === prev.panel.l) break;
+						prev = g;
+					}
+				};
+				let gFloat = await chatPanel();
+				const sceneTrail = [];
+				for (let k = 0; k < 4; k++) {
+					const g = gFloat;
+					if (!g?.panel || !g?.floats?.length) break;
+					const naive = naiveRightOf(g);
+					if (g.floats.some((f) => rectHit(naive, f))) break; // 场景已"载重"：不避让就会压上
+					const floatL = Math.min(...g.floats.map((f) => f.l));
+					// 还差多少 px 才"压进按钮列 40px" —— 拿实测差值补，不靠猜落点
+					const need = Math.round(floatL + 40 - naive.r);
+					const petCx = Math.round((g.pet.l + g.pet.r) / 2);
+					const petCy = Math.round((g.pet.t + g.pet.b) / 2);
+					sceneTrail.push(
+						`第 ${k + 1} 次摆位：宠物 x=${g.pet.l}、面板 ${g.panel.w}px 贴 ${g.side}；若无视按钮列贴右，右边缘=${naive.r} 还没压上按钮列（左沿 ${floatL}）→ 向右补 ${need}px 重拖`,
+					);
+					await dragPetCx(petCx + Math.max(need, 12), petCy, 60 + k);
+					gFloat = await chatPanel();
+				}
 				const shotF = await cdp.send("Page.captureScreenshot", { format: "png" });
 				await fs.writeFile(path.join(OUT_DIR, "pet-chat-float-avoid-1440.png"), Buffer.from(shotF.data, "base64"));
+				const gF = gFloat;
+				// 判据（v1.96 起 = 几何，不再看 side 的字面值）：
+				//   · 场景"载重"：无视按钮列贴右的面板矩形**必须**真的压上可见的浮动控件（否则本条什么都没证明）；
+				//   · 硬不变量：实际面板与浮动控件重叠 = 0；
+				//   · 让位契约（= 实现里 `rightEdgeFor` 那条）：贴右时面板右沿 ≤ 纵向带内按钮列左沿 − 12px；
+				//     贴左则天然满足（算法正是靠"右侧可用宽度被压到不够"把这一侧筛掉的）。
+				const naiveF = gF?.panel ? naiveRightOf(gF) : null;
+				const naiveHitFloats = naiveF ? (gF.floats ?? []).filter((f) => rectHit(naiveF, f)) : [];
+				const bandFloats = (gF?.floats ?? []).filter(
+					(f) => !gF?.panel || !(f.b < gF.panel.t || f.t > gF.panel.b),
+				);
+				const yieldLimit = bandFloats.length
+					? Math.min(...bandFloats.map((f) => f.l - 12))
+					: (gF?.viewport?.w ?? 0) - 8;
+				const yieldOk = gF?.side === "left" || (gF?.panel?.r ?? 1e9) <= yieldLimit + 2;
+				const floatLAll = (gF?.floats ?? []).map((f) => f.l).join("/");
 				record(
 					"R-PET-11",
-					"聊天框避开右下角浮动按钮列：按钮可见时，右侧即使「够宽」也不许压上去（主动改走左侧）",
-					gFloat?.floatCount >= 1 &&
-						gFloat?.floatOverlap === 0 &&
-						gFloat?.side === "left" &&
-						gFloat?.insideViewport === true &&
-						gFloat?.petOverlap === false,
-					`滚动到 y=1400 让返回顶部按钮出现（可见浮动控件 ${gFloat?.floatCount} 个）；宠物拖到 x=${gFloat?.pet?.l}（若贴右，面板右边缘≈${(gFloat?.pet?.l ?? 0) + 474} 会压住按钮列左沿≈1340）→ 实际 side=**${gFloat?.side}**、面板 (${gFloat?.panel?.l},${gFloat?.panel?.t})-(${gFloat?.panel?.r},${gFloat?.panel?.b})、与浮动按钮重叠 **${gFloat?.floatOverlap}** 个、与宠物重叠=${gFloat?.petOverlap}；截图 reports/screenshots/pet-chat-float-avoid-1440.png`,
+					"聊天框避开右下角浮动按钮列：按钮可见时，右侧即使「够宽」也不许压上去（贴右必须让到按钮列左侧之外）",
+					(gF?.floatCount ?? 0) >= 1 &&
+						naiveHitFloats.length >= 1 &&
+						gF?.floatOverlap === 0 &&
+						yieldOk &&
+						gF?.insideViewport === true &&
+						gF?.petOverlap === false,
+					`滚动到 y=1400 让返回顶部按钮出现（可见浮动控件 ${gF?.floatCount} 个，左沿 ${floatLAll}）；宠物拖到 x=${gF?.pet?.l}（宠物宽 ${(gF?.pet?.r ?? 0) - (gF?.pet?.l ?? 0)}px、面板宽 ${gF?.panel?.w}px、间隙 ${gF ? gapOf(gF) : "?"}px）→ 实际 side=**${gF?.side}**、面板 (${gF?.panel?.l},${gF?.panel?.t})-(${gF?.panel?.r},${gF?.panel?.b})；**场景载重证据**：若无视按钮列贴右，面板会落在 (${naiveF?.l},${naiveF?.t})-(${naiveF?.r},${naiveF?.b})，与 **${naiveHitFloats.length}** 个浮动控件相交（这才是本条要抓的毛病）→ 实际与浮动按钮重叠 **${gF?.floatOverlap}** 个；让位线 ${yieldLimit}（面板纵向带内的按钮列左沿 − 12px，贴右时右沿须 ≤ 此值 + 2，实测右沿 ${gF?.panel?.r}）、与宠物重叠=${gF?.petOverlap}、四边在视口内=${gF?.insideViewport}${sceneTrail.length ? `；摆位收敛过程：${sceneTrail.join("；")}` : "；摆位一次到位（首测即已载重）"}；截图 reports/screenshots/pet-chat-float-avoid-1440.png`,
 				);
 				await cdp.send("Runtime.evaluate", { expression: `window.scrollTo(0, 0); true`, returnByValue: true });
 				await sleep(300);
