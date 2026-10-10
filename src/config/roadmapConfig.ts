@@ -363,12 +363,15 @@ export const roadmapConfig: RoadmapConfig = {
 				// v1.85 新增：把「项目」模块那 3 篇的**同一批内容**也做成文章（新分类「项目实战」）。
 				// ⚠️ 站内每一篇都必须能被路线页解释（R-PATH-04 的判据是"路线并集 == 站内总篇数"），
 				//    所以这 3 篇必须有停靠点；它们与上面三条主线讲的是同一批项目，单列一阶段说明来源。
+				// v1.103：新增第四个项目「vibecoding IMiss_Blog个人博客」的文章版（站内 137 → 138 篇、
+				//    停靠点 140 → 141），按 `order` 排在同一个阶段末尾、与 `/projects/` 的卡片顺序一致。
 				{
 					title: "项目展示（文章版）",
 					stops: [
 						s("projects", "my-server"),
 						s("projects", "boost-search-engine"),
 						s("projects", "blog-agent"),
+						s("projects", "vibecoding-imiss-blog"),
 					],
 				},
 				// v1.84 新增：本站自己的使用与维护手册（发起人：「创作一篇文章……教使用者如何使用本站」）。
