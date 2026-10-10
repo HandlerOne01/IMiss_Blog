@@ -302,12 +302,13 @@ status: "published"
 | 导航菜单 | `src/config/navBarConfig.ts`（顶层项与下拉子项都在这里；带 `pageKey` 的项会随页面开关自动隐藏） |
 | 首页横幅文案 | `src/config/backgroundWallpaper.ts` 的 `common.homeText`（主标题 + 打字机轮播的一组小字；轮换快慢看同一个配置里的 `typewriter.pauseTime`） |
 | 侧栏公告 | `src/config/announcementConfig.ts`（`content` / `link` / `closable`） |
-| 桌面/手机壁纸 | `src/config/backgroundWallpaper.ts` 的 `video.playlist`：每项一个视频，视频本体放 `public/assets/wallpaper/<slug>.mp4`，同目录再放一张同名的首帧海报 `<slug>-poster.webp`（弱网与"减少动态"时会显示它） |
+| 桌面/手机壁纸 | `src/config/backgroundWallpaper.ts` 的 `video.playlist`：每项一个视频，视频本体放 `public/assets/wallpaper/<slug>.mp4`，同目录再放一张同名的首帧海报 `<slug>-poster.webp`（弱网与"减少动态"时会显示它）。**当前 6 支** |
+| 进站默认放哪一支 | 同一处的 `video.order`：现在是 `"time"` —— 按**北京时间**选，六档见 `playlist` 每项的 `timeRange`（23–03 星夜 / 03–07 起床 / 07–11 洗手台 / 11–15 湖畔 / 15–19 窗边 / 19–23 塔罗；区间**左闭右开**，跨零点那档写 `["23:00","03:00"]`）。想改成"固定第一支"只要把 `order` 改回 `"first"`；判定在**客户端**做（访客打开那一刻的北京时间），六个时段必须**铺满 24 小时、不重不漏**，否则会有时段没有任何一支命中 |
 | 背景音乐 | `src/config/musicConfig.ts` 的本地歌单：音频放 `public/assets/music/`，封面放 `public/assets/music/cover/`，两个入口开关分别是 `showInNavbar` / `showInSidebar` |
 | 关于页 / 关于本站 | `src/content/spec/about.md`、`src/content/spec/about-site.md` |
 | 站点图标与头像 | 设计源放仓库根的 `design/`，跑 `pnpm make:logo` 生成各种尺寸 |
 
-壁纸那一项值得多说一句：每支视频可以带**取景参数**（水平/垂直落点、放大倍数）。原因是素材是 2.36:1 的超宽画面，而站点同时有手机横幅、桌面横幅、全屏壁纸几种很不一样的框 —— 不写取景参数，窄框里可能会把人物裁掉半边。
+壁纸那一项值得多说一句：每支视频可以带**取景参数**（水平/垂直落点、放大倍数）。原因是素材是 2.36:1 的超宽画面，而站点同时有手机横幅、桌面横幅、全屏壁纸几种很不一样的框 —— 不写取景参数，窄框里可能会把人物裁掉半边。⚠️ 改取景参数时**一次只改一支**：这是发起人明确要求过的（别按"我觉得不准"去批量重算）。
 
 ---
 

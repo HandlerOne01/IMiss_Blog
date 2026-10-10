@@ -51,16 +51,51 @@ const CHROME_CANDIDATES = [
  *    要求"对该动态壁纸进行单个替换，其他不动"，于是只有这一条的字节数/哈希变了
  *    （8,331,182 → **7,861,712**，sha `4b248216…` → `7c30db17…`；合计 51.34 → **50.89 MB**）。
  *    另外四条的数值**原样未动** —— 它们与源目录里的文件至今逐字节相同。
+ * ⚠️ **v1.105（2026-10-10）：5 支 → 6 支** —— 发起人「有一个视频新添加进来（把起床添加进来），
+ *    有一个视频进行了修改请你进行替换（星夜），**切记不得压缩画质，我要原画**」：
+ *      · `xingye` **替换**：10,329,106 → **6,732,992** 字节（sha `82070b36…` → `bbfd92b0…`）；
+ *      · `qichuang` **新增**（第 6 条）：**10,517,499** 字节（sha `b996524f…`）；
+ *      · 其余四支**逐字节未动**（导入脚本逐条核对过，见 reports/_wallpaper-import-v1105.mjs 的输出）。
+ *    来源仍是 `copyFileSync` 原样入库 + 抄后核对 bytes/sha256 双相等，**没有**任何转码/重封装。
+ *    合计 50.89 → **57.49 MB**。
  */
 const EXPECT_WALLPAPER_VIDEOS = [
 	{ slug: "chuangbian", bytes: 7861712, sha256: "7c30db17ca856fda1cb4335f5da998d855996fd0cf7e289ddf69ae3702723ff7" },
-	{ slug: "xingye", bytes: 10329106, sha256: "82070b367704edfcbd6af1e0f60f420cd344462bf60a99ed7128230166865468" },
+	{ slug: "xingye", bytes: 6732992, sha256: "bbfd92b04c3274aae15927a3d3633c6d2812a5cec8417c3bf0728e2758cf1608" },
 	{ slug: "hupan", bytes: 13519083, sha256: "0b2dd5c4851dd6292fca71889fc9ba3f57b3bcc1f7a87cc32cc55c6d4cd6f719" },
 	{ slug: "xishoutai", bytes: 9560435, sha256: "c4158842964848cb94de039ac5a4e8bbb0eb6a09168af575f005711ed4108259" },
 	{ slug: "taluo", bytes: 12089608, sha256: "f721022a5a9456936094c20b5b9581466c160e5a94ede4d9d0b0bfa0984e2643" },
+	{ slug: "qichuang", bytes: 10517499, sha256: "b996524fbec04cd7a9415bae6a4fe32e1142924c241de716b65a352892e0e0ae" },
 ];
-// 动态壁纸的原生分辨率（五支一致）：2944×1248 / 2.36:1 超宽
-const EXPECT_WALLPAPER_INTRINSIC = { w: 2944, h: 1248 };
+/**
+ * 动态壁纸的原生分辨率 —— ⚠️ **v1.105 起改成"逐支登记"**（原来是 `{w:2944,h:1248}` 一个值）。
+ * 为什么必须改：新加的 `qichuang` 实测是 **2546×1080**，**与另外五支的 2944×1248 不同**
+ * （两者宽高比几乎相同：2.358:1 vs 2.359:1，所以取景算法不用动，但"一个常量管六支"就不成立了）。
+ * 而且 `order: "time"` 之后**页面里正在播的是哪一支取决于跑的时辰**，判据必须按
+ * 页面自报的 slug 去查 —— 不能再拿一个全局期望值去比。
+ * 数值来源：`reports/_wp-seam-v1105.mjs` 读 `<video>` 的 videoWidth/videoHeight（v1.70 台账同源）。
+ */
+const EXPECT_WALLPAPER_INTRINSIC = {
+	chuangbian: { w: 2944, h: 1248 },
+	xingye: { w: 2944, h: 1248 },
+	hupan: { w: 2944, h: 1248 },
+	xishoutai: { w: 2944, h: 1248 },
+	taluo: { w: 2944, h: 1248 },
+	qichuang: { w: 2546, h: 1080 },
+};
+/**
+ * 六档时段（R-BG-06 / P3-10，v1.105）—— **发起人 2026-10-10 亲口排的**，也是断言的单一事实来源：
+ *   23–03 星夜｜03–07 起床｜07–11 洗手台｜11–15 湖畔｜15–19 窗边｜19–23 塔罗。
+ * 区间口径**左闭右开** `[start, end)`（边界整点归后者），`start > end` = 跨零点。
+ */
+const EXPECT_WALLPAPER_SLOTS = [
+	{ slug: "xingye", range: ["23:00", "03:00"] },
+	{ slug: "qichuang", range: ["03:00", "07:00"] },
+	{ slug: "xishoutai", range: ["07:00", "11:00"] },
+	{ slug: "hupan", range: ["11:00", "15:00"] },
+	{ slug: "chuangbian", range: ["15:00", "19:00"] },
+	{ slug: "taluo", range: ["19:00", "23:00"] },
+];
 // 顶层导航顺序与子项顺序（prd.md R-NAV-01~04 / 第 2 章）
 // ⚠️ v1.41（P2R）：第 3 格由「排行」下拉换成「学习路线」单链接（R-PATH-01）——
 //    原来的 EXPECT_RANK_CHILDREN 常量与它的用法已随排行模块整体删除（Task 4 / R-PATH-06）。
@@ -6173,8 +6208,139 @@ async function main() {
 		);
 	}
 	// ── R-BG-02 动态壁纸：原画不压缩 / 真的在播 / 无限循环（v1.70）──────────────
-	// 发起人 2026-10-09 交来 5 支动态壁纸，原话四条：替换所有静态图 / 首尾帧要能无限循环 /
+	// 发起人 2026-10-09 交来 5 支动态壁纸（**v1.105 增到 6 支**），原话四条：替换所有静态图 / 首尾帧要能无限循环 /
 	// 能不裁就不裁且人物居中 / **不可压缩，我要原画**。这一节验前三条里"能机械判定的部分"。
+	//
+	// ⚠️ v1.105 加进来的 R-BG-06「按北京时间选素材」**就地扩进 ① 与 ② 两条既有断言**，
+	//    没有新增 `record()`（所以断言总数仍是 341，四处计数不用动 —— 见 §11 的计数口径）。
+	//    为什么必须"就地"：`verify:docs` 第 2 项要求文档里的条数 == **最近一次 `verify-ui.log`
+	//    里的实测条数**；本轮不跑整套（25 分钟），基准日志就还是 341 —— 新增 record() 会让
+	//    "源码真值"与"实测基准"分叉，把 15/15 的闸门弄红。**要新增平级断言就得先跑一轮完整
+	//    verify:ui:log 更新基准**，两件事必须一起做。
+	//
+	// 先把"时段选择"测完（它要重载十几次页面），结果喂给下面 ① ② 两条断言。
+	const wpTime = await (async () => {
+		const toMin = (hhmm) => {
+			const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm));
+			return m ? Number(m[1]) * 60 + Number(m[2]) : Number.NaN;
+		};
+		// 屏蔽 mp4：这一段要重载十几次页面，只验"选了哪一支"，不必真下视频（同 §6.5 ⑤ 的做法）
+		await cdp.send("Network.setBlockedURLs", { urls: ["*.mp4"] });
+		/** 北京时间的某个钟点 → UTC 毫秒（北京 = UTC+8） */
+		const bjEpoch = (hh, mm) => Date.UTC(2026, 9, 10, hh, mm) - 8 * 3600000;
+		/** 钉死时钟（+可选访客时区）→ 重载 → 读页面自报的 slug / order / slots */
+		const withClock = async (epoch, tz) => {
+			const { identifier } = await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
+				source: `(() => { const F = ${epoch}; Date.now = () => F; })();`,
+			});
+			if (tz) await cdp.send("Emulation.setTimezoneOverride", { timezoneId: tz });
+			const loaded = cdp.once("Page.loadEventFired");
+			await cdp.send("Page.navigate", { url: `${BASE}/` });
+			await loaded;
+			await sleep(700);
+			const probe = (
+				await cdp.send("Runtime.evaluate", {
+					expression: `(() => {
+						const l = document.getElementById("wallpaper-video-layer");
+						const h = window.__imissWallpaperVideo || {};
+						return { slug: l && l.dataset.slug, order: h.order, slots: h.slots };
+					})()`,
+					returnByValue: true,
+				})
+			).result.value;
+			await cdp.send("Page.removeScriptToEvaluateOnNewDocument", { identifier });
+			if (tz) await cdp.send("Emulation.setTimezoneOverride", { timezoneId: "" });
+			return probe;
+		};
+
+		// (a) 六档铺满 24 小时、不重不漏、首尾相接（配置层）
+		const first = await withClock(bjEpoch(12, 0));
+		const ordered = [...EXPECT_WALLPAPER_SLOTS].sort((a, b) => toMin(a.range[0]) - toMin(b.range[0]));
+		let covered = 0;
+		let seamless = true;
+		const trail = [];
+		for (let i = 0; i < ordered.length; i++) {
+			const [s, e] = ordered[i].range;
+			const a = toMin(s);
+			const b = toMin(e);
+			const span = (b - a + 1440) % 1440;
+			covered += span;
+			if (b !== toMin(ordered[(i + 1) % ordered.length].range[0])) seamless = false;
+			trail.push(`${s}→${e}(${span}分)`);
+		}
+		// 页面上真正生效的那份（slots 按 playlist 顺序挂出来，这里比"集合"）
+		const shipped = (first.slots ?? []).filter(Boolean).map((r) => r.join("→"));
+		const expectRanges = EXPECT_WALLPAPER_SLOTS.map((x) => x.range.join("→"));
+		const sameSet =
+			shipped.length === expectRanges.length && expectRanges.every((r) => shipped.includes(r));
+
+		// (b) 行为层：钉死北京时间 → **页面真的选了那一支**（六档起点整点 + 跨零点区间内部 + 各档最后一分钟）
+		const CASES = [
+			[23, 0, "xingye", "跨零点区间的起点 23:00 整"],
+			[0, 0, "xingye", "跨零点区间内部 00:00"],
+			[2, 59, "xingye", "跨零点区间最后一分钟 02:59"],
+			[3, 0, "qichuang", "边界整点 03:00 → 归后者"],
+			[6, 59, "qichuang", "起床档最后一分钟"],
+			[7, 0, "xishoutai", "边界整点 07:00"],
+			[10, 59, "xishoutai", "洗手台档最后一分钟"],
+			[11, 0, "hupan", "边界整点 11:00"],
+			[15, 0, "chuangbian", "边界整点 15:00"],
+			[18, 59, "chuangbian", "窗边档最后一分钟"],
+			[19, 0, "taluo", "边界整点 19:00"],
+			[22, 59, "taluo", "塔罗档最后一分钟"],
+		];
+		const rows = [];
+		let matrixOk = true;
+		for (const [h, m, want] of CASES) {
+			const got = (await withClock(bjEpoch(h, m))).slug;
+			const ok = got === want;
+			if (!ok) matrixOk = false;
+			rows.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}→${got}${ok ? "✓" : `✗(要${want})`}`);
+		}
+		// (c) 时区无关：同一个绝对时刻，访客在纽约 / 东京 / 伦敦看到的必须是同一支
+		const tzRows = [];
+		let tzOk = true;
+		for (const tz of ["America/New_York", "Asia/Tokyo", "Europe/London"]) {
+			const got = (await withClock(bjEpoch(9, 30), tz)).slug; // 北京 09:30 → 应选洗手台
+			const ok = got === "xishoutai";
+			if (!ok) tzOk = false;
+			tzRows.push(`${tz}→${got}${ok ? "✓" : "✗"}`);
+		}
+		await cdp.send("Network.setBlockedURLs", { urls: [] });
+		const loadedBack = cdp.once("Page.loadEventFired");
+		await cdp.send("Page.navigate", { url: `${BASE}/` });
+		await loadedBack;
+		await sleep(2200);
+		return {
+			order: first.order,
+			covered,
+			seamless,
+			sameSet,
+			slots: shipped,
+			trail,
+			matrixOk,
+			rows,
+			tzOk,
+			tzRows,
+		};
+	})();
+	/** 现在（北京时间）该播哪一支 —— 给 ② 的"选中的就是该播的那一支"用 */
+	const wpSlugNow = (() => {
+		// epoch 对齐 UTC 零点，+8 小时再取模 = 北京时间当天的毫秒数
+		const mins = Math.floor(((Date.now() + 8 * 3600000) % 86400000) / 60000);
+		// 允许"上一分钟"也算对：这一跑可能正好跨过某个整点边界（facts 采集在前、这里在后）
+		const at = (mm) => {
+			for (const s of EXPECT_WALLPAPER_SLOTS) {
+				const [a, b] = s.range.map((x) => {
+					const q = /^(\d{1,2}):(\d{2})$/.exec(x);
+					return Number(q[1]) * 60 + Number(q[2]);
+				});
+				if (a < b ? mm >= a && mm < b : mm >= a || mm < b) return s.slug;
+			}
+			return null;
+		};
+		return { now: at(mins), prev: at((mins + 1439) % 1440) };
+	})();
 	{
 		const wp = facts["home-1440"].wallpaper;
 		const v = wp?.video;
@@ -6204,24 +6370,44 @@ async function main() {
 			}
 			record(
 				"R-BG-02",
-				`动态壁纸原画**逐字节**未被压缩/转码（${EXPECT_WALLPAPER_VIDEOS.length} 支，产物里核对字节数 + sha256）`,
-				allOk,
-				`${rows.join("｜")}（合计 ${(EXPECT_WALLPAPER_VIDEOS.reduce((s, x) => s + x.bytes, 0) / 1024 / 1024).toFixed(2)} MB）`,
+				`动态壁纸原画**逐字节**未被压缩/转码（${EXPECT_WALLPAPER_VIDEOS.length} 支，产物里核对字节数 + sha256）` +
+					"＋**R-BG-06 时段表铺满 24 小时**（不重叠、无空洞、首尾相接）",
+				allOk && wpTime.order === "time" && wpTime.seamless && wpTime.covered === 1440 && wpTime.sameSet,
+				`${rows.join("｜")}（合计 ${(EXPECT_WALLPAPER_VIDEOS.reduce((s, x) => s + x.bytes, 0) / 1024 / 1024).toFixed(2)} MB）` +
+					`｜排序口径 order=${wpTime.order}（期望 time）｜六档覆盖 ${wpTime.covered}/1440 分钟、首尾相接=${wpTime.seamless}、与规格一致=${wpTime.sameSet}｜${wpTime.trail.join("｜")}`,
 			);
 		}
 
-		// ② 视频真的在播、带 loop、静音、分辨率与原画一致（"动态壁纸"这四个字的底线）
-		record(
-			"R-BG-02",
-			"动态壁纸正在播放：loop + muted + 原生分辨率 2944×1248（不是静帧、不是降采样版）",
-			v?.playing === true &&
-				v?.loop === true &&
-				v?.muted === true &&
-				v?.paused === false &&
-				v?.intrinsicW === EXPECT_WALLPAPER_INTRINSIC.w &&
-				v?.intrinsicH === EXPECT_WALLPAPER_INTRINSIC.h,
-			`playing=${v?.playing} paused=${v?.paused} loop=${v?.loop} muted=${v?.muted} 原生=${v?.intrinsicW}×${v?.intrinsicH}（期望 ${EXPECT_WALLPAPER_INTRINSIC.w}×${EXPECT_WALLPAPER_INTRINSIC.h}）｜播放源=${v?.currentSrc}｜海报=${v?.poster}`,
-		);
+		// ② 视频真的在播、带 loop、静音、分辨率与原画一致（"动态壁纸"这四个字的底线），
+		//    且**进站选中的就是当前北京时间该播的那一支**（R-BG-06 的运行时那一半）。
+		//    ⚠️ v1.105：分辨率**逐支查表**（六支不再同一个值：qichuang 是 2546×1080）；
+		//       `order: "time"` 之后"现在是哪一支"取决于跑的时辰 → 按页面自报的 slug 查期望值。
+		{
+			const cur = v?.slug ?? null;
+			const want = cur ? EXPECT_WALLPAPER_INTRINSIC[cur] : null;
+			const nowOk = cur !== null && (cur === wpSlugNow.now || cur === wpSlugNow.prev);
+			record(
+				"R-BG-02",
+				"动态壁纸正在播放：loop + muted + **该支自己的**原生分辨率（不是静帧、不是降采样版）" +
+					"＋**R-BG-06 按北京时间选素材**（12 个取样点全中 + 边界整点归后者 + 跨零点区间 + 访客时区无关）",
+				v?.playing === true &&
+					v?.loop === true &&
+					v?.muted === true &&
+					v?.paused === false &&
+					!!want &&
+					v?.intrinsicW === want.w &&
+					v?.intrinsicH === want.h &&
+					nowOk &&
+					wpTime.matrixOk &&
+					wpTime.tzOk,
+				`playing=${v?.playing} paused=${v?.paused} loop=${v?.loop} muted=${v?.muted}｜当前支=${cur} 原生=${v?.intrinsicW}×${v?.intrinsicH}` +
+					(want ? `（期望 ${want.w}×${want.h}）` : `（**这一支不在登记表里**）`) +
+					`｜播放源=${v?.currentSrc}｜海报=${v?.poster}` +
+					`｜真机时钟选支：页面选了 ${cur}，此刻（北京时间 ${wpSlugNow.now ?? "?"}）应为 ${wpSlugNow.now}${nowOk ? " ✓" : " ✗"}` +
+					`｜钉死时钟的 12 个取样点：${wpTime.rows.join("｜")}` +
+					`｜时区无关：${wpTime.tzRows.join("｜")}`,
+			);
+		}
 
 		// ③ 首尾帧接缝：**在页面里真解码**首帧与末帧，算平均绝对差，并与"1 秒正常运动量"对比。
 		//    为什么要上真解码而不是读配置里那句"实测过"：循环是**内容属性**，配置说不了谎但也不会自己作证。

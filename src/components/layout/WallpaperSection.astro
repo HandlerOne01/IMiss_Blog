@@ -42,11 +42,13 @@ const wallpaperPosition = state.isFullscreenMode
  * 整轮 `Skipping dependency pre-bundling` → dev 的模块请求卡到 60 秒超时
  * （2026-10-08 实测，ARCH.md §14.3 T89）。
  */
-/* ── 动态壁纸（R-BG-06 / R-BG-07，v1.70）───────────────────────────────
-   壁纸现在是一段 <video>：发起人 2026-10-09 交来 5 个原画 mp4，要求
+/* ── 动态壁纸（R-BG-06 / R-BG-07，v1.70；v1.105 增到 6 支 + 按时段选）─────
+   壁纸现在是一段 <video>：发起人 2026-10-09 交来 5 个原画 mp4（**v1.105 增到 6 支**），要求
    「动态壁纸替换掉原有的静态图片」「首尾帧要能无限循环」「能不裁就不裁，要裁时人物在展示中心
    （手机端脸必须全露）」「全屏展示完整的动态壁纸」「不可压缩，我要原画」。
-   逐条怎么落的见 `src/config/backgroundWallpaper.ts` 的 `video` 注释与 ARCH §7.8。 */
+   v1.105（2026-10-10）再加两条：**把「起床」添进来、把「星夜」换掉**，以及
+   **六个时段按北京时间选首屏默认素材**（下面 `pickFirst()` / `pickByTime()` 就是那件事）。
+   逐条怎么落的见 `src/config/backgroundWallpaper.ts` 的 `video` 注释与 ARCH §6.5 / §7.8。 */
 const videoConf = backgroundWallpaper.video;
 const videoItems = videoConf?.enable ? (videoConf.playlist ?? []) : [];
 const videoOn = videoItems.length > 0;
@@ -67,6 +69,9 @@ const videoData = {
 		anchorY: it.focusAnchorY ?? 0.45,
 		anchorX: it.focusAnchorX ?? 0.5,
 		zoom: it.zoom ?? 1,
+		// ⚠️ v1.105：`order: "time"` 要按这一项挑素材，所以**时段必须进产物**
+		//    （原来只在配置对象里，内联脚本拿不到）。没写 `timeRange` 的就是 `null`。
+		tr: it.timeRange ?? null,
 	})),
 	order: videoConf?.order ?? "first",
 	fits: {
@@ -213,13 +218,63 @@ const videoScript = `(function initVideoWallpaper() {
 	}
 
 	/**
-	 * 进站放哪一个。发起人说的「以后按**背景时间**排序」就落在这里：
-	 * 「order: "time"」 的匹配逻辑还没做（那需要 timeRange 与"现在的时段"两边都定口径），
-	 * 现在它和 "first" 一样落第一项 —— **留了入口，没假装实现**。
+	 * 进站放哪一个（R-BG-06 / P3-10，v1.105 落地 order: "time"）。
+	 * ============================================================================
+	 * 发起人 2026-10-10 亲口排的六档（北京时间）：
+	 *   23–03 星夜｜03–07 起床｜07–11 洗手台｜11–15 湖畔｜15–19 窗边｜19–23 塔罗
+	 *
+	 * **为什么在客户端算而不是构建期注入**：这是个纯静态站，构建期只能定"构建那一刻"
+	 * 的小时，产物发出去之后就不再变 —— 而发起人要的是"**访客打开时**该看哪一支"。
+	 * 所以判定放在这里（进站一次），口径是**访客打开那一刻的北京时间**。
+	 *
+	 * ⚠️ 这段是拼在**模板字符串**里产出的：注释里**不能出现反引号**（会提前闭合字符串，
+	 *    报一堆 ts(1005) —— 同 §14.3 T94 那一族）。所以下面提到代码时一律不加反引号。
+	 *
+	 * **为什么不用 new Date().getHours()**：那读的是**访客本机时区**。发起人没给例外，
+	 * 所以按 UTC+8 换算 —— Date.now() 是 UTC 毫秒数，加 8 小时再取 getUTC* 就是北京时间，
+	 * 与访客把系统时区设成什么无关（纽约访客看到的也是"此刻北京几点"该有的那一支）。
+	 *
+	 * 区间判定（与配置注释、类型注释三处同一口径）：
+	 *   · **左闭右开 [start, end)** → 边界整点归后者（03:00 整算「起床」）；
+	 *   · **start > end = 跨零点** → 用「≥ start 或 < end」判，不然这一档永远不命中。
 	 */
+	function toMinutes(hhmm) {
+		// ⚠️ 反斜杠必须写**两层**（写成两个反斜杠 + d）：这段代码是拼在**模板字符串**里产出的，
+		//    单层的反斜杠会被字符串吃掉，产物里那个正则变成「d 花括号」—— 一个永远不匹配的
+		//    正则 → 六档全部解析失败 → **静默**退回第 0 项（不报错、页面照常显示，只是永远
+		//    放错那一支）。**本轮真踩到了**（reports/_v1105-live-pick.mjs 在真时钟下抓到：
+		//    北京 03:10 该播起床，页面却放了窗边少女），与上面 dataset.slug 那两处同一个病因。
+		//    ⚠️ 同一段里**也不许写反引号**（注释里也不行）—— 会提前闭合模板字符串、直接编译报错。
+		var m = /^(\\d{1,2}):(\\d{2})$/.exec(String(hhmm || ""));
+		if (!m) return null;
+		var h = Number(m[1]);
+		var mi = Number(m[2]);
+		if (h > 23 || mi > 59) return null;
+		return h * 60 + mi;
+	}
+	/** 当前北京时间的一天内分钟数（0~1439） */
+	function beijingMinutes() {
+		var bj = new Date(Date.now() + 8 * 3600000);
+		return bj.getUTCHours() * 60 + bj.getUTCMinutes();
+	}
+	function pickByTime() {
+		var now = beijingMinutes();
+		for (var i = 0; i < DATA.items.length; i++) {
+			var tr = DATA.items[i].tr;
+			if (!tr) continue;
+			var a = toMinutes(tr[0]);
+			var b = toMinutes(tr[1]);
+			if (a === null || b === null || a === b) continue;
+			// 左闭右开；a > b 说明这一段跨零点
+			if (a < b ? (now >= a && now < b) : (now >= a || now < b)) return i;
+		}
+		// 兜底：没有任何一项命中（正常配置下六档铺满 24 小时，走不到这里）
+		return 0;
+	}
 	function pickFirst() {
 		if (DATA.order === "random") return Math.floor(Math.random() * DATA.items.length);
 		if (DATA.order === "sequence") return Math.floor(Date.now() / 86400000) % DATA.items.length;
+		if (DATA.order === "time") return pickByTime();
 		return 0;
 	}
 
@@ -237,6 +292,24 @@ const videoScript = `(function initVideoWallpaper() {
 		current: function () { return idx; },
 		step: function (dir) { load(idx + dir, true); return idx; },
 		items: DATA.items.map(function (x) { return x.name; }),
+		// ⚠️ v1.105：把**实际生效**的排序口径与每支的时段挂出来 —— 验收脚本据此断言
+		//    "六档铺满 24 小时、不重不漏"（R-BG-06）。**别从产物 HTML 里正则抠 DATA**：
+		//    构建链路的 minify-inline-scripts.ts 会把 var DATA 改名，读法会随压缩器漂。
+		order: DATA.order,
+		slots: DATA.items.map(function (x) { return x.tr ? [x.tr[0], x.tr[1]] : null; }),
+	};
+	/** 给验收用：把"北京时间的分钟数"直接喂进真实的那套匹配逻辑（不复制一份判据） */
+	window.__imissWallpaperPickAt = function (minutes) {
+		var now = Number(minutes);
+		for (var i = 0; i < DATA.items.length; i++) {
+			var tr = DATA.items[i].tr;
+			if (!tr) continue;
+			var a = toMinutes(tr[0]);
+			var b = toMinutes(tr[1]);
+			if (a === null || b === null || a === b) continue;
+			if (a < b ? (now >= a && now < b) : (now >= a || now < b)) return i;
+		}
+		return 0;
 	};
 
 	// 框变了就重算（旋屏 / 拉窗口 / 切模式）
