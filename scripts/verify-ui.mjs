@@ -9977,8 +9977,11 @@ async function main() {
 		};
 
 		// ① /projects/：v1.65 起**集合里有内容了**（发起人 2026-10-08 要求写两个项目），
-		//    v1.79 起是**三个**（发起人 2026-10-09 给了 agent_-for_-blog 仓库，说"新增项目介绍"）。
+		//    v1.79 起是**三个**（发起人 2026-10-09 给了 agent_-for_-blog 仓库，说"新增项目介绍"），
+		//    v1.102 起是**四个**（发起人 2026-10-10 给了本站自己的仓库 imiss_-blog，说"再加个项目文章"）。
 		//    所以这条判据从"渲染空态"**就地翻成**"确实列出这几张卡、且字段逐条对得上"。
+		//    ⚠️ v1.102：加第四个项目**只就地扩这张表与下面的详情页清单，没有新增 record()** ——
+		//    断言条数仍是 **341**，所以文档里那四处计数**一个都不用改**（改了反而与日志汇总行对不上）。
 		//    ⚠️ 为什么不能只看"没有空态"：那样"页面渲染成空白"也会绿 —— 必须正向钉住卡片内容。
 		//    反面清单（上游条目名零残留）保留。
 		{
@@ -9986,7 +9989,7 @@ async function main() {
 			const html = await res.text();
 			const emptyGone = !html.includes("暂无项目");
 			const leftover = REMOVED_ENTRY_NAMES.filter((n) => html.includes(n));
-			// 两张卡的四个字段：标题 / 状态文案 / 外链 href / 详情链接（逐字来自两份 md 的 frontmatter）
+			// 四张卡的四个字段：标题 / 状态文案 / 外链 href / 详情链接（逐字来自四份 md 的 frontmatter）
 			const EXPECT_PROJECTS = [
 				{
 					title: "仿 muduo 实现的高并发服务器",
@@ -10005,6 +10008,12 @@ async function main() {
 					status: "已发布",
 					links: ["https://gitee.com/a2186988646/agent_-for_-blog"],
 					detail: "/projects/blog-agent/",
+				},
+				{
+					title: "vibecoding IMiss_Blog个人博客",
+					status: "已发布",
+					links: ["https://gitee.com/a2186988646/imiss_-blog"],
+					detail: "/projects/vibecoding-imiss-blog/",
 				},
 			];
 			const cardCount = (html.match(/class="project-card/g) || []).length;
@@ -10027,12 +10036,13 @@ async function main() {
 				leftover.length === 0,
 				leftover.join("、") || "无残留",
 			);
-			// 三个**新**项目详情页：可达 + 正文里有各自的正文特征串（钉住"详情页真的渲染了文章"）
+			// 四个**新**项目详情页：可达 + 正文里有各自的正文特征串（钉住"详情页真的渲染了文章"）
 			const newDetails = [];
 			for (const [u, needle] of [
 				["/projects/my-server/", "多 Reactor"],
 				["/projects/boost-search-engine/", "倒排"],
 				["/projects/blog-agent/", "LangGraph"],
+				["/projects/vibecoding-imiss-blog/", "Pagefind"],
 			]) {
 				const r = await fetch(`${BASE}${u}`);
 				const t = await r.text();
@@ -10040,7 +10050,7 @@ async function main() {
 			}
 			record(
 				"R-ID-10",
-				"三个新项目详情页可达且正文渲染出来（各含自己的技术特征串）",
+				"四个新项目详情页可达且正文渲染出来（各含自己的技术特征串）",
 				newDetails.every((s) => s.includes("=200") && s.includes("✓正文")),
 				newDetails.join(" ｜ "),
 			);

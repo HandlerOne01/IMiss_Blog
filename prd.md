@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | IMiss Blog |
-| 文档版本 | v1.100 |
+| 文档版本 | v1.102 |
 | 最后更新 | 2026-10-10 |
 | 关联文档 | `ARCH.md`（架构与技术设计）、`PROJECT_STATUS.md`（阶段、进度、下一步、阻塞项） |
 | 基线代码 | 上游模板基线 v6.16.8（Astro 7 静态站点，名称与出处见 `README.upstream.zh.md`），来源 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\my_-blog\Blog template` |
@@ -110,7 +110,7 @@
 | 文章详情 | `/posts/<slug>/` | 模板 | 文章集合 | ✅ |
 | **学习路线** | `/roadmap/` | **新增** | `roadmapConfig.ts`（数据全部来自站内已导入的 134 篇笔记，零新素材） | ✅ |
 | 动态 | `/dynamic/` | 模板 | 本地 `src/content/dynamic/*.md` | ✅（内容后续自填） |
-| 项目 | `/projects/` | 模板（**v1.79 起是自写内容：三个项目**） | `src/content/projects/` | ✅ |
+| 项目 | `/projects/` | 模板（**v1.79 起是自写内容；v1.102 起四个项目**） | `src/content/projects/` | ✅ |
 | 相册 | `/gallery/` | 模板 | 图集配置（**v1.87 起有真相册「本站图片」：8 张原图、字节原样、39.9 MB，见 R-GAL-01**） | ✅ |
 | 书签导航 | `/booknav/` | 模板 | 书签配置（**v1.57 起是发起人最终选定的 6 组 39 张** —— v1.57 落地时 38 张，**v1.88 按他的话加了「MiniMax 媒体平台」**，见 R-BOOKNAV-01~08） | ✅ |
 | 轻小说（原 VNDB） | `/vndb/` | 模板改名 | VNDB API（`dynamic` 模式，客户端拉取） | ⚠️ 需 userId（待提供） |
