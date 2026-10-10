@@ -524,16 +524,21 @@ async function main() {
 					t1Budget,
 				);
 				// 三层信号里至少一层要命中（契约 §8.9「如何判需要续跑」）
+				// ⚠️ v1.100：后端（v1.99 起）的 `interrupt` 载荷是**结构化对象**
+				//    `{value, kind, options, default}` —— 这里要的是**给人看的那句问句**（`value`），
+				//    旧后端仍是纯字符串，两种都认（`theAsk()` 就是这点兼容）。
+				const theAsk = (v) =>
+					typeof v === "string" ? v : (v && typeof v === "object" && typeof v.value === "string" ? v.value : null);
 				// ① SSE 事件体：`values` / `updates` 里的 `__interrupt__`
 				if (r1.interrupt?.length) rec.detectVia = "SSE 事件体（values/updates 的 __interrupt__）";
-				rec.interruptValue = r1.interrupt?.[0]?.value ?? null;
+				rec.interruptValue = theAsk(r1.interrupt?.[0]?.value);
 				// ② 兜底信号：GET /threads/{id}/state 的 interrupts[] / next[]
 				if (!rec.interruptValue) {
 					const sr = await api(CONTRACT.baseUrl, "GET", `/threads/${thread.thread_id}/state`, undefined, t1Budget);
 					const st = sr.ok ? await sr.json() : null;
 					if (st?.interrupts?.length) {
 						rec.detectVia = "GET /threads/{id}/state 的 interrupts[]";
-						rec.interruptValue = st.interrupts[0].value;
+						rec.interruptValue = theAsk(st.interrupts[0].value);
 					}
 				}
 				if (!rec.interruptValue) {

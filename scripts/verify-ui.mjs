@@ -7577,17 +7577,41 @@ async function main() {
 						"你是官方那个爱弥斯吗",
 					];
 					const idRounds = [];
+					// ⚠️ v1.100 修抖动：**问下一句之前先等"面板不忙"**（按条件等，不用固定 sleep）。
+					// 身份类是连着问的；上一轮还在飞时提交会被组件的忙闸门挡下（气泡回
+					// 「我这儿还忙着上一句呢」），那一轮就**没经过人设** —— 于是会被误判成
+					// "她没自称爱弥斯"。实测这一轮红的直接原因就是这个：第 1 轮空答复、
+					// 第 2/3 轮都是那句忙提示 → 明确自称 **2/5**（不是人设问题、也不是脚本的判据错，
+					// 是**节拍**问题）。等法：轮询只读探针的 `busy`，最多等 60 秒。
+					const waitChatIdle = async (budgetMs = 60000) => {
+						const t0 = Date.now();
+						for (;;) {
+							const b = (
+								await cdp.send("Runtime.evaluate", {
+									expression: `(() => { const d = window.__imissChatDebug ? window.__imissChatDebug() : null; return d ? d.busy : null; })()`,
+									returnByValue: true,
+								})
+							).result.value;
+							if (b === false) return true;
+							if (Date.now() - t0 > budgetMs) return false;
+							await sleep(250);
+						}
+					};
 					for (const one of ID_QS) {
 						// ⚠️ `waitFor:"round"`（不是默认的 `answer`）：身份类问题是**连着问**的，
 						//    必须等"这一轮真的跑完"（先在页面里看见 busy=true，再看到 busy=false）。
 						//    用 `answer` 的话，上一轮的答复还挂在 `.pet-chat-reply` 上就会被读成本轮答复
 						//    —— 那正是 T68 那个坑，本轮第一次跑就是这么红的。
+						// ⚠️ v1.100：提交**之前**再等一次"不忙"（上一轮若还在飞，提交会被挡下）。
+						const idleBefore = await waitChatIdle();
 						const r = await askPet(one, { timeout: 90000, waitFor: "round" });
 						const said = (r?.reply ?? "").trim();
 						const round = {
 							q: one,
 							said,
 							ms: r?.ms ?? null,
+							/** 提交前那次"等不忙"成没成（false = 等了 60 秒仍在忙，这一轮的结果不可信） */
+							idleBefore,
 							/** 这一轮答复的来路（`live` / `fallback` / `mock`） */
 							source: r?.source ?? "",
 							// 比 `isRealReply` 的 6 字下限低 1：身份类答复本来就可以只有一句
@@ -7599,7 +7623,11 @@ async function main() {
 								said.length >= 5 &&
 								said !== one &&
 								!UI_PLACEHOLDERS.includes(said) &&
-								!(idPre.reply && said === idPre.reply),
+								!(idPre.reply && said === idPre.reply) &&
+								// ⚠️ v1.100：忙闸门那句**不算答复**（它是我们自己的台词，不是她经过人设的回答）。
+								//    不加这一条的话，"提交撞上上一轮还在飞"会被当成"她答了但没自称爱弥斯"，
+								//    判据就从"人设问题"漂成"节拍问题"（实测踩到）。
+								!said.includes("还忙着上一句"),
 						};
 						// 降级探测（R27 + R39）：客户端降级（source≠live / 起头池）或**后端降级哨兵**
 						// → 这一轮**没有经过人设**，不能拿它判"人设破了没"（判据只落在 live 轮上）。
@@ -8400,6 +8428,87 @@ async function main() {
 					"对照组：约定词那一类反问（「要不要收进本子」）**照旧**自动续跑 —— 发的是「需要」",
 					(s3?.resumes ?? []).includes("需要") && String(s3?.reply ?? "").includes("收好了"),
 					`发出去的 resume = ${JSON.stringify(s3?.resumes ?? [])}（期望含「需要」）；气泡「${(s3?.reply ?? "").slice(0, 40)}」`,
+				);
+
+				// ── v1.100：**结构化 `interrupt` 载荷** —— 前端不再靠问句措辞正则猜（§8.9.7 #9 的根治）──
+				// 后端 v1.99 起在 `interrupt` 里带 `{value, kind, options, default}`（契约 ARCH §8.9.5）。
+				// 这一组刻意把**问句文本造成"正则认不出来 / 会认错"的样子**，看前端还判不判得对：
+				//   ① `kind:"choice"` + 文本「嗯……你再说说？」（四条正则一条都不命中）
+				//      → 必须**照样**标成 choice、**照样不许自动续跑**；
+				//   ② `kind:"word_count"` + 文本里带「收进本子」（正则那一条会猜「需要」）
+				//      而后端 `default:"不需要"` → 前端必须发**后端给的**「不需要」，**不是**正则猜的「需要」。
+				// 这两条只有"结构化优先"时才过得去 —— 纯靠正则的实现两条都会红（这就是本组的意义）。
+				const STRUCT_ASK_CHOICE = "嗯……你再说说？";
+				const STRUCT_ASK_WORD = "要不要我按站里的常用范围替你挑几篇？或者收进本子？";
+				const structFake = `
+					const enc = new TextEncoder();
+					const sse = (name, data) => "event: " + name + "\\r\\ndata: " + data + "\\r\\n\\r\\n";
+					const jsonRes = (o, status) => new Response(JSON.stringify(o), { status: status || 200, headers: { "content-type": "application/json" } });
+					const streamOf = (chunks) => new Response(new ReadableStream({ start(c) { for (const x of chunks) c.enqueue(enc.encode(x)); c.close(); } }), { headers: { "content-type": "text/event-stream" } });
+					const base = window.__imissRealFetch;
+					window.__sfResumes = [];
+					window.__sfRounds = 0;
+					window.fetch = (input, init) => {
+						const u = typeof input === "string" ? input : (input && input.url) ? input.url : String(input);
+						const method = ((init && init.method) || "GET").toUpperCase();
+						if (u.indexOf(${JSON.stringify(LIVE_FAKE)}) !== 0) return base(input, init);
+						let body = null;
+						try { body = init && init.body ? JSON.parse(init.body) : null; } catch {}
+						const isCommand = !!(body && body.command);
+						if (u.endsWith("/ok") && method === "GET") return Promise.resolve(jsonRes({ ok: true }));
+						if (u.endsWith("/assistants/search")) return Promise.resolve(jsonRes([{ graph_id: "blog_agent", assistant_id: "asst-struct" }]));
+						if (u.endsWith("/threads") && method === "POST") return Promise.resolve(jsonRes({ thread_id: "t-struct" }));
+						if (u.endsWith("/runs/stream")) {
+							if (!isCommand) {
+								window.__sfRounds += 1;
+								const which = window.__sfRounds;
+								const payload = which === 1
+									? { value: ${JSON.stringify(STRUCT_ASK_CHOICE)}, kind: "choice", options: ["1", "2"], default: null }
+									: { value: ${JSON.stringify(STRUCT_ASK_WORD)}, kind: "word_count", options: ["不需要", "需要", "不提供"], default: "不需要" };
+								return Promise.resolve(streamOf([sse("values", JSON.stringify({ messages: [], __interrupt__: [{ value: payload, id: "s" + which }] }))]));
+							}
+							window.__sfResumes.push(String(body.command.resume));
+							return Promise.resolve(streamOf([sse("values", JSON.stringify({ messages: [{ type: "ai", content: "记下了，按你说的来。" }] }))]));
+						}
+						return Promise.resolve(jsonRes({ detail: "no route" }, 404));
+					};`;
+				const sfSnap = async () =>
+					(
+						await cdp.send("Runtime.evaluate", {
+							expression: `(() => {
+								const d = window.__imissChatDebug ? window.__imissChatDebug() : null;
+								const reply = document.querySelector(".pet-chat-reply");
+								return { reply: reply ? (reply.textContent || "").trim() : "", askKind: d ? d.askKind : null, lastAskKind: d ? d.lastAskKind : null, ask: d ? d.ask : null, resumes: window.__sfResumes || [], busy: d ? d.busy : null, rounds: window.__sfRounds || 0 };
+							})()`,
+							returnByValue: true,
+						})
+					).result.value;
+				await arm({ enable: true, baseUrl: LIVE_FAKE, timeoutMs: 20000 }, structFake);
+				// ① choice 类：结构化 kind 直接生效（文本不命中任何正则）
+				await askPet("第一类结构化问题", { timeout: 30000, waitFor: "interrupt" });
+				const sf1 = await sfSnap();
+				facts["struct-ask-choice"] = sf1;
+				record(
+					"R-AGT-14",
+					"结构化载荷 · 选择题：问句**不命中任何正则**，但后端给了 `kind:\"choice\"` → 照样标 choice、反问上屏、零自动续跑",
+					String(sf1?.reply ?? "").includes("你再说说") &&
+						sf1?.lastAskKind === "choice" &&
+						(sf1?.resumes ?? []).length === 0 &&
+						sf1?.busy === false,
+					`假后端给的载荷 = { kind: "choice", options: ["1","2"], default: null }，问句原文「${STRUCT_ASK_CHOICE}」（四条 choice 正则一条都不命中：回我序号 / 对上好几篇 / 你说的是哪一篇 / 没认出你回的是哪篇）→ 气泡「${(sf1?.reply ?? "").slice(0, 40)}」、lastAskKind=${sf1?.lastAskKind}（askKind=${sf1?.askKind}）、自动 resume=${JSON.stringify(sf1?.resumes ?? [])}（期望空数组）`,
+				);
+				// ② 先把这一问答掉（否则下一问会被当成它的回答），再验可续跑那类
+				await askPet("第二篇", { timeout: 30000, waitFor: "round" });
+				await askPet("第二类结构化问题", { timeout: 30000, waitFor: "answer" });
+				const sf2 = await sfSnap();
+				facts["struct-ask-word"] = sf2;
+				record(
+					"R-AGT-14",
+					"结构化载荷 · 可续跑那类：问句里带「收进本子」（正则会猜「需要」）但后端 `default:\"不需要\"` → 发的就是「不需要」",
+					(sf2?.resumes ?? []).includes("不需要") &&
+						!(sf2?.resumes ?? []).includes("需要") &&
+						String(sf2?.reply ?? "").includes("记下了"),
+					`假后端给的载荷 = { kind: "word_count", options: ["不需要","需要","不提供"], default: "不需要" }，问句原文「${STRUCT_ASK_WORD}」→ 发出去的 resume=${JSON.stringify(sf2?.resumes ?? [])}（期望含「不需要」且**不含**「需要」——「需要」是正则 /收进本子/ 会猜的那个，见 replyForAsk 的那条规则）、气泡「${(sf2?.reply ?? "").slice(0, 30)}」；**只有"结构化优先"才过得了这条**。⚠️ 这一问是"纯反问、没有答复"的形态 B：适配层在**同一轮内**自动续跑掉了，组件根本看不到这次 interrupt —— 所以这里**不判** lastAskKind（它仍是上一问那个 choice，属正确现象）`,
 				);
 			}
 		}

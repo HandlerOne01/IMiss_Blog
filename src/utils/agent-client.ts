@@ -231,6 +231,15 @@ export interface AgentInterrupt {
 	 *     「我这边没定位到你说的那篇文章」，可它刚刚明明找到了两篇。
 	 */
 	kind: "resume-word" | "choice";
+	/**
+	 * **这一问允许的回答**（v1.100）—— 来自后端结构化载荷的 `options`。
+	 * 旧后端（纯字符串载荷）没有这个字段（`undefined`）。
+	 */
+	options?: string[];
+	/** 后端推荐的默认回答（v1.100）：前端推不出用户意图时该回哪个词；`choice` 类后端给 `null`（= 别替答） */
+	default?: string | null;
+	/** 这一问的 `kind` 是**后端明说的**（true）还是前端靠正则猜的（false）—— 只给日志 / 断言看 */
+	structured: boolean;
 }
 
 /** 最终状态：只有这四种，组件按它做九状态联动（R-AGT-04） */
@@ -488,12 +497,47 @@ function lastHumanIndex(messages: unknown): number {
 	return -1;
 }
 
-/** `__interrupt__` 的 value 可能是字符串，也可能是 `{value: …}` 形态，两种都认 */
-function interruptValue(list: unknown): string | null {
+/**
+ * `__interrupt__` 的 value 有两种形态，**两种都认**（v1.100）：
+ *   · **结构化**（后端 v1.99 起，契约定在 ARCH §8.9.5）：
+ *     `{ value: "<给人看的问句>", kind: "word_count" | "choice", options: [...], default: "不提供" | null }`
+ *   · **旧形态**：一个纯字符串（老后端 / 假后端 / 任何还没升级的部署）。
+ * 返回 `ask` + 可选的结构化字段；拿不到可读问句就返回 null（不许硬编一句进气泡）。
+ */
+interface InterruptPayload {
+	ask: string;
+	kind?: string;
+	options?: string[];
+	default?: string | null;
+}
+
+function interruptPayload(list: unknown): InterruptPayload | null {
 	if (!Array.isArray(list) || !list.length) return null;
 	const first = list[0] as { value?: unknown };
-	const v = typeof first === "string" ? first : first?.value;
-	return typeof v === "string" && v.trim() ? v : null;
+	const raw = typeof first === "string" ? first : first?.value;
+	if (typeof raw === "string") {
+		const ask = raw.trim();
+		return ask ? { ask } : null;
+	}
+	if (raw && typeof raw === "object") {
+		const o = raw as Record<string, unknown>;
+		const ask = typeof o.value === "string" ? o.value.trim() : "";
+		if (!ask) return null;
+		return {
+			ask,
+			kind: typeof o.kind === "string" ? o.kind : undefined,
+			options: Array.isArray(o.options)
+				? o.options.filter((x): x is string => typeof x === "string")
+				: undefined,
+			default:
+				typeof o.default === "string"
+					? o.default
+					: o.default === null
+						? null
+						: undefined,
+		};
+	}
+	return null;
 }
 
 function parseJSON(s: string): unknown {
@@ -580,9 +624,9 @@ async function runRound(
 			if (o && typeof o === "object") {
 				const state = o as Record<string, unknown>;
 				round.state = state;
-				const ask = interruptValue(state.__interrupt__);
-				if (ask && !round.interrupt)
-					round.interrupt = makeInterrupt(ask, "values");
+				const payload = interruptPayload(state.__interrupt__);
+				if (payload && !round.interrupt)
+					round.interrupt = makeInterrupt(payload, "values");
 				// ⚠️ 锚点 = 最后一条 human 消息（本轮自己的提问）：多步图首快照里带的
 				//    **上一轮答复**因此取不到（v1.37 修"气泡停在旧文本"）
 				const { text, blocked, id } = lastAiMessage(
@@ -608,9 +652,9 @@ async function runRound(
 		} else if (e.name === "updates" && !round.interrupt) {
 			// `updates` 是 `interrupt` 的第二来源；**不用它渲染任何东西**
 			const o = parseJSON(e.data) as Record<string, unknown> | null;
-			const ask = interruptValue(o?.__interrupt__);
-			if (ask)
-				round.interrupt = makeInterrupt(ask, "updates");
+			const payload = interruptPayload(o?.__interrupt__);
+			if (payload)
+				round.interrupt = makeInterrupt(payload, "updates");
 		}
 		// `messages/*` 一律不碰：`messages/metadata` 是模型名 / 节点名（内部信息），
 		// `messages/partial` 是半成品 tool_calls，`messages/complete` 与 `values` 重复。
@@ -701,7 +745,7 @@ async function interruptFromState(
 	thread: string,
 	timeoutMs: number,
 	signal?: AbortSignal,
-): Promise<string | null> {
+): Promise<InterruptPayload | null> {
 	// 超时预算取小值；调用方传进来的整轮口径不采纳（见上面 ①）
 	const budget = Math.min(timeoutMs, STATE_TIMEOUT_MS);
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -715,8 +759,8 @@ async function interruptFromState(
 		if (!res?.ok) return null;
 		const st = (await res.json()) as { tasks?: { interrupts?: unknown }[] };
 		for (const task of Array.isArray(st.tasks) ? st.tasks : []) {
-			const v = interruptValue(task?.interrupts);
-			if (v) return v;
+			const payload = interruptPayload(task?.interrupts);
+			if (payload) return payload;
 		}
 		return null;
 	} catch {
@@ -773,9 +817,40 @@ function replyForAsk(ask: string): string {
 }
 
 /** 造一个 `AgentInterrupt`（三个来源共用，免得漏填 `kind`） */
-function makeInterrupt(ask: string, via: AgentInterrupt["via"]): AgentInterrupt {
-	const kind = classifyAsk(ask);
-	return { ask, via, kind, reply: replyForAsk(ask) };
+function makeInterrupt(
+	payload: InterruptPayload,
+	via: AgentInterrupt["via"],
+): AgentInterrupt {
+	// ── v1.100：**结构化优先，正则只做旧后端的兜底**（根治 §8.9.7 未决项 #9）──
+	// 后端（v1.99 起）在 `interrupt` 里带 `kind` / `options` / `default` 时，
+	// 前端**一个正则都不用跑**；只有拿到纯字符串的老后端 / 假后端才回落到 `classifyAsk()`。
+	const structured = payload.kind !== undefined;
+	const kind: AgentInterrupt["kind"] =
+		payload.kind === "choice"
+			? "choice"
+			: structured
+				? "resume-word"
+				: classifyAsk(payload.ask);
+	// 该回哪个词：**只在后端给的候选里挑**（`options` 是白名单、`default` 是它的推荐值），
+	// 前提是那个词得真的是我们配置的约定词（后端换了词表也不会发出一个我们不认识的暗号）。
+	const words: string[] = Object.values(agentConfig.resumeWords);
+	const fromBackend = [
+		payload.default ?? "",
+		...(payload.options ?? []),
+	].find((w) => w && words.includes(w));
+	const reply =
+		kind === "choice"
+			? payload.default ?? agentConfig.resumeWords.default
+			: (fromBackend ?? replyForAsk(payload.ask));
+	return {
+		ask: payload.ask,
+		via,
+		kind,
+		reply,
+		options: payload.options,
+		default: payload.default,
+		structured,
+	};
 }
 
 /** 这句话里有没有出现约定词（判"用户这句是不是在回答 `interrupt`"） */
@@ -1011,6 +1086,15 @@ export async function askAemeath(
 		 * 传了它，前端就能把最近 N 轮一起重放过去（v1.99）。
 		 */
 		history?: ChatTurn[];
+		/**
+		 * **上一轮那句反问的类型**（v1.100）—— 由组件传它自己记下的 `AgentInterrupt.kind`。
+		 * ⚠️ 为什么必须传：下面判"这一句是不是在对上一轮的反问作答"时，旧口径是拿 `lastReply`
+		 * 的**文本**再跑一遍 `classifyAsk()` 正则。结构化载荷一来，后端明说的 `choice` 只要问句
+		 * 措辞不在那四条正则里（真后端 `main.py` 那句「回序号就行」就不在），
+		 * 这层重算就会把它判成 `resume-word` → 用户答的那句被当成**新问题**发出去。
+		 * 探针 `reports/_struct-ask-probe.mjs` 实测复现过（第 2 跳发的是 `input` 而不是 `command`）。
+		 */
+		lastAskKind?: AgentInterrupt["kind"];
 	} = {},
 ): Promise<AgentTurn> {
 	const t0 = Date.now();
@@ -1046,9 +1130,11 @@ export async function askAemeath(
 	//     详见 `classifyAsk()` 与 `reports/_agent-repro-boost{,2,3}.mjs`。
 	// 副作用（已知、可接受）：用户在"哪一篇"这一问之后改问别的，那句会被当成对它的回答发出去，
 	// 后端认不出会**再问一次**（它的 `_ask_which` 本来就是两次尝试）—— 比替用户编一个词诚实。
-	const lastWasChoiceAsk = Boolean(
-		opts.lastReply && classifyAsk(opts.lastReply) === "choice",
-	);
+	const lastWasChoiceAsk = opts.lastAskKind
+		? opts.lastAskKind === "choice"
+		: Boolean(
+				opts.lastReply && classifyAsk(opts.lastReply) === "choice",
+			);
 	const answeringInterrupt = Boolean(
 		opts.lastReply &&
 			(lastWasChoiceAsk ||
@@ -1227,8 +1313,8 @@ export async function askAemeath(
 		//    用户要等满它的超时才能看到那句**早就到手**的答复（实测 60079ms）。
 		//    有答复的轮次根本不需要判 interrupt（形态 A 的答复+反问都从 `values` 里拿）。
 		if (!r.interrupt && !r.answer.trim()) {
-			const ask = await interruptFromState(base, liveThread, cfg.timeoutMs, signal);
-			if (ask) r.interrupt = makeInterrupt(ask, "state");
+			const payload = await interruptFromState(base, liveThread, cfg.timeoutMs, signal);
+			if (payload) r.interrupt = makeInterrupt(payload, "state");
 		}
 		// ④ 命中 `interrupt`，分两种形态（§8.9.5 描述了前一种，第二种是 P5-1 接线时实测到的，
 		//    P5 复核又独立复现了一次；两种形态都真实存在，别只按文档写的那种实现）：

@@ -281,6 +281,14 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 		let chatBusy = false;
 		let chatAsk: string | null = null;
 		let chatResume: string | null = null;
+		/**
+		 * 当前这一问的**类型**（v1.100）：直接来自适配层 `AgentInterrupt.kind`
+		 * —— 结构化载荷时它等于**后端明说的** kind，旧后端（纯字符串）时是适配层按问句形态猜的。
+		 * 组件自己**不再重新分类**（`INTERRUPT_HINT` 的显示、探针的 `askKind` 都读它）。
+		 */
+		let chatAskKind: "resume-word" | "choice" | null = null;
+		/** **最近一次**反问的类型（粘性：被答掉之后仍留着，给断言一个稳定观察点） */
+		let chatLastAskKind: "resume-word" | "choice" | null = null;
 		let chatAbort: AbortController | null = null;
 		let thinkRotateTimer = 0;
 		let stateTimer = 0;
@@ -1300,6 +1308,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			chatPendingRetry = false;
 			chatAsk = null;
 			chatResume = null;
+			chatAskKind = null;
 			lastReply = "";
 			chatStreamBuf = "";
 			histIdx = -1;
@@ -1333,9 +1342,14 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 
 		function runAsk(message: string, pending: string | null): void {
 			const session = chatSession;
+			// ⚠️ v1.100：**先把"上一问是什么类型"存下来，再清状态** —— 下面那几行会把
+			// `chatAskKind` 清成 null，而它正是这次请求要带给适配层的 `lastAskKind`
+			//（适配层靠它判"用户这句是在对 choice 作答"，而不是拿问句文本重跑正则）。
+			const pendingAskKind = chatAskKind;
 			chatBusy = true;
 			chatAsk = null;
 			chatResume = null;
+			chatAskKind = null;
 			chatPendingRetry = false;
 			setState("running");
 			setThinking(true);
@@ -1349,6 +1363,10 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				// `pending` = 后端上一轮反问过（用户这句很可能是对它的回答）；
 				// 适配层再按约定词判一次，**不匹配就当新消息发**（契约：不匹配也不许报错）
 				lastReply: pending ? lastReply : undefined,
+				// **上一轮反问的类型**（v1.100）：把适配层当时判出来的 kind 原样还回去 ——
+				// 别再让它拿问句文本重跑一遍正则（结构化载荷的问句措辞可能不在那几条正则里，
+				// 重算会把"用户在对 choice 作答"误判成新话题；探针 `_struct-ask-probe.mjs` 复现过）。
+				lastAskKind: pending ? (pendingAskKind ?? undefined) : undefined,
 				// **看得见的历史**（v1.99）：只在"后端重启 → 旧线程失效 → 新建线程"那条自愈路径上用，
 				// 适配层会把最近 N 轮重放给新线程（否则新线程什么都不知道，见 `agentConfig.contextReplay`）。
 				// ⚠️ `chatLog` 是**唯一事实来源**（DOM 每次开框按它重建），所以"重放的上下文"与
@@ -1373,6 +1391,10 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				if (turn.status === "interrupt") {
 					chatAsk = turn.interrupt?.ask ?? null;
 					chatResume = turn.interrupt?.reply ?? null;
+					// v1.100：**适配层判出来的**反问类型（结构化载荷时它就是后端明说的那个 kind）。
+					// 探针（`__imissChatDebug`）读这两个值，别在探针里再猜一遍。
+					chatAskKind = turn.interrupt?.kind ?? null;
+					chatLastAskKind = chatAskKind;
 					// ⚠️ 两种 `interrupt` 形态都要照顾（实测见 agent-client.ts 的 T53 注释）：
 					//   · `recommended_agent`：先反问、**没有**答复 → 气泡就是那句反问；
 					//   · `blog_agent` 检索链路：**先给答复、再反问**（要不要收进本子）→
@@ -2221,6 +2243,8 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			chatPendingRetry = false;
 			chatAsk = null;
 			chatResume = null;
+			chatLastAskKind = null;
+			chatAskKind = null;
 			lastReply = "";
 			chatLog = [];
 			clearLineNodes();
@@ -2491,7 +2515,15 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 				resume: chatResume,
 				// v1.91：反问的**类型**（只读事实）。断言靠它区分"该不该由前端替答"：
 				// `choice` 那一类必须上屏等人答，`resume-word` 那一类才走约定词自动/手动续跑。
-				askKind: chatAsk ? classifyAsk(chatAsk) : null,
+				// ⚠️ **v1.100 改口径**：这里原来写的是 `classifyAsk(chatAsk)` —— 也就是说探针**自己
+				//    又猜了一遍**（正则），而不是读适配层判出来的那个 kind。结构化载荷到位后再这么写
+				//    就成了假事实来源：后端明说 `kind:"choice"`、组件也照 choice 做了，探针却报 resume-word。
+				//    现在：优先读**适配层给的** `chatAskKind`，只有老后端（纯字符串载荷、没有 kind）才当场猜。
+				askKind: chatAsk ? (chatAskKind ?? classifyAsk(chatAsk)) : null,
+				// v1.100 新增：**最近一次**反问的类型（粘性，不随"这一问被答掉"而清空）——
+				// 自动续跑那一类问句在断言采样时往往已经被答掉了（`ask` 变 null），
+				// 只留 `askKind` 会读成 null；给断言一个稳定的观察点。
+				lastAskKind: chatLastAskKind,
 				lastReply,
 				// ── R-PET-11 新增（同样是**只读**事实，给"历史 / 思考中 / 上一次答复"
 				//    这几条断言用）：`lines` = 历史条数、`thinking` = 思考指示是否在转、
