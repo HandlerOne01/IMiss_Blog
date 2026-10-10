@@ -14,13 +14,17 @@ export const profileConfig: ProfileConfig = {
 	avatar: "assets/images/avatar/imiss-avatar.webp",
 
 	// 名字
-	// ⚠️ 占位值：真实作者名待发起人提供（阻塞项 B-02）。
+	// ⚠️ 占位值：真实作者名待发起人提供（阻塞项 B-02 的**最后一小块**）。
 	// 这里会出现在侧边栏资料卡与页脚版权（"© 年份 <name>. All Rights Reserved."）
 	name: "IMiss",
 
 	// 个人签名
-	// ⚠️ 占位文案，待发起人确认
-	bio: "技术笔记、学习路线，和一只会聊天的爱弥斯。",
+	// ✅ v1.98：**发起人亲自给定**（2026-10-10 他圈着侧栏资料卡那张截图说「B-02 签名换成 おかえり」），
+	// 一字未改照抄（日语「欢迎回来」，七个字符）。
+	// ⚠️ 这一行同时进 JSON-LD：`buildPersonEntity({ description })` → `Person.description`
+	// （about 页与每篇文章的 `application/ld+json`，见 `src/utils/schema-utils.ts`）。
+	// 也就是说结构化数据里作者的 description 现在就是「おかえり」—— 发起人的选择，如实保留。
+	bio: "おかえり",
 
 	// 链接配置
 	// 已经预装的图标集：fa7-brands，fa7-regular，fa7-solid，material-symbols，simple-icons
@@ -29,9 +33,20 @@ export const profileConfig: ProfileConfig = {
 	// `pnpm add @iconify-json/<icon-set-name>`
 	// showName: true 时显示图标和名称，false 时只显示图标
 	//
-	// IMiss Blog：上游示例里的 GitHub 用户名与邮箱都是**模板作者**的信息，
-	// 已删除；RSS/Atom 两个订阅入口也随 R-ID-06 一起删掉。所以现在是**空数组**——
-	// `Profile.astro` 对 length 为 0 的情况不渲染整行，布局不会塌。
-	// 要加自己的社交链接（等 B-02 提供）往下面数组里加即可，支持多个。
-	links: [],
+	// IMiss Blog：上游示例里的 GitHub 用户名与邮箱都是**模板作者**的信息，已删除；
+	// RSS/Atom 两个订阅入口也随 R-ID-06 一起删掉（v1.63~v1.66 期间这里是空数组）。
+	// ✅ v1.98：**发起人给定**（2026-10-10 原话「社交链接就是我链接下拉条的前四个」）——
+	// **逐字取导航「链接」下拉的前 4 条**（顺序也是他的顺序）：Gitee → GitHub → CSDN → 洛谷；
+	// 后两条（Boost 搜索引擎 / HTTP 服务器）**不进资料卡**。
+	// ⚠️ 这里是**副本**，单一事实来源仍是 `navBarConfig.ts` 的「链接」子项 ——
+	// `verify:ui` 有一条断言（R-WDG-05）**逐字比对这两个列表**：导航前 4 条一改，它就判红提醒同步。
+	// ⚠️ 只显示图标（不写 `showName`）：侧栏卡片窄，4 个 40×40 按钮正好一行；
+	// 名字在 `aria-label` 里（无障碍与悬停都能读到）。
+	// ⚠️ 这 4 条同时进 JSON-LD 的 `Person.sameAs`（`filterAbsoluteLinks()`，见 schema-utils.ts）。
+	links: [
+		{ name: "Gitee", url: "https://gitee.com/a2186988646", icon: "simple-icons:gitee" },
+		{ name: "GitHub", url: "https://github.com/a13824367931-alt", icon: "simple-icons:github" },
+		{ name: "CSDN", url: "https://blog.csdn.net/is_ko_nois_ko", icon: "simple-icons:csdn" },
+		{ name: "洛谷", url: "https://www.luogu.com.cn/user/1726221", icon: "simple-icons:luogu" },
+	],
 };

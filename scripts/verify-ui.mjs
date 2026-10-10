@@ -445,6 +445,50 @@ const COLLECT = `(() => {
     allLabels,
     statRows: statsRoot ? statsRoot.querySelectorAll("div.justify-between").length : null,
     statText: txt(statsRoot),
+    // R-WDG-05（v1.98）：侧栏资料卡的**签名 + 社交链接**（发起人当天亲自给定的两样）。
+    // ⚠️ 锚点用「头像链接」（a[aria-label='Go to About Page']）的**父节点**当作卡片根 ——
+    //    站点源码里**根本没有 #profile-wrapper 这个 id**（v1.98 实测：全仓只有本脚本提到过它，
+    //    上一版就是照它写的，采到 null 直接判红）；卡片结构见 Profile.astro：
+    //    根 div.card-base > a[aria-label]（头像）+ div.px-2（名字 / 签名 / 链接行）。
+    // ⚠️ 同一个资料卡在页面里可能有**不止一份**（桌面两侧栏 / 移动抽屉各一份）→
+    //    取**宽度最大的那一份**（= 当前视口里真正展开的那张），而不是 querySelector 的第一份。
+    // ⚠️ 断言只取 facts["home-1440"].profileCard（桌面那一趟）。实测更正：390 下**也采得到**
+    //    （移动端这张卡同样是展开的：376px 宽、按钮 35×35），别以为"移动端一定是 0×0"。
+    // ⚠️ 本段在 COLLECT 的模板字符串里：注释里**不许出现反引号**（T76 / T91）——
+    //    本轮真的又踩了一次（写了 a[aria-label=...] 的反引号 → 模板提前闭合 → SyntaxError）。
+    profileCard: (() => {
+      const cands = [...document.querySelectorAll("a[aria-label='Go to About Page']")]
+        .map((a) => ({ a, r: a.getBoundingClientRect() }))
+        .filter((x) => x.r.width > 0)
+        .sort((x, y) => y.r.width - x.r.width);
+      const root = cands.length ? cands[0].a.parentElement : null;
+      if (!root) return null;
+      const wr = root.getBoundingClientRect();
+      const bioEl = root.querySelector("div.text-center.text-neutral-400");
+      const as = [...root.querySelectorAll("a[rel='me']")];
+      const row = as.length ? as[0].parentElement : null;
+      const rr = row ? row.getBoundingClientRect() : null;
+      return {
+        bio: bioEl ? (bioEl.textContent || "").trim() : null,
+        name: (root.querySelector("div.font-bold")?.textContent || "").trim(),
+        cardW: Math.round(wr.width),
+        card: { l: Math.round(wr.left), r: Math.round(wr.right) },
+        row: rr ? { l: Math.round(rr.left), r: Math.round(rr.right) } : null,
+        avatar: root.querySelectorAll("img[alt='Profile Image of the Author']").length,
+        copies: cands.length,
+        links: as.map((a) => {
+          const r = a.getBoundingClientRect();
+          return {
+            href: a.getAttribute("href"), label: a.getAttribute("aria-label"),
+            target: a.getAttribute("target"),
+            svg: a.querySelectorAll("svg").length,
+            text: (a.textContent || "").trim(),
+            w: Math.round(r.width), h: Math.round(r.height),
+            l: Math.round(r.left), rt: Math.round(r.right),
+          };
+        }),
+      };
+    })(),
     heatmapExists: !!document.getElementById("heatmap-container"),
     // ⚠️ R-RANK 的整块事实采集（榜单板几何 / 两档配色 / 面板显隐 / 缺图降级）已随排行模块删除
     //    （Task 4 / P2R-6）：rank 子对象连同那 41 条排行专属断言一起没了，页面也不再有 [data-rank-board]。
@@ -4409,6 +4453,58 @@ async function main() {
 			b
 				? `头像链接内 svg=${b.svgs}（要 0）· 压暗层子元素=${b.overlayChildren}（要 0）· img=${b.imgs}（要 1）｜底色 悬停前=${b.bg} → 悬停后=${hoverBg}（要变深）｜取法=${hoverPath}｜:hover 真命中=${real?.hovered}｜视口=${b.viewport?.join("×")} 头像尺寸=${b.rect?.join("×")} 中心命中=${b.topHit}｜产物里 address-card 命中=${Array.isArray(distIconHits) ? distIconHits.length : "❌ 产物没扫到（先 pnpm build）"} 个${Array.isArray(distIconHits) && distIconHits.length ? `：${distIconHits.slice(0, 3).join(" / ")}` : ""}`
 				: `❌ 探针失败：${JSON.stringify(avatarHover)}`,
+		);
+	}
+	// R-WDG-05：侧栏资料卡的**签名 + 社交链接**（v1.98，发起人 2026-10-10 亲自给定）
+	// 他圈着资料卡那张截图说：「**B-02 签名换成 おかえり，社交链接就是我链接下拉条的前四个**」。
+	// 两条腿、两个层面（缺一条都不算钉住）：
+	//   ① **DOM**：取 `facts["home-1440"].profileCard`（**只有 1440 那一趟侧栏是展开的**，
+	//      390 下卡片宽 0、按钮 0×0）—— 签名逐字 =「おかえり」、`a[rel=me]` 恰好 4 个、
+	//      href / aria-label 逐字正确、每个按钮都落在卡片内不溢出；
+	//   ② **配置层交叉核对**：`profileConfig.links` 必须**逐字等于** `navBarConfig.ts` 里
+	//      「链接」下拉的**前 4 条**（单一事实来源在导航那份、资料卡是副本 ——
+	//      他以后改导航，这条会红着提醒"资料卡也要跟着改"，而不是两边悄悄不一致）。
+	// ⚠️ 为什么"恰好 4 个"也是判据：模板对 `links.length == 1` 走的是**另一支**（带名字的宽按钮），
+	//    数量一变布局就换形态。
+	// 图证：reports/screenshots/sidebar-1440.png（每轮都拍，页内就含这张卡）。
+	{
+		const CARD_BIO = "おかえり";
+		const card = facts["home-1440"]?.profileCard ?? null;
+		// ── 配置层：从两份配置源码里抠出 (name, url) 对（抠不到 = null → 判红，不静默跳过）──
+		const pairsIn = (block) =>
+			[...block.matchAll(/name:\s*"([^"]+)"[^}]*?url:\s*"([^"]+)"/g)].map((m) => ({ name: m[1], url: m[2] }));
+		const navSrc = await fs.readFile(path.join("src", "config", "navBarConfig.ts"), "utf8");
+		const profSrc = await fs.readFile(path.join("src", "config", "profileConfig.ts"), "utf8");
+		const navAt = navSrc.indexOf('name: "链接"');
+		const navStart = navAt < 0 ? -1 : navSrc.indexOf("children: [", navAt);
+		const navEnd = navStart < 0 ? -1 : navSrc.indexOf("\n\t\t],", navStart);
+		const navPairs = navStart < 0 || navEnd < 0 ? null : pairsIn(navSrc.slice(navStart, navEnd));
+		const profAt = profSrc.indexOf("links: [");
+		const profEnd = profAt < 0 ? -1 : profSrc.indexOf("\n\t],", profAt);
+		const profPairs = profAt < 0 || profEnd < 0 ? null : pairsIn(profSrc.slice(profAt, profEnd));
+		const expectPairs = navPairs ? navPairs.slice(0, 4) : null;
+		const pairsEqual =
+			!!expectPairs &&
+			expectPairs.length === 4 &&
+			!!profPairs &&
+			profPairs.length === expectPairs.length &&
+			profPairs.every((p, i) => p.name === expectPairs[i].name && p.url === expectPairs[i].url);
+		const domOk =
+			!!card &&
+			card.bio === CARD_BIO &&
+			card.avatar === 1 &&
+			Array.isArray(card.links) &&
+			card.links.length === 4 &&
+			card.links.every((l, i) => l.href === expectPairs?.[i]?.url && l.label === expectPairs?.[i]?.name) &&
+			card.links.every((l) => l.svg === 1 && l.w >= 32 && l.h >= 32 && l.text === "" && l.target === "_blank") &&
+			card.links.every((l) => l.l >= (card.card?.l ?? 0) - 1 && l.rt <= (card.card?.r ?? 0) + 1);
+		record(
+			"R-WDG-05",
+			`资料卡签名逐字 =「${CARD_BIO}」（发起人 v1.98 给定），且 4 个社交链接逐字等于导航「链接」下拉的前 4 条（图标按钮，不溢出卡片）`,
+			domOk && pairsEqual,
+			!card
+				? "❌ 没采到 facts[home-1440].profileCard（先确认 1440 那一趟跑过、且页面里有 #profile-wrapper）"
+				: `尺寸/文本：卡片宽 ${card.cardW}px、签名=「${card.bio}」（要「${CARD_BIO}」）、头像 ${card.avatar} 张、名字=「${card.name}」；链接 ${card.links?.length} 个：${(card.links ?? []).map((l) => `${l.label}→${l.href}（${l.w}×${l.h}，svg ${l.svg}，文字「${l.text}」，target ${l.target}）`).join("；")}｜按钮行 (${card.row?.l},${card.row?.r}) 落在卡片 (${card.card?.l},${card.card?.r}) 内=${(card.links ?? []).every((l) => l.l >= (card.card?.l ?? 0) - 1 && l.rt <= (card.card?.r ?? 0) + 1)}｜配置层交叉核对：导航「链接」前 4 条 ${JSON.stringify(expectPairs)} ${pairsEqual ? "==" : "!="} 资料卡 ${JSON.stringify(profPairs)}；图证 reports/screenshots/sidebar-1440.png`,
 		);
 	}
 	record("R-WDG-01", `站点统计只剩 ${EXPECT_STAT_ROWS} 行`, home.statRows === EXPECT_STAT_ROWS, `实际 ${home.statRows} 行`);
