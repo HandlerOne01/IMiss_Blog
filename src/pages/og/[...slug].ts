@@ -161,6 +161,171 @@ const warnAndFallback = (imagePath: string, detail: string): ArrayBuffer => {
 	return getTransparentPngArrayBuffer();
 };
 
+// ── v1.107：远程图降级（发起人：「把 OG 图生成改成『远程图取不到就跳过』的降级，
+//    让构建永远不被别人的图床影响」）────────────────────────────────────────────
+/**
+ * 构建期**真正会拉远程图**的那一步（v1.107 实测查明，不是猜的）：
+ *   1. **takumi-js 的 emoji 替换** —— `takumi-js/dist/render-*.mjs` 里
+ *      `import { extractEmojis } from "@takumi-rs/helpers/emoji"`，默认 `emoji: "twemoji"`；
+ *      `@takumi-rs/helpers` 把正文里的 emoji 换成
+ *      `<img src="https://cdn.jsdelivr.net/gh/jdecked/twemoji@17.0.2/assets/svg/<码位>.svg">`，
+ *      渲染时由 takumi **自己 fetch** 这个 URL。
+ *      ⚠️ 这就是 v1.102 / v1.103 那两轮 `pnpm build` 挂掉的**真正原因**：站内标题/描述里带 emoji 的
+ *      只有 `project/my-server-siweidaotu`（description 以 🎯 开头）与
+ *      `project/sousuoyinqingsiweidaotu`，构建日志恰好死在
+ *      `/og/project/my-server-siweidaotu.png/`、错误里 `host: 'cdn.jsdelivr.net'`
+ *      （本机到 jsdelivr 的 TLS 被重置）—— 见 `reports/_v1102-build.log`；
+ *      v1.107 用 `reports/_og-block-v1107.mjs` 拦住同一个 host **当场复现**（退出码 1、栈里就是
+ *      `collectImages → prepareImages → fetch`），修好后同一注入**退出码 0**。
+ *   2. 本文件自己的 `loadImageAsArrayBuffer` —— 只在 `src` 是 `http(s)://` 时才 fetch
+ *      （当前 `profileConfig.avatar` 与 `siteConfig.favicon` 都是站内相对路径，所以正常构建 0 次远程请求）。
+ * 降级做法（两层，缺一不可）：
+ *   · **第一层（对 takumi 内部那条路）**：给 `images` 传**自定义 `fetch`** —— takumi 会把它透传给
+ *     `prepareImages`（`FetchOptions.fetch`）。我们的 `guardedImageFetch` 自己计时（超时即放弃），
+ *     **失败/超时/非 2xx 一律返回本地 1×1 透明 PNG**、**永不 reject** —— 于是那一张图被"跳过"，
+ *     `ImageResponse` 正常出图。⚠️ 同时把 takumi 自带的 `timeout` 设成 **0**（关掉）：它的超时走
+ *     `abort`，而 `prepareImages` 在 fetch 返回后会 `throwIfAborted()` 抛错 —— 那会把"超时"变回"整个构建挂"。
+ *   · **第二层（兜底，挡住任何我们控制不到的路径）**：`await response.arrayBuffer()` 把渲染**真正跑在
+ *     try/catch 里**（`ImageResponse` 是惰性 ReadableStream，错误是在**读 body 时**才冒出来的，
+ *     包构造函数没用 —— v1.102 的报错正是这样冒出来的）。失败 → 去掉 emoji 再渲染一次（emoji 是
+ *     唯一会去远程取的文本来源）→ 还失败 → 本地纯色 PNG（sharp 画，不碰网络）。
+ * 每次降级都打**一行**可辨识 warning（含 URL 与原因），前缀固定为 `[OG Image] ⚠️`。
+ */
+const OG_REMOTE_TIMEOUT_MS = 8000;
+const OG_RENDER_TIMEOUT_MS = 30000;
+
+/** 把错误变成一行可读的原因（含 undici 的 cause 链，如 ECONNRESET / ERR_TLS_…）。 */
+const describeError = (err: unknown): string => {
+	const parts: string[] = [];
+	let cur: unknown = err;
+	for (let depth = 0; depth < 4 && cur; depth++) {
+		if (cur instanceof Error) {
+			parts.push(cur.message);
+			const code = (cur as { code?: unknown }).code;
+			if (typeof code === "string") parts.push(code);
+			cur = (cur as { cause?: unknown }).cause;
+		} else {
+			parts.push(String(cur));
+			break;
+		}
+	}
+	return [...new Set(parts)].join(" ← ") || "未知错误";
+};
+
+/** 本地占位图字节（1×1 透明 PNG），远程图取不到时用它顶上。 */
+const getPlaceholderPngBytes = (): ArrayBuffer =>
+	getTransparentPngArrayBuffer();
+
+/**
+ * 传给 takumi 的自定义 fetch：**永不 reject**。
+ * 取不到（超时 / DNS / TLS / 非 2xx / 其它网络错误）→ 打一行 warning + 返回透明 PNG →
+ * 那张图在渲染里等于"跳过"，其余照常。
+ */
+const guardedImageFetch = async (
+	input: string,
+	init?: RequestInit,
+): Promise<Response> => {
+	const controller = new AbortController();
+	const timer = setTimeout(
+		() =>
+			controller.abort(new Error(`请求超过 ${OG_REMOTE_TIMEOUT_MS}ms 未完成`)),
+		OG_REMOTE_TIMEOUT_MS,
+	);
+	try {
+		const res = await fetch(input, { ...init, signal: controller.signal });
+		if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+		return res;
+	} catch (err) {
+		console.warn(
+			`[OG Image] ⚠️ 远程图取不到，已跳过（用本地占位图继续出图）：${input}｜原因：${describeError(err)}`,
+		);
+		return new Response(getPlaceholderPngBytes(), {
+			status: 200,
+			headers: { "content-type": "image/png" },
+		});
+	} finally {
+		clearTimeout(timer);
+	}
+};
+
+/** 超时护栏：渲染卡住时不拖住构建（被放弃的那次渲染会自己跑完，结果丢弃）。 */
+const withTimeout = <T>(
+	promise: Promise<T>,
+	ms: number,
+	label: string,
+): Promise<T> =>
+	new Promise<T>((resolve, reject) => {
+		const timer = setTimeout(
+			() => reject(new Error(`${label}：超过 ${ms}ms 仍未完成`)),
+			ms,
+		);
+		promise.then(
+			(v) => {
+				clearTimeout(timer);
+				resolve(v);
+			},
+			(e) => {
+				clearTimeout(timer);
+				reject(e);
+			},
+		);
+	});
+
+/**
+ * 去掉文本里的 emoji（连同变体选择符 / ZWJ / 肤色修饰 / 区域指示符 / 键帽）。
+ * 只在**兜底渲染**里用：emoji 是 OG 文本唯一会让 takumi 去远程取图的东西，去掉它就等于
+ * "把取不到的远程图跳过"，标题与描述的文字部分一个不丢。
+ */
+const stripEmojiText = (text: string): string =>
+	text
+		.replace(/\p{Extended_Pictographic}/gu, "")
+		.replace(/[\uFE00-\uFE0F\u20E3]/gu, "") // 变体选择符 / 键帽
+		.replace(/\u200D/gu, "") // 零宽连接符（单独一步，不写进字符类）
+		.replace(/[\u{1F3FB}-\u{1F3FF}]/gu, "") // 肤色修饰
+		.replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "") // 区域指示符（国旗）
+		.replace(/[ \t]{2,}/g, " ")
+		.trim();
+
+/** HSL → 0-255 RGB（纯色兜底图用；sharp 的 background 接受 {r,g,b}）。 */
+const hslToRgb = (
+	h: number,
+	s: number,
+	l: number,
+): [number, number, number] => {
+	const c = (1 - Math.abs(2 * l - 1)) * s;
+	const hp = (((h % 360) + 360) % 360) / 60;
+	const x = c * (1 - Math.abs((hp % 2) - 1));
+	const [r1, g1, b1] =
+		hp < 1
+			? [c, x, 0]
+			: hp < 2
+				? [x, c, 0]
+				: hp < 3
+					? [0, c, x]
+					: hp < 4
+						? [0, x, c]
+						: hp < 5
+							? [x, 0, c]
+							: [c, 0, x];
+	const m = l - c / 2;
+	return [
+		Math.round((r1 + m) * 255),
+		Math.round((g1 + m) * 255),
+		Math.round((b1 + m) * 255),
+	];
+};
+
+/** 最后一档兜底：本地纯色 1200×630 PNG（sharp 画，不碰网络）。 */
+const buildSolidOgPng = async (hue: number): Promise<Buffer> => {
+	const [r, g, b] = hslToRgb(hue, 0.15, 0.12);
+	const sharp = await getSharp();
+	return sharp({
+		create: { width: 1200, height: 630, channels: 3, background: { r, g, b } },
+	})
+		.png()
+		.toBuffer();
+};
+
 // Helper to load avatar/favicon with caching
 const loadImageAsArrayBuffer = async (
 	imagePath: string,
@@ -169,7 +334,10 @@ const loadImageAsArrayBuffer = async (
 		let buffer: Buffer;
 
 		if (imagePath.startsWith("http")) {
-			const res = await fetch(imagePath);
+			// v1.107：远程图必须**带超时**——没有超时的话，一个卡住的图床能把构建无限期挂住。
+			const res = await fetch(imagePath, {
+				signal: AbortSignal.timeout(OG_REMOTE_TIMEOUT_MS),
+			});
 			if (!res.ok) throw new Error(`Fetch failed with status ${res.status}`);
 			buffer = Buffer.from(await res.arrayBuffer());
 		} else {
@@ -241,223 +409,283 @@ export async function GET({
 
 	const description = post.data.description;
 
-	return new ImageResponse(
-		{
-			type: "div",
-			props: {
-				style: {
-					height: "100%",
-					width: "100%",
-					display: "flex",
-					flexDirection: "column",
-					backgroundColor: backgroundColor,
-					fontFamily:
-						'"Noto Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-					padding: "60px",
-				},
-				children: [
-					{
-						type: "div",
-						props: {
-							style: {
-								width: "100%",
-								display: "flex",
-								alignItems: "center",
-								gap: "20px",
-							},
-							children: [
-								{
-									type: "img",
-									props: {
-										src: "og-icon",
-										width: 48,
-										height: 48,
-										style: {
-											borderRadius: "10px",
+	// v1.107：整棵元素树收进一个函数，好让兜底那一次能**换一份文本**（去掉 emoji）再渲染。
+	const renderOgPng = async (
+		titleText: string,
+		descriptionText: string | undefined,
+	): Promise<Buffer> => {
+		const response = new ImageResponse(
+			{
+				type: "div",
+				props: {
+					style: {
+						height: "100%",
+						width: "100%",
+						display: "flex",
+						flexDirection: "column",
+						backgroundColor: backgroundColor,
+						fontFamily:
+							'"Noto Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+						padding: "60px",
+					},
+					children: [
+						{
+							type: "div",
+							props: {
+								style: {
+									width: "100%",
+									display: "flex",
+									alignItems: "center",
+									gap: "20px",
+								},
+								children: [
+									{
+										type: "img",
+										props: {
+											src: "og-icon",
 											width: 48,
 											height: 48,
-											objectFit: "cover",
+											style: {
+												borderRadius: "10px",
+												width: 48,
+												height: 48,
+												objectFit: "cover",
+											},
 										},
 									},
-								},
-								{
-									type: "div",
-									props: {
-										style: {
-											fontSize: "36px",
-											fontWeight: 600,
-											color: subtleTextColor,
+									{
+										type: "div",
+										props: {
+											style: {
+												fontSize: "36px",
+												fontWeight: 600,
+												color: subtleTextColor,
+											},
+											children: siteConfig.title,
 										},
-										children: siteConfig.title,
 									},
-								},
-							],
+								],
+							},
 						},
-					},
 
-					{
-						type: "div",
-						props: {
-							style: {
-								display: "flex",
-								flexDirection: "column",
-								justifyContent: "center",
-								flexGrow: 1,
-								gap: "20px",
-							},
-							children: [
-								{
-									type: "div",
-									props: {
-										style: {
-											display: "flex",
-											alignItems: "flex-start",
-										},
-										children: [
-											{
-												type: "div",
-												props: {
-													style: {
-														width: "10px",
-														height: "68px",
-														backgroundColor: primaryColor,
-														borderRadius: "6px",
-														marginTop: "14px",
-														flexShrink: 0,
-													},
-												},
-											},
-											{
-												type: "div",
-												props: {
-													style: {
-														fontSize: "72px",
-														fontWeight: 700,
-														color: textColor,
-														marginLeft: "25px",
-														overflow: "hidden",
-														textOverflow: "ellipsis",
-														lineClamp: 3,
-														WebkitLineClamp: 3,
-														WebkitBoxOrient: "vertical",
-														"text-fit": "grow per-line-all",
-														display: "flex",
-														flexDirection: "column",
-													},
-													children: post.data.title,
-												},
-											},
-										],
-									},
+						{
+							type: "div",
+							props: {
+								style: {
+									display: "flex",
+									flexDirection: "column",
+									justifyContent: "center",
+									flexGrow: 1,
+									gap: "20px",
 								},
-								...(description
-									? [
-											{
-												type: "div",
-												props: {
-													style: {
-														fontSize: "32px",
-														color: subtleTextColor,
-														paddingLeft: "35px",
-														overflow: "hidden",
-														textOverflow: "ellipsis",
-														lineClamp: 2,
-														WebkitLineClamp: 2,
-														WebkitBoxOrient: "vertical",
-														"text-fit": "grow per-line-all",
-														display: "flex",
-														flexDirection: "column",
-													},
-													children: description,
-												},
+								children: [
+									{
+										type: "div",
+										props: {
+											style: {
+												display: "flex",
+												alignItems: "flex-start",
 											},
-										]
-									: []),
-							],
-						},
-					},
-					{
-						type: "div",
-						props: {
-							style: {
-								display: "flex",
-								justifyContent: "space-between",
-								alignItems: "center",
-								width: "100%",
-							},
-							children: [
-								{
-									type: "div",
-									props: {
-										style: {
-											display: "flex",
-											alignItems: "center",
-											gap: "20px",
+											children: [
+												{
+													type: "div",
+													props: {
+														style: {
+															width: "10px",
+															height: "68px",
+															backgroundColor: primaryColor,
+															borderRadius: "6px",
+															marginTop: "14px",
+															flexShrink: 0,
+														},
+													},
+												},
+												{
+													type: "div",
+													props: {
+														style: {
+															fontSize: "72px",
+															fontWeight: 700,
+															color: textColor,
+															marginLeft: "25px",
+															overflow: "hidden",
+															textOverflow: "ellipsis",
+															lineClamp: 3,
+															WebkitLineClamp: 3,
+															WebkitBoxOrient: "vertical",
+															"text-fit": "grow per-line-all",
+															display: "flex",
+															flexDirection: "column",
+														},
+														children: titleText,
+													},
+												},
+											],
 										},
-										children: [
-											{
-												type: "img",
-												props: {
-													src: "og-avatar",
-													width: 60,
-													height: 60,
-													style: {
-														borderRadius: "50%",
+									},
+									...(descriptionText
+										? [
+												{
+													type: "div",
+													props: {
+														style: {
+															fontSize: "32px",
+															color: subtleTextColor,
+															paddingLeft: "35px",
+															overflow: "hidden",
+															textOverflow: "ellipsis",
+															lineClamp: 2,
+															WebkitLineClamp: 2,
+															WebkitBoxOrient: "vertical",
+															"text-fit": "grow per-line-all",
+															display: "flex",
+															flexDirection: "column",
+														},
+														children: descriptionText,
+													},
+												},
+											]
+										: []),
+								],
+							},
+						},
+						{
+							type: "div",
+							props: {
+								style: {
+									display: "flex",
+									justifyContent: "space-between",
+									alignItems: "center",
+									width: "100%",
+								},
+								children: [
+									{
+										type: "div",
+										props: {
+											style: {
+												display: "flex",
+												alignItems: "center",
+												gap: "20px",
+											},
+											children: [
+												{
+													type: "img",
+													props: {
+														src: "og-avatar",
 														width: 60,
 														height: 60,
-														objectFit: "cover",
+														style: {
+															borderRadius: "50%",
+															width: 60,
+															height: 60,
+															objectFit: "cover",
+														},
 													},
 												},
-											},
-											{
-												type: "div",
-												props: {
-													style: {
-														fontSize: "28px",
-														fontWeight: 600,
-														color: textColor,
+												{
+													type: "div",
+													props: {
+														style: {
+															fontSize: "28px",
+															fontWeight: 600,
+															color: textColor,
+														},
+														children: profileConfig.name,
 													},
-													children: profileConfig.name,
 												},
-											},
-										],
+											],
+										},
 									},
-								},
-								{
-									type: "div",
-									props: {
-										style: { fontSize: "28px", color: subtleTextColor },
-										children: pubDate,
+									{
+										type: "div",
+										props: {
+											style: { fontSize: "28px", color: subtleTextColor },
+											children: pubDate,
+										},
 									},
-								},
-							],
+								],
+							},
 						},
-					},
-				],
+					],
+				},
 			},
-		},
-		{
-			width: 1200,
-			height: 630,
-			format: "png",
-			images: {
-				cache: "auto",
-				sources: [
-					{
-						src: "og-avatar",
-						data: () => loadImageAsArrayBuffer(profileConfig.avatar ?? ""),
-					},
-					{
-						src: "og-icon",
-						data: () => loadImageAsArrayBuffer(iconPath),
-					},
-				],
+			{
+				width: 1200,
+				height: 630,
+				format: "png",
+				images: {
+					cache: "auto",
+					// ⚠️ 关掉 takumi 自带的超时：它超时走 `abort`，而 `prepareImages` 在 fetch 返回后
+					//    会 `throwIfAborted()` 抛错 —— 那又变回"一个图床把整条构建挂掉"。超时由
+					//    `guardedImageFetch` 自己做，失败一律降级成透明占位图。
+					timeout: 0,
+					fetch: guardedImageFetch,
+					sources: [
+						{
+							src: "og-avatar",
+							data: () => loadImageAsArrayBuffer(profileConfig.avatar ?? ""),
+						},
+						{
+							src: "og-icon",
+							data: () => loadImageAsArrayBuffer(iconPath),
+						},
+					],
+				},
+				fonts: loadOgFonts(),
+				headers: {
+					"Content-Type": "image/png",
+					"Cache-Control": "public, max-age=31536000, immutable",
+				},
 			},
-			fonts: loadOgFonts(),
-			headers: {
-				"Content-Type": "image/png",
-				"Cache-Control": "public, max-age=31536000, immutable",
+		);
+		// ⚠️ 渲染是**惰性**的（`ImageResponse` 的 body 是个 ReadableStream）：错误只有在读 body 时
+		//    才冒出来，所以必须在这里 `await`，否则 try/catch 拦不住（v1.102 就是这么挂的）。
+		return Buffer.from(await response.arrayBuffer());
+	};
+
+	const pngResponse = (png: Buffer): Response =>
+		new Response(
+			png.buffer.slice(
+				png.byteOffset,
+				png.byteOffset + png.byteLength,
+			) as ArrayBuffer,
+			{
+				headers: {
+					"Content-Type": "image/png",
+					"Cache-Control": "public, max-age=31536000, immutable",
+				},
 			},
-		},
-	);
+		);
+
+	// ── 三级降级：正常渲染 → 去掉 emoji 再渲染 → 本地纯色图 ───────────────
+	try {
+		return pngResponse(
+			await withTimeout(
+				renderOgPng(post.data.title, description),
+				OG_RENDER_TIMEOUT_MS,
+				"OG 渲染",
+			),
+		);
+	} catch (err) {
+		console.warn(
+			`[OG Image] ⚠️ 渲染失败，已跳过远程图重试（不请求任何远程资源）：${post.id}｜原因：${describeError(err)}`,
+		);
+	}
+	try {
+		return pngResponse(
+			await withTimeout(
+				renderOgPng(
+					stripEmojiText(post.data.title),
+					description && stripEmojiText(description),
+				),
+				OG_RENDER_TIMEOUT_MS,
+				"OG 兜底渲染",
+			),
+		);
+	} catch (err) {
+		console.warn(
+			`[OG Image] ⚠️ 兜底渲染也失败，改用本地纯色占位图：${post.id}｜原因：${describeError(err)}`,
+		);
+	}
+	return pngResponse(await buildSolidOgPng(hue));
 }
