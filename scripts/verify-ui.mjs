@@ -10485,16 +10485,39 @@ async function main() {
 		//      · 侧栏那一格是 `#left-sidebar-wrapper` 里的 `.music-player-widget`。
 		//    **注入证据**（见 reports/_music-report.md）：把 `showInSidebar` 改回 `false` 重建 →
 		//    下面第 2 格判红、同轮其余各格仍绿；还原后核对 sha256 一致。
-		const TRACK = {
-			name: "别难过",
-			artist: "JEReka",
-			url: "/assets/music/JEReka - 别难过.mp3",
-			cover: "/assets/music/cover/JEReka-bie-nanguo.jpg",
-			// ⚠️ 这两个字节数是**素材事实**（源文件原样复制 / APIC 原样抽出的产物），写死在这里当
-			//    "构建链有没有把它原样带出去"的判据：谁在构建里加了压缩或转码，数字一变就判红。
-			mp3Bytes: 9599149, // 9.15 MiB，sha256 4d1af1c0…8ef547（与源文件逐字节相同）
-			coverBytes: 141956, // 从该 mp3 的 ID3v2.3 APIC 帧原样抽出的 image/jpeg
-		};
+		// ⚠️ 下面这几个字节数是**素材事实**（源文件原样复制 / 从音频自己的元数据里原样抽出的产物），
+		//    写死在这里当"构建链有没有把它原样带出去"的判据：谁在构建里加了压缩或转码，数字一变就判红。
+		// v1.109：歌单 **1 首 → 3 首**（发起人又给了两首 5.1 FLAC），所以这里从"单条曲目"改成
+		//    **曲目表**，下面 5 格就地改成"逐条比对" —— **断言条数一条没加**（仍是 342）。
+		const TRACKS = [
+			{
+				name: "别难过",
+				artist: "JEReka",
+				url: "/assets/music/JEReka - 别难过.mp3",
+				cover: "/assets/music/cover/JEReka-bie-nanguo.jpg",
+				audioBytes: 9599149, // 9.15 MiB，sha256 4d1af1c0…8ef547（与源文件逐字节相同）
+				coverBytes: 141956, // 从该 mp3 的 ID3v2.3 APIC 帧原样抽出的 image/jpeg
+				note: "mp3 / 立体声",
+			},
+			{
+				name: "星炬不熄",
+				artist: "鸣潮先约电台/飞行雪绒/星炬学院毕业生",
+				url: "/assets/music/鸣潮先约电台,飞行雪绒,星炬学院毕业生 - 星炬不熄.flac",
+				cover: "/assets/music/cover/xingju-buxi.jpg",
+				audioBytes: 63225774, // 60.30 MiB，sha256 1e92a206…c7ff99（FLAC 44100 Hz / 6 声道 / 232.955s）
+				coverBytes: 178040, // 从该 FLAC 的 PICTURE 块原样切出的 image/jpeg（800×800）
+				note: "flac / 5.1",
+			},
+			{
+				name: "远航星的告别",
+				artist: "鸣潮先约电台/jixwang/Tarokiki/Emi Evans",
+				url: "/assets/music/鸣潮先约电台,jixwang,Tarokiki - 远航星的告别.flac",
+				cover: "/assets/music/cover/yuanhangxing-de-gaobie.jpg",
+				audioBytes: 64157748, // 61.19 MiB，sha256 b065f6e2…7208c0（FLAC 44100 Hz / 6 声道 / 225.000s）
+				coverBytes: 155577, // 同上，PICTURE 块原样切出（800×800）
+				note: "flac / 5.1",
+			},
+		];
 		{
 			const html = await (await fetch(`${BASE}/`)).text();
 			await goto(`${BASE}/`);
@@ -10541,17 +10564,22 @@ async function main() {
 			} catch {
 				servedList = null;
 			}
-			const servedFirst = Array.isArray(servedList) ? servedList[0] : null;
+			// v1.109：从"只看第 1 条"改成**逐条比对 TRACKS 全表**（顺序也要对：他给的顺序 = 歌单顺序）
+			const servedOk =
+				Array.isArray(servedList) &&
+				servedList.length === TRACKS.length &&
+				TRACKS.every(
+					(t, i) =>
+						servedList[i]?.name === t.name &&
+						servedList[i]?.artist === t.artist &&
+						servedList[i]?.url === t.url &&
+						servedList[i]?.pic === t.cover,
+				);
 			record(
 				"R-ID-06",
-				"首页产物里那段播放器配置（Manager 的 localPlaylist）正好是这 1 条，name/artist/url/pic 四字段与配置逐字一致",
-				Array.isArray(servedList) &&
-					servedList.length === 1 &&
-					servedFirst?.name === TRACK.name &&
-					servedFirst?.artist === TRACK.artist &&
-					servedFirst?.url === TRACK.url &&
-					servedFirst?.pic === TRACK.cover,
-				`localPlaylist（解转义后）=${JSON.stringify(servedList)}｜期望 1 条 ${JSON.stringify({ name: TRACK.name, artist: TRACK.artist, url: TRACK.url, pic: TRACK.cover })}`,
+				`首页产物里那段播放器配置（Manager 的 localPlaylist）正好是这 ${TRACKS.length} 条（含顺序），逐条 name/artist/url/pic 四字段与配置逐字一致`,
+				servedOk,
+				`localPlaylist（解转义后）=${JSON.stringify(servedList)}｜期望 ${TRACKS.length} 条 ${JSON.stringify(TRACKS.map((t) => ({ name: t.name, artist: t.artist, url: t.url, pic: t.cover })))}`,
 			);
 		}
 
@@ -10559,7 +10587,7 @@ async function main() {
 		//     现在换成正控："产物里真有这两个文件、字节数与素材逐字节一致、HTTP 真能取到 200"。
 		//     ⚠️ 新口径比旧口径**强**：旧口径在"资源缺失"和"资源正常"两种情况下**都会绿**
 		//     （它只证明了"没发请求"），这一格在资源缺失 / 少一个字节 / 404 时都会红。
-		//     ⚠️ HTTP 用 **HEAD**：只取响应头，**不下载那 9.15 MB**（4323 的静态服务实测支持 HEAD）。
+		//     ⚠️ HTTP 用 **HEAD**：只取响应头，**不下载那 131.09 MB**（v1.109 起歌单三首的音频 + 封面合计；4323 的静态服务实测支持 HEAD）。
 		{
 			const sizeOf = async (p) => {
 				try {
@@ -10568,20 +10596,37 @@ async function main() {
 					return -1;
 				}
 			};
-			const mp3Bytes = await sizeOf("dist/assets/music/JEReka - 别难过.mp3");
-			const coverBytes = await sizeOf("dist/assets/music/cover/JEReka-bie-nanguo.jpg");
+			// v1.109：从"1 首"改成"歌单里每一首逐条核" —— 音频字节 + 封面字节 + 两个 HEAD 的 200/长度
 			const heads = {};
-			for (const u of [TRACK.url, TRACK.cover]) {
-				const r = await fetch(`${BASE}${encodeURI(u)}`, { method: "HEAD" }).catch(() => null);
-				heads[u] = r ? `${r.status}/len=${r.headers.get("content-length") ?? "—"}` : "请求失败";
+			const perTrack = [];
+			for (const t of TRACKS) {
+				const audioBytes = await sizeOf(`dist${t.url}`);
+				const coverBytes = await sizeOf(`dist${t.cover}`);
+				for (const u of [t.url, t.cover]) {
+					const r = await fetch(`${BASE}${encodeURI(u)}`, { method: "HEAD" }).catch(() => null);
+					heads[u] = r ? `${r.status}/len=${r.headers.get("content-length") ?? "—"}` : "请求失败";
+				}
+				perTrack.push({
+					t,
+					audioBytes,
+					coverBytes,
+					ok:
+						audioBytes === t.audioBytes &&
+						coverBytes === t.coverBytes &&
+						heads[t.url] === `200/len=${t.audioBytes}` &&
+						heads[t.cover] === `200/len=${t.coverBytes}`,
+				});
 			}
-			const servedMp3 = heads[TRACK.url] === `200/len=${TRACK.mp3Bytes}`;
-			const servedCover = heads[TRACK.cover] === `200/len=${TRACK.coverBytes}`;
 			record(
 				"R-ID-06",
-				`音频与封面都在产物里（mp3 ${TRACK.mp3Bytes} 字节 / 封面 ${TRACK.coverBytes} 字节，原样未转码）且 HTTP 200 可达`,
-				mp3Bytes === TRACK.mp3Bytes && coverBytes === TRACK.coverBytes && servedMp3 && servedCover,
-				`dist 实测 mp3=${mp3Bytes} 字节（期望 ${TRACK.mp3Bytes}）、封面=${coverBytes} 字节（期望 ${TRACK.coverBytes}）｜HEAD ${TRACK.url} → ${heads[TRACK.url]}｜HEAD ${TRACK.cover} → ${heads[TRACK.cover]}`,
+				`歌单里 ${TRACKS.length} 首的音频与封面都在产物里、逐条字节数对得上（原样未转码）且 HTTP 200 可达`,
+				perTrack.every((r) => r.ok),
+				perTrack
+					.map(
+						(r) =>
+							`「${r.t.name}」(${r.t.note}) 音频 ${r.audioBytes}/${r.t.audioBytes}${r.audioBytes === r.t.audioBytes ? "✓" : "✗"}｜封面 ${r.coverBytes}/${r.t.coverBytes}${r.coverBytes === r.t.coverBytes ? "✓" : "✗"}｜HEAD ${heads[r.t.url]} / ${heads[r.t.cover]}`,
+					)
+					.join("  ｜  "),
 			);
 		}
 
@@ -10589,7 +10634,7 @@ async function main() {
 		//     直接读 `window.__imissMusic.getState()`，四个字段逐字比对。
 		//     为什么不能只看 HTML：那段 JSON 也可能已经"死在页面上"（脚本没执行 / 被 minify 改坏 /
 		//     解析抛错被吞），只有真跑一遍 `init()` 才能证明这条曲目**到了浏览器里**。
-		//     ⚠️ 这一步**不会**下载那 9.15 MB：`init()` 走的 `loadTrack(0, false)` 只把 `audio.src`
+		//     ⚠️ 这一步**不会**下载那 131.09 MB：`init()` 走的 `loadTrack(0, false)` 只把 `audio.src`
 		//     挂上去（`preload='none'`、不 autoplay），不点播放就不发音频请求。
 		{
 			const st = await evalIn(`(async () => {
@@ -10605,30 +10650,39 @@ async function main() {
 				}
 				const s = mgr.getState();
 				const list = s.playlist || [];
-				const t = list[0] || null;
 				const audio = document.querySelector("audio");
 				return {
 					ok: true,
 					initialized: s.initialized,
 					count: list.length,
-					track: t ? { name: t.name, artist: t.artist, url: t.url, pic: t.pic, lrc: t.lrc } : null,
+					// v1.109：整表返回（1 首 → 3 首），下面逐条比对；\`lrc\` 也一起带回来
+					tracks: list.map((x) => ({ name: x.name, artist: x.artist, url: x.url, pic: x.pic, lrc: x.lrc })),
 					audioSrc: audio ? (audio.getAttribute("src") || "") : null,
 					audioPreload: audio ? (audio.getAttribute("preload") || "") : null,
 				};
 			})()`);
-			const t = st?.track;
+			// v1.109：1 首 → 3 首逐条比对（含顺序），并继续钉"三首都没有歌词文件"（lrc undefined）
+			const runtimeTracks = st?.tracks ?? [];
+			const runtimeOk =
+				st?.ok === true &&
+				st?.initialized === true &&
+				st?.count === TRACKS.length &&
+				TRACKS.every(
+					(t, i) =>
+						runtimeTracks[i]?.name === t.name &&
+						runtimeTracks[i]?.artist === t.artist &&
+						runtimeTracks[i]?.url === t.url &&
+						runtimeTracks[i]?.pic === t.cover,
+				) &&
+				runtimeTracks.length === TRACKS.length &&
+				runtimeTracks.every((t) => t.lrc === undefined);
 			record(
 				"R-ID-06",
-				"浏览器里 window.__imissMusic 真的拿到这 1 条曲目，name/artist/url/cover 四个字段逐字与配置一致",
-				st?.ok === true &&
-					st?.initialized === true &&
-					st?.count === 1 &&
-					t?.name === TRACK.name &&
-					t?.artist === TRACK.artist &&
-					t?.url === TRACK.url &&
-					t?.pic === TRACK.cover &&
-					t?.lrc === undefined,
-				`初始化解锁=${st?.initialized}${st?.ok ? "" : `（${st?.why}）`}｜playlist ${st?.count} 条｜name=「${t?.name}」artist=「${t?.artist}」url=「${t?.url}」pic=「${t?.pic}」lrc=${JSON.stringify(t?.lrc)}（期望 undefined：这一首没有歌词文件）｜audio.src=「${st?.audioSrc}」preload=「${st?.audioPreload}」`,
+				`浏览器里 window.__imissMusic 真的拿到这 ${TRACKS.length} 首曲目（含顺序），逐条 name/artist/url/cover 与配置一致、lrc 都是 undefined`,
+				runtimeOk,
+				`初始化解锁=${st?.initialized}${st?.ok ? "" : `（${st?.why}）`}｜playlist ${st?.count} 条｜${runtimeTracks
+					.map((t) => `「${t.name}」artist=「${t.artist}」url=「${t.url}」pic=「${t.pic}」lrc=${JSON.stringify(t.lrc)}`)
+					.join(" ｜ ")}｜audio.src=「${st?.audioSrc}」preload=「${st?.audioPreload}」`,
 			);
 		}
 
@@ -10647,23 +10701,31 @@ async function main() {
 			const musicCode = musicCfg.replace(/\/\/[^\n]*/g, "");
 			// ⚠️ `playlist: [` 要连方括号一起匹配：光匹配 `playlist:` 会先撞上 meting 段的
 			//    `type: "playlist"`（虽然那里后面跟的是引号不是 `[`，写松一点就会错抓到别处）。
+			// v1.109：1 条 → **逐条**核 —— 把每一条 `{ … }` 单独切出来再取字段，
+			//    别再用"全文第一个匹配"（那在 3 条时只会反复核对第 1 条，等于判据悄悄失效）
 			const listBlock = musicCode.match(/playlist:\s*\[([\s\S]*?)\]/)?.[1] ?? "";
-			const field = (k) => new RegExp(`${k}:\\s*"([^"]*)"`).exec(listBlock)?.[1] ?? null;
-			const want = { name: TRACK.name, artist: TRACK.artist, url: TRACK.url, cover: TRACK.cover, lrc: "" };
-			const got = Object.fromEntries(Object.keys(want).map((k) => [k, field(k)]));
-			const entryCount = (listBlock.match(/\bname:\s*"/g) || []).length;
-			const fieldsOk = Object.keys(want).every((k) => got[k] === want[k]);
+			const entryBodies = [...listBlock.matchAll(/\{([\s\S]*?)\}/g)].map((m) => m[1]);
+			const fieldOf = (body, k) => new RegExp(`${k}:\\s*"([^"]*)"`).exec(body)?.[1] ?? null;
+			const FIELDS = ["name", "artist", "url", "cover", "lrc"];
+			const gotList = entryBodies.map((body) => Object.fromEntries(FIELDS.map((k) => [k, fieldOf(body, k)])));
+			const wantList = TRACKS.map((t) => ({ name: t.name, artist: t.artist, url: t.url, cover: t.cover, lrc: "" }));
+			const fieldsOk =
+				gotList.length === wantList.length && wantList.every((w, i) => FIELDS.every((k) => gotList[i]?.[k] === w[k]));
 			const navOn = /showInNavbar:\s*true/.test(musicCode);
 			const sideOn = /showInSidebar:\s*true/.test(musicCode);
 			const metingCleared = !musicCode.includes("10046455237") && /^\s*id:\s*""/m.test(musicCode);
 			const modeStillLocal = /mode:\s*"local"/.test(musicCode);
+			const perEntryText = wantList
+				.map(
+					(w, i) =>
+						`第 ${i + 1} 条：${FIELDS.map((k) => `${k}=「${gotList[i]?.[k]}」${gotList[i]?.[k] === w[k] ? "✓" : `✗（期望「${w[k]}」）`}`).join(" ")}`,
+				)
+				.join(" ｜ ");
 			record(
 				"R-ID-06",
-				"musicConfig：本地歌单恰好 1 条且 name/artist/url/cover/lrc 五个字段逐字正确 + 两个入口开关均 true + 上游 meting 歌单 ID 仍清空（mode 仍 local）",
-				entryCount === 1 && fieldsOk && navOn && sideOn && metingCleared && modeStillLocal,
-				`歌单条数=${entryCount}（期望 1）｜${Object.keys(want)
-					.map((k) => `${k}=「${got[k]}」${got[k] === want[k] ? "✓" : `✗（期望「${want[k]}」）`}`)
-					.join("｜")}｜showInNavbar=true=${navOn}｜showInSidebar=true=${sideOn}｜meting.id 仍清空=${metingCleared}｜mode=local=${modeStillLocal}`,
+				`musicConfig：本地歌单恰好 ${TRACKS.length} 条且逐条 name/artist/url/cover/lrc 五个字段逐字正确 + 两个入口开关均 true + 上游 meting 歌单 ID 仍清空（mode 仍 local）`,
+				entryBodies.length === TRACKS.length && fieldsOk && navOn && sideOn && metingCleared && modeStillLocal,
+				`歌单条数=${entryBodies.length}（期望 ${TRACKS.length}）｜${perEntryText}｜showInNavbar=true=${navOn}｜showInSidebar=true=${sideOn}｜meting.id 仍清空=${metingCleared}｜mode=local=${modeStillLocal}`,
 			);
 		}
 		await goto(`${BASE}/`);

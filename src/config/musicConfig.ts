@@ -36,6 +36,38 @@ import type { MusicPlayerConfig } from "../types/musicConfig";
 //     一般会带 `Content-Length` 与 gzip/brotli 跳过 mp3（已压缩格式），**不会**有服务端转码。
 //   · 若将来嫌大：正确做法是**换一个更小的源文件**（或按上面那条要求先谈），
 //     ⛔ 不是在本仓库里偷偷压一遍。
+//
+// ── v1.109（2026-10-11）：发起人又给两首（《鸣潮》先约电台）───────────────────
+// 原话：「`D:\CloudMusic\鸣潮先约电台,飞行雪绒,星炬学院毕业生 - 星炬不熄.flac`」
+//       「`D:\CloudMusic\鸣潮先约电台,jixwang,Tarokiki - 远航星的告别.flac`」
+//       **添加这两首歌曲进音乐盒**。
+//   · 两首都**原样字节复制**进 `public/assets/music/`（保留原文件名，与 v1.63 同一做法）：
+//       `鸣潮先约电台,飞行雪绒,星炬学院毕业生 - 星炬不熄.flac`
+//         **63,225,774** 字节 / sha256 `1e92a206252e2224…c7ff99` / 232.955s
+//       `鸣潮先约电台,jixwang,Tarokiki - 远航星的告别.flac`
+//         **64,157,748** 字节 / sha256 `b065f6e26e9eae81…7208c0` / 225.000s
+//     抄后逐支核 **bytes + sha256 + Buffer.equals 三相等**（台账 `reports/_music-import-v1108.json`）。
+//   · 两首都是 **FLAC / 44100 Hz / 6 声道（5.1）/ 16 bit**，**不是**立体声 mp3。
+//     ⛔「不许转码」仍是硬要求 → **照原样发货**；入库前**先探过播放**
+//     （`reports/_flac-playback-probe-v1108.mjs`，headless Chrome 实测）：两支都
+//     `loadedmetadata` + `canplay` 到、`play()` 后 `currentTime` 真推进（1.85s / 1.75s）、
+//     `webkitAudioDecodedByteCount > 0`，时长与 STREAMINFO 逐位对得上 → **浏览器放得动**
+//     （6 声道由浏览器自行下混到输出设备，我们不做任何处理）。
+//   · 封面：从**各自 FLAC 的 `PICTURE` 块**里原样切出 `image/jpeg`（800×800）——
+//       `cover/xingju-buxi.jpg` **178,040** 字节、`cover/yuanhangxing-de-gaobie.jpg` **155,577** 字节；
+//     没有转码、没有缩放、没有重画。⚠️ 该块里 width/height 字段写的是 **0**，
+//     真实尺寸是**按 JPEG 自己的 SOF 段读出来的**（两个都是 800×800）。
+//   · `name` / `artist` 取自**这两个文件自己的 Vorbis comment**（按长度前缀正确解析，不是正则猜的）：
+//       星炬不熄 / 鸣潮先约电台/飞行雪绒/星炬学院毕业生（ALBUM=星炬不熄）
+//       远航星的告别 / 鸣潮先约电台/jixwang/Tarokiki/Emi Evans（ALBUM=星轨消逝之夜）
+//   · 两首**都没有歌词文件**（`D:\CloudMusic` 下 `.lrc` 数量为 **0**，已确认）→ `lrc: ""`
+//     （填一个不存在的路径会让访客在歌词抽屉里看到 404 + 「歌词加载失败」）。
+// ⚠️ 体积（照实写，不粉饰）：音乐目录 **9.15 MB → 131.09 MB**（137,458,244 字节），
+//   这两支 FLAC 占其中的 **121.49 MB**，而 `public/` 是**要提交进仓库的**。
+//   · 首屏**不受影响**：`preload='none'` + 从不 autoplay，不点播放就不拉音频（一条请求都不发）。
+//   · 但**点某一首的那一刻**要吃掉 60 MB 左右——弱网 / 移动流量下这是可感代价（进度条要等 `loadedmetadata`）。
+//   · 静态托管一般会带 `Content-Length`，已压缩格式不会被再压一遍，也不会有服务端转码。
+//   · ⛔ 嫌大的正确做法是**换更小的源文件**（或先征得他同意再谈转码），不是在本仓库里偷偷压一遍。
 export const musicPlayerConfig: MusicPlayerConfig = {
 	// 是否在导航栏显示音乐播放器入口
 	// P4-8（v1.47）：原本为 true。本地歌单唯一一首是上游示例曲（《崩坏：星穹铁道》的
@@ -105,12 +137,28 @@ export const musicPlayerConfig: MusicPlayerConfig = {
 		//   （mp3 原样字节复制、封面从它的 APIC 帧原样抽出，**都没有转码**）。
 		// ⚠️ `lrc` 必须留成空串（这一首没有歌词文件）；填一个不存在的路径会让用户在歌词抽屉里
 		//    看到一次 404 + 「歌词加载失败」，比"暂无歌词"更糟。
+		// → v1.109：歌单 **1 条 → 3 条**（顺序 = 他给的顺序：先《星炬不熄》，再《远航星的告别》），
+		//   后两条是 5.1 FLAC（原样字节，见文件头的 v1.109 段）；三首的 `lrc` 都是 ""。
 		playlist: [
 			{
 				name: "别难过",
 				artist: "JEReka",
 				url: "/assets/music/JEReka - 别难过.mp3",
 				cover: "/assets/music/cover/JEReka-bie-nanguo.jpg",
+				lrc: "",
+			},
+			{
+				name: "星炬不熄",
+				artist: "鸣潮先约电台/飞行雪绒/星炬学院毕业生",
+				url: "/assets/music/鸣潮先约电台,飞行雪绒,星炬学院毕业生 - 星炬不熄.flac",
+				cover: "/assets/music/cover/xingju-buxi.jpg",
+				lrc: "",
+			},
+			{
+				name: "远航星的告别",
+				artist: "鸣潮先约电台/jixwang/Tarokiki/Emi Evans",
+				url: "/assets/music/鸣潮先约电台,jixwang,Tarokiki - 远航星的告别.flac",
+				cover: "/assets/music/cover/yuanhangxing-de-gaobie.jpg",
 				lrc: "",
 			},
 		],
