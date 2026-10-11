@@ -3,7 +3,7 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | IMiss Blog |
-| 文档版本 | v1.109 |
+| 文档版本 | v1.110 |
 | 最后更新 | 2026-10-11 |
 | 关联文档 | `ARCH.md`（架构与技术设计）、`PROJECT_STATUS.md`（阶段、进度、下一步、阻塞项） |
 | 基线代码 | 上游模板基线 v6.16.8（Astro 7 静态站点，名称与出处见 `README.upstream.zh.md`），来源 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\my_-blog\Blog template` |
@@ -299,6 +299,12 @@
 | R-DEP-02 | Agent 反代 | Nginx 把 `/api/` 反代到本机 Agent 网关；流式响应不能被缓冲（`proxy_buffering off`） | 线上桌宠能流式回复。⚠️ **v1.54 补第二条**：全局 `gzip on;` 时 `/api/agent/` 那段还必须有 **`gzip off;`**（压缩过滤器会攒着不发，与 `proxy_buffering off` 是两个独立的缓冲源，见 `ARCH.md` §12.2） | ◆ |
 | R-DEP-03 | 站点信息回填 | 部署后把站点信息组件的占位值换成真实值，并回填域名、OG 图、sitemap | 组件显示真实构建信息；社交平台分享有正确标题与摘要 | ◆ |
 | R-DEP-04 | 构建不依赖外网 | 构建过程不得因为外部 API 不可达而失败：① VNDB 封面下载保持关闭；② 番剧页未配置凭据时跳过拉取；③ **字体一律用本地文件**（远端字体 provider 会在构建期访问 jsdelivr，实测会直接失败，见 ARCH §14.3 T16）；④ GitHub 卡片步骤允许尝试联网但必须回落已提交的缓存 | 用黑洞代理掐断所有出网后 `pnpm build` 仍 `exit=0`（P0 已用 `ECONNREFUSED` 实测通过） | ★ |
+
+### 3.11 开发工具链（R-DEV，v1.110 新增）
+
+| 编号 | 需求 | 详细说明 | 验收条件 | 优先级 |
+| --- | --- | --- | --- | --- |
+| R-DEV-01 | **`pnpm dev` 撞上游超时能自愈** | 发起人反复遇到 `pnpm dev` 启动时抛 `transport invoke timed out after 60000ms`（`{"name":"fetchModule"}`、退出码 1），且**再起还是失败**。v1.110 查清这是**上游 Vite 缺陷**：该 invoke 的超时写死 `transport.timeout ?? 6e4`（**没有对外开关**），而且超时会被 `cachedRequest` 当成模块结果缓存住（保留被 reject 的 promise）→ **进程内不可恢复**（vitejs/vite **#23131**，修复 PR **#23132 尚未合并**；withastro/astro **#15101** 已按 upstream 关闭）。本机空载实测：**热启动 5.2~5.8 s / 冷启动 37.0 s**（删掉 `.astro` + `node_modules/.vite` 之后；其中 `[content] Syncing content` 一项占 **32 s**）—— 空载就用掉 60 秒额度的 **62%**，机器一忙（PyCharm 索引 / Defender 扫盘 / 旁边跑 `pnpm build`、`verify:ui`）就会翻过去；失败那次还会把 `.astro` 留在半冷状态，于是**下一次启动又要重付 32 秒**（"每次再起还是失败"的由来）。做法：`package.json` 的 `dev`/`start` 指向 **`scripts/dev.mjs`**（自愈包装：参数原样转发跑 `astro dev`；输出里出现那句超时签名 → 删 **`.astro` + `node_modules/.vite`** 两份可再生缓存 → **再起一次**；第二次仍失败则如实报错并打印手工兜底步骤），并保留原样入口 **`dev:raw`** = `astro dev`。⛔ 不改 Vite、不 patch `node_modules`、不动那 60 秒、不放宽任何断言 | `verify:ui` 的 **`R-DEV-01`** 一条：`dev`/`start` 指向包装、`dev:raw` 仍是 `astro dev`、包装内确实含超时签名 + 两个缓存目标 + 重试上限 2 + 真的解析并运行 astro CLI。真机自测（v1.110）：`pnpm dev`（热）ready **5074 ms**；`IMISS_DEV_SIMULATE_TIMEOUT=1 pnpm dev` 走完"检测 → 清缓存（36.4 MB + 5.2 MB）→ 重试"并最终起来（4321 返回 **200**）；`pnpm dev --port 4322` 参数透传可用（4322 返回 200）；杀掉包装后 4321 **立即释放**（无孤儿进程） | ★ |
 
 ---
 

@@ -1920,7 +1920,13 @@ async function main() {
 	const pages = [
 		{ name: "home-1440", path: "/", width: 1440, height: 900, mobile: false },
 		{ name: "home-390", path: "/", width: 390, height: 844, mobile: true },
-		{ name: "sidebar-1440", path: "/", width: 1440, height: 2400, mobile: false, fullPage: false },
+		// v1.110：**2400 → 2200**。1440×2400 这个尺寸是本站的老毛病（见 §6.5 ⑤ 与下面的长注释）：
+		// v1.70 起靠"导航前屏蔽 mp4"压着，但 2026-10-11 晚间它**连续 3 轮**把整套验收打崩
+		// （第 1/2/3 档全超时、第 4 档"重新加载"连 `Page.loadEventFired` 都不回 —— 渲染进程整个卡死）。
+		// v1.107 的尺寸探针实测过：1600 / 1800 / 2000 / 2048 / 2050 / 2100 / **2200** 全部稳定成功，
+		// 只有 2400 这一档抖 —— 而这张图的用途只是"在高视口下看侧栏那一摞组件"，
+		// 2200 与 2400 对它的用途没有任何差别。所以直接把这个尺寸从清单里去掉。
+		{ name: "sidebar-1440", path: "/", width: 1440, height: 2200, mobile: false, fullPage: false },
 		// v1.83：`guestbook-1440` 已随留言功能删除（页面没了，采集它只会拿到 404 页；
 		//        截图也从 reports/screenshots 里删掉 → 截图总数 -1）
 		{ name: "myanimelist-1440", path: "/myanimelist/", width: 1440, height: 900, mobile: false },
@@ -2104,10 +2110,22 @@ async function main() {
 				{ label: "原样", prep: null },
 				{ label: "暂停视频", prep: `(() => { const v = document.getElementById("wallpaper-video"); if (v && !v.paused) v.pause(); return "paused"; })()` },
 				{ label: "隐藏视频层", prep: `(() => { const l = document.getElementById("wallpaper-video-layer"); if (l) l.style.visibility = "hidden"; const v = document.getElementById("wallpaper-video"); if (v && !v.paused) v.pause(); return "hidden"; })()` },
+				// v1.110 第 4 档：**重新导航一次再拍**。前三档都是"在当前页面上做减法"，
+				// 而卡住的是渲染/合成那一侧 —— 重新走一次加载能把卡死的合成器换掉（实测能救回一部分）。
+				{ label: "重新加载后再拍", reload: true },
 			];
 			let lastErr = null;
 			for (const [i, a] of attempts.entries()) {
 				try {
+					if (a.reload) {
+						// ⚠️ 这个 promise 必须**立刻**挂上 catch：渲染进程卡死时 `Page.navigate` 自己也会超时，
+						//    那样我们就不会 await 到它，它稍后 reject 会变成**未处理的 rejection 直接把 Node 打死**
+						//    （v1.110 第一次实现就是这么崩的：日志停在"第 3 档失败"，栈是 `等 Page.loadEventFired 超时`）。
+						const reloaded = cdp.once("Page.loadEventFired").catch(() => null);
+						await cdp.send("Page.navigate", { url: `${BASE}${page.path}` }).catch(() => null);
+						if (!(await reloaded)) throw new Error("重新加载超时（渲染进程卡死）");
+						await sleep(1500);
+					}
 					if (a.prep) {
 						await cdp.send("Runtime.evaluate", { expression: a.prep, returnByValue: true });
 						await sleep(500);
@@ -2128,7 +2146,7 @@ async function main() {
 						})()`,
 						returnByValue: true,
 					});
-					return shot;
+					return { ...shot, __w: page.width, __h: page.height };
 				} catch (err) {
 					lastErr = err;
 					console.log(`  ↳ ${page.name}：第 ${i + 1} 档（${a.label}）失败：${err.message}`);
@@ -2136,9 +2154,60 @@ async function main() {
 			}
 			throw lastErr ?? new Error("截图失败");
 		};
-		const shot = await captureWithFallback();
-		await fs.writeFile(path.join(OUT_DIR, `${page.name}.png`), Buffer.from(shot.data, "base64"));
-		console.log(`截图 ${path.join(OUT_DIR, `${page.name}.png`)}  (${page.width}×${page.height})`);
+		/**
+		 * v1.110：**截图失败不再让整轮验收崩掉**（这是本次连着两轮被打崩之后的加固）。
+		 * 事实依据：`sidebar-1440`（1440×2400）在这台机器上会**间歇性**拍不出来 ——
+		 * 四档全超时、`reports/verify-ui.log` 只写进 586 字符、整轮 12 分钟白跑；
+		 * 而它只是**证据图**，没有任何断言读它（R-WDG-05 那些几何事实来自 DOM 采集，
+		 * 只是在明细里引用这张图当图证）。所以改成三级处置：
+		 *   ① 四档重试（含重新导航）；② 仍失败 → 降高度再试（≥2000 高的页才降，逐档 2200/2000/1800），
+		 *      成功后日志里**写明用的是降级尺寸**；③ 还失败 → 只记一行 ⚠️ 跳过这一张并继续。
+		 * ⚠️ "截图少一张"不会被静默吞掉：`verify:docs` 的「截图张数」计数门（文档 90 张 vs 实际）
+		 *    会如实报出来 —— 也就是说这条口径仍有闸门，只是不再用"整轮崩掉"来当闸门。
+		 */
+		const captureWithReducedHeight = async (firstErr) => {
+			if ((page.height ?? 0) < 2000) return null;
+			for (const h of [2200, 2000, 1800]) {
+				if (h >= page.height) continue;
+				try {
+					await cdp.send("Emulation.setDeviceMetricsOverride", {
+						width: page.width,
+						height: h,
+						deviceScaleFactor: 1,
+						mobile: page.mobile,
+					});
+					await sleep(800);
+					const s = await cdp.send("Page.captureScreenshot", {
+						format: "png",
+						captureBeyondViewport: page.fullPage !== false,
+					});
+					console.log(
+						`  ⚠️ ${page.name}：${page.width}×${page.height} 四档全失败（${firstErr.message}）→ 已降级为 ${page.width}×${h} 拍下（**这张证据图是降级尺寸**）`,
+					);
+					return { ...s, __w: page.width, __h: h, __degraded: true };
+				} catch (e2) {
+					console.log(`  ↳ ${page.name}：降级 ${page.width}×${h} 也失败：${e2.message}`);
+				}
+			}
+			return null;
+		};
+		let shot = null;
+		try {
+			shot = await captureWithFallback();
+		} catch (err) {
+			shot = await captureWithReducedHeight(err);
+			if (!shot) {
+				console.log(
+					`  ⚠️ ${page.name}：所有档位都拍不出来（${err.message}）—— 这一张跳过、继续跑后面的用例；` +
+						`本轮截图会少一张，` +
+						`这一点由 verify:docs 的「截图张数」计数门如实报出来（v1.110 起不再让整轮崩掉）`,
+				);
+			}
+		}
+		if (shot) {
+			await fs.writeFile(path.join(OUT_DIR, `${page.name}.png`), Buffer.from(shot.data, "base64"));
+			console.log(`截图 ${path.join(OUT_DIR, `${page.name}.png`)}  (${shot.__w}×${shot.__h}${shot.__degraded ? "，降级" : ""})`);
+		}
 	}
 
 	// ── R-PATH-01 通用判据：**经 Swup 点导航第 3 格切页**落到路线页，落地页与抽屉态都要对 ──
@@ -10726,6 +10795,43 @@ async function main() {
 				`musicConfig：本地歌单恰好 ${TRACKS.length} 条且逐条 name/artist/url/cover/lrc 五个字段逐字正确 + 两个入口开关均 true + 上游 meting 歌单 ID 仍清空（mode 仍 local）`,
 				entryBodies.length === TRACKS.length && fieldsOk && navOn && sideOn && metingCleared && modeStillLocal,
 				`歌单条数=${entryBodies.length}（期望 ${TRACKS.length}）｜${perEntryText}｜showInNavbar=true=${navOn}｜showInSidebar=true=${sideOn}｜meting.id 仍清空=${metingCleared}｜mode=local=${modeStillLocal}`,
+			);
+		}
+
+		// ⑧ dev 自愈包装（**v1.110 新增，断言 342 → 343**）
+		//    症状：`pnpm dev` 偶尔以 `transport invoke timed out after 60000ms` 死掉，而且**再起还是死**。
+		//    根因是上游缺陷：Vite 的 SSR module runner 给 `fetchModule` 写死 60 秒超时
+		//    （`transport.timeout ?? 6e4`，没有对外开关），且**超时会被当成模块结果缓存住**
+		//    （`cachedRequest` 保留被 reject 的 promise）→ 这个进程再也恢复不了。
+		//    → vitejs/vite#23131（open；修复 PR #23132 **尚未合并**）、withastro/astro#15101（已按 upstream 关闭）。
+		//    本机实测（2026-10-11，空载）：**热启动 5.2~5.8s / 冷启动 37.0s**（`.astro` + `node_modules/.vite`
+		//    被删掉之后，其中 `[content] Syncing content` 一项占 32s）—— 空载就吃掉 60 秒额度的 62%，
+		//    机器一忙（PyCharm 索引 / Defender 扫盘 / 旁边跑 build、verify:ui）单次 invoke 就翻过去。
+		//    所以 `pnpm dev` 现在包一层 `scripts/dev.mjs`：撞到那句超时就清掉两份**可再生缓存**再起一次。
+		//    这一格钉的是"自愈这件事必须还在"：谁把 `dev` 改回裸 `astro dev`，这里立刻红。
+		{
+			const pkg = JSON.parse(await fs.readFile(path.resolve("package.json"), "utf8"));
+			let wrapper = "";
+			try {
+				wrapper = await fs.readFile(path.resolve("scripts/dev.mjs"), "utf8");
+			} catch {
+				wrapper = "";
+			}
+			const s = pkg.scripts ?? {};
+			const devWrapped = s.dev === "node scripts/dev.mjs";
+			const startWrapped = s.start === "node scripts/dev.mjs";
+			const rawKept = s["dev:raw"] === "astro dev";
+			const sig = wrapper.includes("transport invoke timed out after 60000ms");
+			const clearsAstro = wrapper.includes('".astro"');
+			const clearsVite = wrapper.includes('".vite"');
+			const retries = /MAX_ATTEMPTS\s*=\s*2\b/.test(wrapper);
+			const runsAstroDev = /astroBin,\s*"dev"/.test(wrapper);
+			const resolvesRealCli = wrapper.includes("astro/package.json");
+			record(
+				"R-DEV-01",
+				"`pnpm dev` 是自愈包装（撞 Vite 60 秒 fetchModule 超时 → 清 .astro + node_modules/.vite 再起一次），且原样入口 dev:raw 仍在",
+				devWrapped && startWrapped && rawKept && sig && clearsAstro && clearsVite && retries && runsAstroDev && resolvesRealCli,
+				`scripts.dev=「${s.dev}」${devWrapped ? "✓" : "✗"}｜scripts.start=「${s.start}」${startWrapped ? "✓" : "✗"}｜scripts["dev:raw"]=「${s["dev:raw"]}」${rawKept ? "✓" : "✗"}｜包装里含超时签名=${sig}｜清 .astro=${clearsAstro}｜清 node_modules/.vite=${clearsVite}｜重试上限 2=${retries}｜真的跑 astro dev=${runsAstroDev}｜解析真实 CLI=${resolvesRealCli}`,
 			);
 		}
 		await goto(`${BASE}/`);
