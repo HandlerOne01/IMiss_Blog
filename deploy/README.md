@@ -286,3 +286,42 @@ sudo systemctl stop pet-gateway        # 桌宠会退化成前端本地 mock（�
   排障时**不要**临时把请求体打进日志（`verify:gateway` 的「日志不泄漏」会红，见 ARCH §14.3 T82）。
 - **本仓库的门禁**：改了 `server/` 或 `deploy/` 之后跑 `pnpm verify:gateway`（51 项）；
   改了三份文档之后跑 `pnpm verify:docs`（15 项）。
+
+---
+
+## 8. 真机部署实况（2026-10-12 首次上线 —— 上面那些"❌ 没跑过"从这一天起作废）
+
+> 这一节是**事实记录**：本操作单的模板第一次落到真机上，实际填了什么值、踩了哪些坑。
+> 上线阶段：**域名 `imissblog.cn` 还在实名审核 → 先用公网 IP**，HTTPS 那一半等域名过审再做。
+
+| 项 | 实际值 |
+| --- | --- |
+| 服务器 | 腾讯云轻量应用服务器 · **首尔** · Ubuntu 26.04 LTS / 2 核 / 3.7 GB / 60 GB SSD |
+| 公网 IP | **`43.133.230.71`**（域名过审前用它访问，如 <http://43.133.230.71/>） |
+| 登录用户 | **`kiana`**（原来的 `ubuntu` 已改名；`PermitRootLogin yes` + 部署公钥，root 也留了钥匙做后路） |
+| 登录方式 | 密钥：`reports/_ops/imiss_deploy`（本机私钥，**不进仓库**；`reports/` 已 gitignore） |
+| `__WEB_ROOT__` | `/var/www/imiss-blog/dist`（归属 `kiana:www-data`、组读 + setgid） |
+| `__SNIPPET_PATH__` | `/etc/nginx/snippets/pet-gateway.conf`（正文 = 本仓库 `deploy/nginx.conf`） |
+| 站点配置 | **IP 阶段版**：`/etc/nginx/sites-available/imiss-blog.conf`（只监听 80、`server_name _`，其余逐条同完整版）；域名过审后换成 `deploy/nginx-site.conf` 填好占位的完整版 |
+| `__CERT_PATH__` | 待域名：`/etc/letsencrypt/live/imissblog.cn`（`/.well-known/acme-challenge/` 出口已留，`root /var/www/acme`） |
+| 后端 | `/home/kiana/agent`（Gitee clone）+ `uv` 建的 `.venv`（**Python 3.12**，按本机 `pip freeze` 的 113 包精确对齐）+ `.env`（`DB_HOST=127.0.0.1`） |
+| 数据库 | 本机 MySQL 8.4.11：库 `my_blog`、用户 `kiana_mysql`（**库名/用户/密码与原来一致**）；已从 `106.52.158.48` 迁入并**逐项对账**（两表各 138 行、视图/外键/全文索引/3 个触发器齐全、两侧 MD5 指纹一致） |
+| systemd | `langgraph.service`（:2024，User=kiana，**去掉了模板里的 `ProtectHome=true`** —— 服务在 `/home` 下）+ `pet-gateway.service`（:8787，User=www-data，`/opt/imiss-gateway/pet-gateway.mjs`，`PET_ALLOWED_ORIGINS` 先填 IP、`TRUST_PROXY=1`） |
+| 发布命令 | `node deploy/publish.mjs --server kiana@43.133.230.71 --key-file reports/_ops/imiss_deploy --web-root /var/www/imiss-blog/dist --stage-root /home/kiana/.imiss-publish`（首次整包 1079 文件 / 445,024,548 字节 / **92.7 秒**；之后是增量） |
+| 上线冒烟 | `node reports/_ops/50-smoke.mjs http://43.133.230.71` → **14/14 通过**（首页/目录路由/真 404/掐存根/隐藏文件/缓存头/大素材逐字节/搜索索引/sitemap·robots·llms/真值 URL/同源 `/api/agent`/三段链路/桌宠 SSE 首块 679 ms） |
+
+**首次上真机踩到的坑（都记进 PROJECT_STATUS v1.112，这里只列要点）**：
+
+1. **改名要先收掉 `systemd --user`**：`usermod -l/-m` 被 user manager 挡住 → `loginctl terminate-user <旧名>` 后再改。
+   ⚠️ 顺序上**先改 sudoers 再改名**会让旧名在那几十秒里失去免密 sudo —— **务必提前给 root 装公钥**（本项目就是这么兜住的）。
+2. **`.env` 的键名大小写**：`.env` 里写 `DeepSeek_API_KEY`，Windows 环境变量名大小写不敏感、**Linux 敏感**，
+   而代码读全大写 → 服务器版必须补 `DEEPSEEK_API_KEY`（或直接改 .env）。
+3. **Python 版本要用 uv 拉 3.12**：系统自带 3.14，依赖轮子未必齐；`uv sync` 还会因 `requires-python` 做通用解析而失败
+   → **按本机 `pip freeze` 的清单 `uv pip install -r`**，再 `uv pip install -e . --no-deps`（版本对照 15 项 0 不一致）。
+4. **触发器要用 root 建**：binlog 开启时应用用户没有 SUPER（`ERROR 1419`）。
+5. **web root 权限**：发布用户要能写、Nginx（www-data）要能读 → `chown kiana:www-data` + `chmod -R g+rX` + 目录 `g+s`。
+
+**域名过审后要做的三件事**（届时按 §2 第 1/4/5 步走）：① `site_url` → `https://imissblog.cn` 并**重建**；
+② `certbot certonly --webroot -w /var/www/acme -d imissblog.cn -d www.imissblog.cn`；
+③ 换成完整版 `deploy/nginx-site.conf`（填 `__DOMAIN__` / `__CERT_PATH__`）→ `nginx -t` → reload；
+另把 `PET_ALLOWED_ORIGINS` 加上 `https://imissblog.cn` 并 `systemctl restart pet-gateway`。

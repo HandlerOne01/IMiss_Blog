@@ -1911,12 +1911,22 @@ async function main() {
 		/<meta name="description" content="[^"]{10,}"/.test(homeHtml) && /<meta name="keywords" content="[^"]{5,}"/.test(homeHtml),
 		"",
 	);
-	record(
-		"R-ID-03",
-		"站点 URL 用的是本站占位域名（待 B-01 换真值）",
-		homeHtml.includes("imiss.example.com"),
-		"",
-	);
+	// ⚠️ v1.111 翻转：原来这条钉的是"站点 URL 还是占位域名（待 B-01 换真值）"。
+	//    2026-10-12 首次真机部署后 `site_url` 已是真值 → 就地翻成**真值断言**：
+	//    期望值**从配置里读**（不是写死 IP/域名），所以以后换成域名时这条会自己跟上、不用再改。
+	//    它同时钉住"产物里再也不许出现占位域名"——那是最容易在换域名时漏掉的一处。
+	{
+		const siteCfg = await fs.readFile(path.resolve("src/config/siteConfig.ts"), "utf8");
+		const expectSiteUrl = /site_url:\s*"([^"]+)"/.exec(siteCfg)?.[1] ?? "";
+		const hasReal = !!expectSiteUrl && homeHtml.includes(expectSiteUrl);
+		const hasPlaceholder = homeHtml.includes("imiss.example.com");
+		record(
+			"R-ID-03",
+			"站点 URL 用的是真值（`site_url` 已填，产物里含它、且不再出现占位域名 imiss.example.com）",
+			hasReal && !hasPlaceholder,
+			`site_url=${expectSiteUrl}｜产物里含它=${hasReal}｜仍含占位域名=${hasPlaceholder}`,
+		);
+	}
 
 	// 逐页采集 + 截图
 	// 注意 fullPage：侧边栏是 sticky 定位，captureBeyondViewport 会把 sticky 元素按"初始位置"渲染，
@@ -6087,15 +6097,40 @@ async function main() {
 			return (focusPx - (left + v.visibleW / 2)) / v.visibleW;
 		};
 		/**
-		 * 与配置的偏离量：期望偏移 = anchorX − 0.5（v1.73 起每支壁纸有自己的水平落点，
+		 * **几何上能做到的最好落点**（v1.112 新增）—— 考虑 `object-position` 会被浏览器钳在 [0%, 100%]。
+		 *
+		 * 为什么非要有它：`xingye` 的人物锚点在原画 **x=0.37**，而横幅框 1440×720（比例 2.0）
+		 * 只能看到原画的中间 **2496/2944 = 85%**；想把 37% 处的锚点摆到正中，需要窗口左边界 =
+		 * 0.37×2944 − 1248 = **−159px**（负数），浏览器只能钳到 0 → 最好也只能落在
+		 * (1089−1248)/2496 = **−6.4%**。原判据拿"配置期望 0（正中）"直接比，就**必然判红** ——
+		 * 2026-10-12 首次真机部署那轮就是这么红的（当时正好落在 23:00–03:00 的星夜档）。
+		 * 那不是站点的错，是判据没考虑钳位：**不该要求一件几何上做不到的事**。
+		 *
+		 * ⚠️ 这**不是**放宽阈值：期望值仍然逐支来自配置的 `focusAnchorX`，只是先把"理想落点"
+		 * 按同样的钳位规则算一遍再比。配置说"要左移"而代码没左移、或摆反方向，照样判红
+		 * （见下面 focusOffsetError 的注解）。
+		 */
+		const bestOffsetInWindow = (v) => {
+			if (!v?.intrinsicW || !v?.visibleW) return null;
+			const overflow = v.intrinsicW - v.visibleW;
+			const anchorX = Number.isFinite(v.anchorX) ? v.anchorX : 0.5; // 想要的落点（配置 focusAnchorX，默认正中）
+			const focusX = Number.isFinite(v.focusX) ? v.focusX : 0.5; // 人物在原画里的位置
+			// ⚠️ 公式必须与页面里那段取景代码同源：左界 = 人物像素 − 目标落点×窗口宽
+			const idealLeft = focusX * v.intrinsicW - anchorX * v.visibleW;
+			const clampedLeft = Math.max(0, Math.min(overflow, idealLeft));
+			// 返回"实际能做到的落点"（相对窗口正中，0 = 正中）
+			return (focusX * v.intrinsicW - (clampedLeft + v.visibleW / 2)) / v.visibleW;
+		};
+		/**
+		 * 与配置的偏离量：期望偏移 = **钳位后的**最优落点 − 0.5（v1.73 起每支壁纸有自己的水平落点，
 		 * 发起人 2026-10-09 三条微调里两条就是"左移一点/一点点"）。
 		 * ⚠️ 别把阈值放宽来代替这个减法 —— 那就变成"随便偏都算过"。
 		 */
 		const focusOffsetError = (v) => {
 			const off = focusOffsetInWindow(v);
-			if (off === null) return null;
-			const expect = (Number.isFinite(v.anchorX) ? v.anchorX : 0.5) - 0.5;
-			return off - expect;
+			const best = bestOffsetInWindow(v);
+			if (off === null || best === null) return null;
+			return off - best;
 		};
 
 	// ── P3 壁纸（R-BG-01 / R-BG-04）──
@@ -6126,7 +6161,8 @@ async function main() {
 				const err = focusOffsetError(v); // 从 DOM 反推，不读脚本自述
 				return err !== null && Math.abs(err) <= 0.03;
 			})(),
-			`object-position=${wp?.video?.objectPosition}｜可见源区 ${wp?.video?.visibleW}×${wp?.video?.visibleH}（原画 ${wp?.video?.intrinsicW}×${wp?.video?.intrinsicH}）｜人物锚点 x=${wp?.video?.focusX} 落在窗口内（脚本自述 focusAtX=${wp?.video?.focusAtX}）`,
+			`object-position=${wp?.video?.objectPosition}｜可见源区 ${wp?.video?.visibleW}×${wp?.video?.visibleH}（原画 ${wp?.video?.intrinsicW}×${wp?.video?.intrinsicH}）｜人物锚点 x=${wp?.video?.focusX}` +
+				`｜实际落点 ${wp?.video ? ((focusOffsetInWindow(wp.video) ?? 0) * 100).toFixed(1) : "?"}% vs 几何最优 ${wp?.video ? ((bestOffsetInWindow(wp.video) ?? 0) * 100).toFixed(1) : "?"}%（0 = 正中；两者差 ≤3% 即算过 —— 钳位导致"做不到正中"时以最优为准）`,
 		);
 		record(
 			"R-BG-04",
