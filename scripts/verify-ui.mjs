@@ -58,6 +58,11 @@ const CHROME_CANDIDATES = [
  *      · 其余四支**逐字节未动**（导入脚本逐条核对过，见 reports/_wallpaper-import-v1105.mjs 的输出）。
  *    来源仍是 `copyFileSync` 原样入库 + 抄后核对 bytes/sha256 双相等，**没有**任何转码/重封装。
  *    合计 50.89 → **57.49 MB**。
+ * ⚠️ **v1.106（2026-10-10）：「起床」换成流畅循环版** —— 发起人原话「`…\Desktop\视频\起床_流畅循环版.mp4`
+ *    **动态壁纸起床替换成整个，其他不变**」：`qichuang` **单支替换** 10,517,499 → **22,592,630** 字节
+ *    （sha `b996524f…` → **`e652f224…`**）；**另外五条一字未动**（`reports/_wallpaper-import-v1106.mjs`
+ *    逐条与上一轮台账对表，任一不符即抛错退出）。仍是 `copyFileSync` 原样入库 + 抄后双相等。
+ *    合计 57.49 → **69.00 MB**。
  */
 const EXPECT_WALLPAPER_VIDEOS = [
 	{ slug: "chuangbian", bytes: 7861712, sha256: "7c30db17ca856fda1cb4335f5da998d855996fd0cf7e289ddf69ae3702723ff7" },
@@ -65,7 +70,7 @@ const EXPECT_WALLPAPER_VIDEOS = [
 	{ slug: "hupan", bytes: 13519083, sha256: "0b2dd5c4851dd6292fca71889fc9ba3f57b3bcc1f7a87cc32cc55c6d4cd6f719" },
 	{ slug: "xishoutai", bytes: 9560435, sha256: "c4158842964848cb94de039ac5a4e8bbb0eb6a09168af575f005711ed4108259" },
 	{ slug: "taluo", bytes: 12089608, sha256: "f721022a5a9456936094c20b5b9581466c160e5a94ede4d9d0b0bfa0984e2643" },
-	{ slug: "qichuang", bytes: 10517499, sha256: "b996524fbec04cd7a9415bae6a4fe32e1142924c241de716b65a352892e0e0ae" },
+	{ slug: "qichuang", bytes: 22592630, sha256: "e652f22418e46f64f66636112ca59fe0372573bd64ed39d6ab9bdfecf106e552" },
 ];
 /**
  * 动态壁纸的原生分辨率 —— ⚠️ **v1.105 起改成"逐支登记"**（原来是 `{w:2944,h:1248}` 一个值）。
