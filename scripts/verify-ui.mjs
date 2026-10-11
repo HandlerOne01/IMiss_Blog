@@ -63,10 +63,17 @@ const CHROME_CANDIDATES = [
  *    （sha `b996524f…` → **`e652f224…`**）；**另外五条一字未动**（`reports/_wallpaper-import-v1106.mjs`
  *    逐条与上一轮台账对表，任一不符即抛错退出）。仍是 `copyFileSync` 原样入库 + 抄后双相等。
  *    合计 57.49 → **69.00 MB**。
+ * ⚠️ **v1.107（2026-10-10）：「星夜」换成流畅循环版_0.8 倍速** —— 发起人原话
+ *    「`…\Desktop\视频\星夜_流畅循环版_0.8倍速.mp4` **星夜动态壁纸换成**…其他不变，**不可压缩我画质**」：
+ *    `xingye` **单支替换** 6,732,992 → **38,099,724** 字节（sha `bbfd92b0…` → **`1899e48f…`**）；
+ *    **另外五条一字未动**（`reports/_wallpaper-import-v1107.mjs` 逐条与上一轮台账对表，
+ *    任一不符即抛错退出）。仍是 `copyFileSync` 原样入库 + 抄后 bytes/sha256 双相等。
+ *    合计 69.00 → **98.92 MB**。原生分辨率实测仍是 **2944×1248**（所以下面
+ *    `EXPECT_WALLPAPER_INTRINSIC` 里 xingye 那一条**没动**），时长 10.125 → **12.188s**。
  */
 const EXPECT_WALLPAPER_VIDEOS = [
 	{ slug: "chuangbian", bytes: 7861712, sha256: "7c30db17ca856fda1cb4335f5da998d855996fd0cf7e289ddf69ae3702723ff7" },
-	{ slug: "xingye", bytes: 6732992, sha256: "bbfd92b04c3274aae15927a3d3633c6d2812a5cec8417c3bf0728e2758cf1608" },
+	{ slug: "xingye", bytes: 38099724, sha256: "1899e48faa3c149013b27cb1458317853fd41dbde899d08d003a469ed30d415f" },
 	{ slug: "hupan", bytes: 13519083, sha256: "0b2dd5c4851dd6292fca71889fc9ba3f57b3bcc1f7a87cc32cc55c6d4cd6f719" },
 	{ slug: "xishoutai", bytes: 9560435, sha256: "c4158842964848cb94de039ac5a4e8bbb0eb6a09168af575f005711ed4108259" },
 	{ slug: "taluo", bytes: 12089608, sha256: "f721022a5a9456936094c20b5b9581466c160e5a94ede4d9d0b0bfa0984e2643" },
@@ -79,6 +86,9 @@ const EXPECT_WALLPAPER_VIDEOS = [
  * 而且 `order: "time"` 之后**页面里正在播的是哪一支取决于跑的时辰**，判据必须按
  * 页面自报的 slug 去查 —— 不能再拿一个全局期望值去比。
  * 数值来源：`reports/_wp-seam-v1105.mjs` 读 `<video>` 的 videoWidth/videoHeight（v1.70 台账同源）。
+ * ⚠️ **v1.107 复核：xingye 换素材后原生分辨率仍是 2944×1248**（`reports/_wp-srcprobe-v1107.mjs`
+ *    对**源文件本身**读 `<video>` 得到 2944×1248 / 12.188s），所以 xingye 那一条**一个数没改**；
+ *    六支的"逐支登记"口径因此仍然成立。
  */
 const EXPECT_WALLPAPER_INTRINSIC = {
 	chuangbian: { w: 2944, h: 1248 },
