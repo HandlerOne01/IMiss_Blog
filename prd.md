@@ -3,8 +3,8 @@
 | 项目 | 内容 |
 | --- | --- |
 | 产品名称 | IMiss Blog |
-| 文档版本 | v1.107 |
-| 最后更新 | 2026-10-10 |
+| 文档版本 | v1.108 |
+| 最后更新 | 2026-10-11 |
 | 关联文档 | `ARCH.md`（架构与技术设计）、`PROJECT_STATUS.md`（阶段、进度、下一步、阻塞项） |
 | 基线代码 | 上游模板基线 v6.16.8（Astro 7 静态站点，名称与出处见 `README.upstream.zh.md`），来源 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\my_-blog\Blog template` |
 | 需求来源 | 项目发起人口述需求 + 上游模板的在线演示站（上游出处集中说明见 `README.upstream.zh.md`） + 原型 `my_-blog\blog_test` + 排行榜参考图 `my_-blog\dosc\排行`（⚠️ **历史来源**：排行模块已于 v1.41 整体移除、参考图随之作废，此行只为保留需求出处，见 R-PATH-06 与 `ARCH.md` §14.4） |
@@ -111,7 +111,7 @@
 | **学习路线** | `/roadmap/` | **新增** | `roadmapConfig.ts`（数据全部来自站内已导入的 134 篇笔记，零新素材） | ✅ |
 | 动态 | `/dynamic/` | 模板 | 本地 `src/content/dynamic/*.md` | ✅（内容后续自填） |
 | 项目 | `/projects/` | 模板（**v1.79 起是自写内容；v1.102 起四个项目**） | `src/content/projects/` | ✅ |
-| 相册 | `/gallery/` | 模板 | 图集配置（**v1.87 起有真相册「本站图片」：8 张原图、字节原样、39.9 MB，见 R-GAL-01**） | ✅ |
+| 相册 | `/gallery/` | 模板 | 图集配置（**v1.87 起有真相册「本站图片」：9 张原图、字节原样、42.5 MB（v1.108 追加 1 张），见 R-GAL-01**） | ✅ |
 | 书签导航 | `/booknav/` | 模板 | 书签配置（**v1.57 起是发起人最终选定的 6 组 39 张** —— v1.57 落地时 38 张，**v1.88 按他的话加了「MiniMax 媒体平台」**，见 R-BOOKNAV-01~08） | ✅ |
 | 轻小说（原 VNDB） | `/vndb/` | 模板改名 | VNDB API（`dynamic` 模式，客户端拉取） | ⚠️ 需 userId（待提供） |
 | 番剧（原 AnimeList） | `/myanimelist/` | 模板改名 | MAL API（构建期拉取） | ⚠️ 需 username + clientId（待提供） |
@@ -289,7 +289,7 @@
 
 | 编号 | 需求 | 详细说明 | 验收条件 | 优先级 |
 | --- | --- | --- | --- | --- |
-| R-GAL-01 | **相册「本站图片」上线**（v1.87） | 发起人给了 8 张图（`Desktop\图片`），要求「把这些图片放在相册中」；问到画质时选「**就要原图 PNG，无损**」→ 素材按**字节原样**放进 `public/gallery/site-images/`（不转码不缩放，合计 39.9 MB），配置里加一项 `id: site-images`。相册图在 `public/` 下**原样发货**、不过构建管线，所以访客下载到的就是原图；封面用 7680×3296 那张（`cover.*` 自动认封面） | `/gallery/` 列出「本站图片」、无空态；`/gallery/site-images/` 可达且 ≥8 张图；`cover.png` 的 `content-length` 与源文件一致（> 20 MB）；文件名 ↔ 原文件名映射见该目录的 `README.md` | ★ |
+| R-GAL-01 | **相册「本站图片」上线**（v1.87） | 发起人给了 8 张图（`Desktop\图片`），要求「把这些图片放在相册中」；问到画质时选「**就要原图 PNG，无损**」→ 素材按**字节原样**放进 `public/gallery/site-images/`（不转码不缩放，合计 39.9 MB；**v1.108 追加 1 张 → 9 张 / 42.5 MB**），配置里加一项 `id: site-images`。相册图在 `public/` 下**原样发货**、不过构建管线，所以访客下载到的就是原图；封面用 7680×3296 那张（`cover.*` 自动认封面） | `/gallery/` 列出「本站图片」、无空态；`/gallery/site-images/` 可达且 ≥9 张图（含 v1.108 追加的 `08.png`，其字节数写死）；`cover.png` 的 `content-length` 与源文件一致（> 20 MB）；文件名 ↔ 原文件名映射见该目录的 `README.md` | ★ |
 
 ### 3.10 部署与运维（R-DEP）
 

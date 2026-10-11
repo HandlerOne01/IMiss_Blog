@@ -10342,7 +10342,7 @@ async function main() {
 			);
 		}
 
-		// ② /gallery/：v1.87 起**有真相册了**（发起人给了 8 张原图 → 相册「本站图片」），
+		// ② /gallery/：v1.87 起**有真相册了**（发起人给了 8 张原图 → 相册「本站图片」；**v1.108 又追加 1 张 → 9 张**），
 		//    所以这条从"渲染空态"**就地翻成**"确实列出这个相册、详情页可达、原图逐字节发货"；
 		//    反面清单（上游相册名零残留）与"上游详情路由真 404"保留。条数不变。
 		{
@@ -10356,16 +10356,20 @@ async function main() {
 			// 原图逐字节：拿产物里那张最大的（cover.png）与服务端返回的字节数对一遍
 			const coverRes = await fetch(`${BASE}/gallery/site-images/cover.png`, { method: "HEAD" });
 			const coverLen = Number(coverRes.headers.get("content-length") || 0);
+			// v1.108 追加的第 9 张：连带钉住「新加的那张也是原图发货」（字节数写死 —— 换图必须同步改这里）
+			const newRes = await fetch(`${BASE}/gallery/site-images/08.png`, { method: "HEAD" });
+			const newLen = Number(newRes.headers.get("content-length") || 0);
 			record(
 				"R-ID-10",
-				"/gallery/ 列出相册「本站图片」，详情页可达、含 ≥8 张图、封面原图字节数对得上",
+				"/gallery/ 列出相册「本站图片」，详情页可达、含 ≥9 张图、封面与新图原图字节数对得上",
 				res.status === 200 &&
 					html.includes("本站图片") &&
 					emptyGone &&
 					detail.status === 200 &&
-					imgCount >= 8 &&
-					coverLen > 20 * 1024 * 1024,
-				`列表 HTTP ${res.status}｜含「本站图片」=${html.includes("本站图片")}｜空态已消失=${emptyGone}｜详情 HTTP ${detail.status}｜<img> ${imgCount} 个｜cover.png ${(coverLen / 1048576).toFixed(1)} MB（HEAD 实测）`,
+					imgCount >= 9 &&
+					coverLen > 20 * 1024 * 1024 &&
+					newLen === 2698729,
+				`列表 HTTP ${res.status}｜含「本站图片」=${html.includes("本站图片")}｜空态已消失=${emptyGone}｜详情 HTTP ${detail.status}｜<img> ${imgCount} 个｜cover.png ${(coverLen / 1048576).toFixed(1)} MB（HEAD 实测）｜08.png ${newLen} 字节（HEAD 实测）`,
 			);
 			record(
 				"R-ID-10",

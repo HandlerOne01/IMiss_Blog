@@ -12,8 +12,9 @@
 | `05.png` | `Codex 图像 2026年9月29日 15_47_30.png` | 2.6 MB | `95674771bf182559…` |
 | `06.png` | `aemeath_wuwa_4k219_flare_1.png` | 2.4 MB | `11ac0f5437bb1878…` |
 | `07.png` | `纸飞机_参考方向_透明背景.png` | 1.6 MB | `ba7cdb9dce6908f5…` |
+| `08.png` | `ChatGPT 图像 2026年10月10日 20_30_14.png` | 2.6 MB | `cb5a55aefa31d7af…` |
 
 - 画册列表由 `src/utils/gallery-utils.ts` 的 `scanAlbumPhotos()` **扫目录**得出（不逐张写进配置）；
   `cover.*` 会自动被认成封面并排在第一位。
 - 文件名改成 ASCII 只是为了 URL 干净（原文件名里有空格与中文）；图**一个像素都没动**。
-- 合计 39.9 MB。
+- 合计 42.5 MB（9 张 PNG，44,538,563 字节；v1.108 追加 `08.png`）。

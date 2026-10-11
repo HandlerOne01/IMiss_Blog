@@ -23,7 +23,9 @@ export const galleryConfig: GalleryConfig = {
 		// 只删配置会留下孤儿文件与孤儿路由。
 		//
 		// ── v1.87：第一个真相册（发起人给了 8 张原图，并选了「就要原图 PNG，无损」）──────
-		// 素材在 `public/gallery/site-images/`：**原图按字节原样**（未转码、未缩放，合计 39.9 MB，
+		// ── v1.108：又追加 1 张（`ChatGPT 图像 2026年10月10日 20_30_14.png` → `08.png`）——
+		//     现共 **9 张 / 42.5 MB**，口径不变：只 copyFileSync、字节原样、不转码不缩放 ──
+		// 素材在 `public/gallery/site-images/`：**原图按字节原样**（未转码、未缩放，合计 42.5 MB，
 		// 相册图不过构建管线，放什么访客就下载什么）。
 		// 目录里有一张 `cover.png`（7680×3296 的塔罗图）→ `getAlbumCover()` 自动认它当封面，
 		// `scanAlbumPhotos()` 也会把它排在第一位；文件名 ↔ 原文件名的映射见该目录的 README.md。
