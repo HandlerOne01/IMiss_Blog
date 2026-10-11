@@ -137,16 +137,15 @@ export const musicPlayerConfig: MusicPlayerConfig = {
 		//   （mp3 原样字节复制、封面从它的 APIC 帧原样抽出，**都没有转码**）。
 		// ⚠️ `lrc` 必须留成空串（这一首没有歌词文件）；填一个不存在的路径会让用户在歌词抽屉里
 		//    看到一次 404 + 「歌词加载失败」，比"暂无歌词"更糟。
-		// → v1.109：歌单 **1 条 → 3 条**（顺序 = 他给的顺序：先《星炬不熄》，再《远航星的告别》），
+		// → v1.109：歌单 **1 条 → 3 条**（当时的次序是《别难过》→《星炬不熄》→《远航星的告别》），
 		//   后两条是 5.1 FLAC（原样字节，见文件头的 v1.109 段）；三首的 `lrc` 都是 ""。
+		// → v1.111：**顺序按他的话调了**（发起人 2026-10-11 附播放列表面板截图：「调整歌单顺序
+		//   1.星炬不熄 2.远航星 3.别难过」）→ 数组改成 **星炬不熄 → 远航星的告别 → 别难过**，
+		//   《别难过》从第 1 位挪到**最后一位**。⚠️ 顺序不是装饰：它同时决定
+		//     ① 播放列表里的显示次序；② **首屏默认挂上去的那一首**（`loadTrack(0, false)`，
+		//        `preload='none'` 所以还是不会自动下载，但用户点播放按钮时先放的是第 1 条）；
+		//     ③ `playMode: "list"` 下的循环次序。改顺序只需要动这个数组，**别的都不用改**。
 		playlist: [
-			{
-				name: "别难过",
-				artist: "JEReka",
-				url: "/assets/music/JEReka - 别难过.mp3",
-				cover: "/assets/music/cover/JEReka-bie-nanguo.jpg",
-				lrc: "",
-			},
 			{
 				name: "星炬不熄",
 				artist: "鸣潮先约电台/飞行雪绒/星炬学院毕业生",
@@ -159,6 +158,13 @@ export const musicPlayerConfig: MusicPlayerConfig = {
 				artist: "鸣潮先约电台/jixwang/Tarokiki/Emi Evans",
 				url: "/assets/music/鸣潮先约电台,jixwang,Tarokiki - 远航星的告别.flac",
 				cover: "/assets/music/cover/yuanhangxing-de-gaobie.jpg",
+				lrc: "",
+			},
+			{
+				name: "别难过",
+				artist: "JEReka",
+				url: "/assets/music/JEReka - 别难过.mp3",
+				cover: "/assets/music/cover/JEReka-bie-nanguo.jpg",
 				lrc: "",
 			},
 		],

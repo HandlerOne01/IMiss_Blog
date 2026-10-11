@@ -664,6 +664,10 @@ const COLLECT = `(() => {
       const vLayer = document.getElementById("wallpaper-video-layer");
       const v = document.getElementById("wallpaper-video");
       const video = v && vLayer ? {
+        // v1.111：**这一趟采集发生的时刻**（页面自己的时钟）。"按北京时间选壁纸"那条判据要用它 ——
+        // 采集与断言之间隔着整个页面循环（分钟级），跨过整点边界时，用断言执行时的 Date.now()
+        // 去判"页面加载时选的那一支"，就会拿"此刻"去判"当时"（23:00 那次实测就是这么假红的）。
+        collectedAtMs: Date.now(),
         slug: vLayer.dataset.slug ?? null,
         name: vLayer.dataset.name ?? null,
         fit: vLayer.dataset.fit ?? null,
@@ -6408,11 +6412,18 @@ async function main() {
 			tzRows,
 		};
 	})();
-	/** 现在（北京时间）该播哪一支 —— 给 ② 的"选中的就是该播的那一支"用 */
-	const wpSlugNow = (() => {
+	/**
+	 * 某个时刻（毫秒）在北京时间该播哪一支。
+	 * ⚠️ v1.111：**必须传"页面采集那一刻"的时间戳**（`video.collectedAtMs`），
+	 *    不能用断言执行时的 `Date.now()` —— 采集在前、断言在后，中间隔着整个页面循环（分钟级），
+	 *    一旦跨过整点边界就会拿"此刻"去判"加载时的选择"→ 假红。
+	 *    23:00 那次实测正是如此：页面选 `taluo`（19:00~23:00 档，加载时 22:5x）**是对的**，
+	 *    断言在 23:0x 才跑、算出 `xingye` → 判 ✗。
+	 *    另外仍保留"上一分钟也算对"的容差：页面 boot 到 COLLECT 之间还有一两秒。
+	 */
+	const wpSlugAt = (ms) => {
 		// epoch 对齐 UTC 零点，+8 小时再取模 = 北京时间当天的毫秒数
-		const mins = Math.floor(((Date.now() + 8 * 3600000) % 86400000) / 60000);
-		// 允许"上一分钟"也算对：这一跑可能正好跨过某个整点边界（facts 采集在前、这里在后）
+		const mins = Math.floor(((ms + 8 * 3600000) % 86400000) / 60000);
 		const at = (mm) => {
 			for (const s of EXPECT_WALLPAPER_SLOTS) {
 				const [a, b] = s.range.map((x) => {
@@ -6424,7 +6435,7 @@ async function main() {
 			return null;
 		};
 		return { now: at(mins), prev: at((mins + 1439) % 1440) };
-	})();
+	};
 	{
 		const wp = facts["home-1440"].wallpaper;
 		const v = wp?.video;
@@ -6469,6 +6480,9 @@ async function main() {
 		{
 			const cur = v?.slug ?? null;
 			const want = cur ? EXPECT_WALLPAPER_INTRINSIC[cur] : null;
+			// v1.111：按**这一趟采集的时刻**算期望值（不是断言执行时）—— 见 wpSlugAt 上方的说明。
+			// 采集时刻拿不到（老产物 / 没有视频层）时退回 Date.now()，行为与改动前一致。
+			const wpSlugNow = wpSlugAt(v?.collectedAtMs ?? Date.now());
 			const nowOk = cur !== null && (cur === wpSlugNow.now || cur === wpSlugNow.prev);
 			record(
 				"R-BG-02",
@@ -6487,7 +6501,7 @@ async function main() {
 				`playing=${v?.playing} paused=${v?.paused} loop=${v?.loop} muted=${v?.muted}｜当前支=${cur} 原生=${v?.intrinsicW}×${v?.intrinsicH}` +
 					(want ? `（期望 ${want.w}×${want.h}）` : `（**这一支不在登记表里**）`) +
 					`｜播放源=${v?.currentSrc}｜海报=${v?.poster}` +
-					`｜真机时钟选支：页面选了 ${cur}，此刻（北京时间 ${wpSlugNow.now ?? "?"}）应为 ${wpSlugNow.now}${nowOk ? " ✓" : " ✗"}` +
+					`｜真机时钟选支：页面选了 ${cur}，**采集时刻**（北京时间 ${wpSlugNow.now ?? "?"}）应为 ${wpSlugNow.now}${nowOk ? " ✓" : " ✗"}${v?.collectedAtMs ? "" : "（⚠️ 没拿到采集时刻，退回断言执行时的时间）"}` +
 					`｜钉死时钟的 12 个取样点：${wpTime.rows.join("｜")}` +
 					`｜时区无关：${wpTime.tzRows.join("｜")}`,
 			);
@@ -10558,16 +10572,10 @@ async function main() {
 		//    写死在这里当"构建链有没有把它原样带出去"的判据：谁在构建里加了压缩或转码，数字一变就判红。
 		// v1.109：歌单 **1 首 → 3 首**（发起人又给了两首 5.1 FLAC），所以这里从"单条曲目"改成
 		//    **曲目表**，下面 5 格就地改成"逐条比对" —— **断言条数一条没加**（仍是 342）。
+		// v1.111：**顺序按发起人的话调了**（「调整歌单顺序 1.星炬不熄 2.远航星 3.别难过」）——
+		//    这张表的次序**就是判据**（下面每一格都带 `servedList[i]` / `runtimeTracks[i]` 的
+		//    下标比对），所以配置里一改顺序，这里必须同步改，否则五格会同时红。
 		const TRACKS = [
-			{
-				name: "别难过",
-				artist: "JEReka",
-				url: "/assets/music/JEReka - 别难过.mp3",
-				cover: "/assets/music/cover/JEReka-bie-nanguo.jpg",
-				audioBytes: 9599149, // 9.15 MiB，sha256 4d1af1c0…8ef547（与源文件逐字节相同）
-				coverBytes: 141956, // 从该 mp3 的 ID3v2.3 APIC 帧原样抽出的 image/jpeg
-				note: "mp3 / 立体声",
-			},
 			{
 				name: "星炬不熄",
 				artist: "鸣潮先约电台/飞行雪绒/星炬学院毕业生",
@@ -10585,6 +10593,15 @@ async function main() {
 				audioBytes: 64157748, // 61.19 MiB，sha256 b065f6e2…7208c0（FLAC 44100 Hz / 6 声道 / 225.000s）
 				coverBytes: 155577, // 同上，PICTURE 块原样切出（800×800）
 				note: "flac / 5.1",
+			},
+			{
+				name: "别难过",
+				artist: "JEReka",
+				url: "/assets/music/JEReka - 别难过.mp3",
+				cover: "/assets/music/cover/JEReka-bie-nanguo.jpg",
+				audioBytes: 9599149, // 9.15 MiB，sha256 4d1af1c0…8ef547（与源文件逐字节相同）
+				coverBytes: 141956, // 从该 mp3 的 ID3v2.3 APIC 帧原样抽出的 image/jpeg
+				note: "mp3 / 立体声",
 			},
 		];
 		{
@@ -10633,7 +10650,8 @@ async function main() {
 			} catch {
 				servedList = null;
 			}
-			// v1.109：从"只看第 1 条"改成**逐条比对 TRACKS 全表**（顺序也要对：他给的顺序 = 歌单顺序）
+			// v1.109：从"只看第 1 条"改成**逐条比对 TRACKS 全表**（顺序也要对 —— 以 `musicConfig.ts` 里
+			//    的数组次序为准，v1.111 起是「星炬不熄 → 远航星的告别 → 别难过」）
 			const servedOk =
 				Array.isArray(servedList) &&
 				servedList.length === TRACKS.length &&
