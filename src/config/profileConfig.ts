@@ -14,9 +14,15 @@ export const profileConfig: ProfileConfig = {
 	avatar: "assets/images/avatar/imiss-avatar.webp",
 
 	// 名字
-	// ⚠️ 占位值：真实作者名待发起人提供（阻塞项 B-02 的**最后一小块**）。
-	// 这里会出现在侧边栏资料卡与页脚版权（"© 年份 <name>. All Rights Reserved."）
-	name: "IMiss",
+	// ✅ v1.107：**发起人给定真名**（2026-10-10 原话「**名字为 HandlerOne 记得改关于本站文本那里也说了我的名字**」）
+	// → 占位 `IMiss` 换成 **`HandlerOne`**，阻塞项 **B-02 至此整条关闭**。
+	// ⚠️ 这是**作者名**，不是站点名：`siteConfig.title` 的 `IMiss Blog` 是**站点名**（导航栏标题 /
+	//    `<title>` / OG 标题），按发起人的口径**一个字都没动**；同理项目名 `vibecoding IMiss_Blog个人博客` 也不动。
+	// 它出现在：侧栏资料卡（`Profile.astro`）、页脚版权「© 年份 <name>. All Rights Reserved.」
+	//    （`Footer.astro`）、`<meta name="author">`（`Layout.astro`）、文章 `article:author` 兜底
+	//    （`[...slug].astro`）、动态条目作者（`DynamicItem*.astro`）、JSON-LD `Person.name`。
+	// ⚠️ 与「关于我」页里那条 `HandlerOne`（三角洲行动 干员 ID）**是同一个名字**，不是巧合。
+	name: "HandlerOne",
 
 	// 个人签名
 	// ✅ v1.98：**发起人亲自给定**（2026-10-10 他圈着侧栏资料卡那张截图说「B-02 签名换成 おかえり」），
