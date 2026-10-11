@@ -9919,6 +9919,89 @@ async function main() {
 			);
 		}
 
+		// ⓑ B-13 守卫纳入断言体系（**v1.107 新增，+1 条**）：产物里不许残留第三方图床域名。
+		// 为什么这条要进 `verify:ui`：B-13 那批外链图（`cdn.jsdelivr.net` 等 18 个来源域名、183 处）
+		//   在 v1.104 已转存站内，`scripts/verify-b13-images.mjs`（`pnpm verify:b13`）是那件事的守卫；
+		//   但"守卫脚本存在"不等于"验收会拦" —— 独立脚本没人跑就永远绿。所以这里**就地加一条断言**，
+		//   口径与那份脚本**逐条对齐**（它是单一事实来源，改口径两边一起改）：
+		//     · **允许清单** = `reports/_b13-mapping.json` 的 `failures[].url` —— 那 4 处是"试过、
+		//       下载不到、按规矩原样保留引用"的 hotlink（引用一个都没删，见 §4 B-13 行）；
+		//     · 排除徽章/CI 装饰（`img.shields.io` / `travis-ci.org`）—— 不是正文插图；
+		//     · **本站自己的域名**不算第三方（`site_url` 现在还是占位 `https://imiss.example.com`，
+		//       OG/meta 里的绝对地址会用它；从 `siteConfig.ts` 现场读，部署后换真域名也照样成立）；
+		//     · 其余第三方图片 URL 在产物里必须 **0 处**。
+		// ⚠️ 扫描面 = `dist/**/*.html`（**整份产物**，不只那 10 篇八股文）—— 别的文章新挂了外链、
+		//    或换了图床，这条都要红。查的是**产物**（访客真正拿到的那份），不是源码。
+		// ⚠️ 记一条红、**不许把整轮炸掉**：允许清单来自 `reports/_b13-mapping.json`，而 `reports/` 是
+		//    **gitignored** 的本地工作目录（换台机器可能就没有这个文件）。缺文件时按"红 + 说清原因"处理，
+		//    而不是让 `readFile` 抛出去 —— 那样整轮没有汇总行，看起来像"脚本坏了"。两条分支都只记 1 条。
+		try {
+			const B13_SKIP_HOSTS = new Set(["img.shields.io", "travis-ci.org"]);
+			const B13_IMG_RE =
+				/https?:\/\/[^\s"'<>()\\]+\.(?:png|jpe?g|gif|webp|svg|bmp|avif)/gi;
+			const b13SiteHost = new URL(
+				/^\s*site_url:\s*"([^"]+)"/m.exec(
+					await fs.readFile(path.resolve("src/config/siteConfig.ts"), "utf8"),
+				)?.[1] ?? "https://imiss.example.com",
+			).host;
+			const b13Mapping = JSON.parse(
+				await fs.readFile(path.resolve("reports/_b13-mapping.json"), "utf8"),
+			);
+			const b13AllowedUrls = new Set(b13Mapping.failures.map((f) => f.url));
+			const b13AllowedHosts = new Set(
+				b13Mapping.failures.map((f) => new URL(f.url).host),
+			);
+			const b13Files = [];
+			const b13Walk = async (dir) => {
+				for (const ent of await fs.readdir(dir, { withFileTypes: true })) {
+					const p = path.join(dir, ent.name);
+					if (ent.isDirectory()) await b13Walk(p);
+					else if (/\.html$/i.test(ent.name)) b13Files.push(p);
+				}
+			};
+			await b13Walk(path.resolve("dist")).catch(() => {});
+			let b13AllowedHits = 0;
+			let b13SkipHits = 0;
+			let b13SiteHits = 0;
+			const b13Offenders = [];
+			for (const file of b13Files) {
+				const html = await fs.readFile(file, "utf8");
+				for (const m of html.match(B13_IMG_RE) ?? []) {
+					let host = "<bad-url>";
+					try {
+						host = new URL(m).host;
+					} catch {}
+					if (host === b13SiteHost) {
+						b13SiteHits++;
+						continue;
+					}
+					if (B13_SKIP_HOSTS.has(host)) {
+						b13SkipHits++;
+						continue;
+					}
+					if (b13AllowedUrls.has(m) || b13AllowedHosts.has(host)) {
+						b13AllowedHits++;
+						continue;
+					}
+					if (b13Offenders.length < 8)
+						b13Offenders.push(`${path.relative(path.resolve("dist"), file)} → ${m}`);
+				}
+			}
+			record(
+				"B-13",
+				"产物里不许残留第三方图床域名（允许清单 = 4 处已登记失败；其余必须 0）",
+				b13Files.length > 100 && b13Offenders.length === 0,
+				`扫 ${b13Files.length} 个产物 HTML：本站域名 ${b13SiteHits} 处（不算第三方）｜徽章 ${b13SkipHits} 处（排除）｜**已登记失败命中 ${b13AllowedHits} 处**（4 处允许清单）｜**未登记第三方 ${b13Offenders.length} 处**${b13Offenders.length ? `：${b13Offenders.join("；")}` : ""}`,
+			);
+		} catch (err) {
+			record(
+				"B-13",
+				"产物里不许残留第三方图床域名（允许清单 = 4 处已登记失败；其余必须 0）",
+				false,
+				`✗ 扫不动：${String(err?.message ?? err)} —— 允许清单来自 reports/_b13-mapping.json（reports/ 是本地工作目录、不入库）；缺文件按红处理，不静默跳过`,
+			);
+		}
+
 		// ② R-NAV-08：侧栏目录项（TOCManager 那条路）——hash + 历史 + 后退回原位 + 不重渲染
 		// ⚠️ 每一段都**先回首页再进目标页**（两趟换文档的整页加载）：
 		//    `history.length` 是"历史栈里的条目总数"，**后退之后再点锚点是在栈中间插一格、
