@@ -237,7 +237,7 @@ export type WallpaperVideoConfig = {
 	 *
 	 * **开关不在这里** —— 复用访客在「显示设置面板 → 壁纸 → 壁纸轮播」里那个开关
 	 * （`displaySettingsConfig.bannerCarouselSwitchable` + `localStorage.bannerCarouselEnabled`），
-	 * 默认值仍是 `common.carousel.enable`（本站 = `false`，即**默认关**）。
+	 * 默认值 = `common.carousel.enable`（**v1.121 起 `true`，即默认开**；访客拨「关」后以他的选择为准）。
 	 * 这里只给**视频自己的间隔**（v1.119 起 = 30 秒）：图片那套 5 秒（`common.carousel.interval`）
 	 * 对原画视频太凶 —— 六支合计 98.9 MB，5 秒一换一分钟能拉几十 MB。
 	 */

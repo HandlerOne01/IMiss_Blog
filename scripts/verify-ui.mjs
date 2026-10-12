@@ -6353,8 +6353,8 @@ async function main() {
 		);
 	}
 	// ── R-BG-09 视频轮播（v1.118）：面板那个「壁纸轮播」开关对**视频**也生效 ──────────
-	// 发起人 2026-10-12 定的参数：「**30秒 / 默认关 / 都轮**」（桌面与手机都轮）。
-	// ⚠️ 他先定的是 60 秒，v1.119 改口「改成30s切换下一张吧」→ 这条断言跟着改成 30000。
+	// 发起人 2026-10-12 定的参数：「**30秒 / 都轮**」，**默认开**
+	// （先定 60 秒 + 默认关 → v1.119「改成30s切换下一张吧」→ v1.121「**壁纸轮播默认开启吧**」）。
 	//
 	// 为什么单钉这两条：**v1.117 之前，视频模式下那个开关是个空开关** ——
 	//   图片那套轮播切的是 `.slide-item`，而视频模式的容器里一个都没有，
@@ -6396,29 +6396,38 @@ async function main() {
 		const flushSwitch = () =>
 			carCmd(`(() => { localStorage.removeItem("bannerCarouselEnabled"); return true; })()`);
 
-		// (a) 默认口径：开关没动过时不许轮（连 start() 都绕不过去），间隔是配置里的 30 秒
+		// (a) 默认口径（v1.121 起是"默认开"）：清掉访客选择 → **重新加载页面** → 什么都不做，
+		//     表应该自己就在跑；间隔是配置里的 30 秒。为什么要重新加载：默认值只在加载时读一次，
+		//     在当前这次会话里改 localStorage 测不出"进站即轮"这件事。
 		if (!(await carState()).missing) {
 			await flushSwitch();
 			await carCmd(`window.dispatchEvent(new CustomEvent("bannerCarouselChange", { detail: { enabled: false } }))`);
-			await sleep(200);
-			const off = await carState();
-			const forced = await carCmd("window.__imissWallpaperVideo.carousel.start(300)");
-			await sleep(900);
-			const stillOff = await carState();
+			const reloaded = cdp.once("Page.loadEventFired");
+			await cdp.send("Page.navigate", { url: `${BASE}/` });
+			await reloaded;
+			await sleep(2200);
+			const fresh = await carState();
 			record(
 				"R-BG-09",
-				"视频轮播**默认关**：开关没动过时不起表（`start()` 也绕不过去），且间隔 = 配置里的 **30 秒**（不是图片那套 5 秒）",
-				off.interval === 30000 &&
-					off.defaultEnabled === false &&
-					off.switchable === true &&
-					off.enabled === false &&
-					off.running === false &&
-					forced === false &&
-					stillOff.running === false,
-				`interval=${off.interval}（期望 30000）｜defaultEnabled=${off.defaultEnabled}｜switchable=${off.switchable}｜enabled=${off.enabled}｜running=${off.running}｜强行 start(300) 返回 ${forced}（期望 false）｜0.9 秒后仍 running=${stillOff.running}`,
+				"视频轮播**默认开**：访客没动过开关时，一进站表就自己在跑（无需任何操作），且间隔 = 配置里的 **30 秒**（不是图片那套 5 秒）",
+				fresh.interval === 30000 &&
+					fresh.defaultEnabled === true &&
+					fresh.switchable === true &&
+					fresh.stored === null &&
+					fresh.enabled === true &&
+					fresh.running === true,
+				`interval=${fresh.interval}（期望 30000）｜defaultEnabled=${fresh.defaultEnabled}（期望 true）｜switchable=${fresh.switchable}｜访客选择=${fresh.stored}（期望 null）｜enabled=${fresh.enabled}｜进站即 running=${fresh.running}（期望 true）`,
 			);
 
-			// (b) 打开开关 → 真的按顺序换片且能循环；关掉就停；手动换片只重置一次表（不叠加）
+			// (b) 访客拨「关」→ 停；拨回「开」→ 真的按顺序换片且能循环；手动换片只重置一次表（不叠加）
+			await carCmd(`(() => {
+				localStorage.setItem("bannerCarouselEnabled", "false");
+				document.documentElement.setAttribute("data-banner-carousel-enabled", "false");
+				window.dispatchEvent(new CustomEvent("bannerCarouselChange", { detail: { enabled: false } }));
+				return true;
+			})()`);
+			await sleep(300);
+			const visitorOff = await carState();
 			await carCmd(`(() => {
 				localStorage.setItem("bannerCarouselEnabled", "true");
 				document.documentElement.setAttribute("data-banner-carousel-enabled", "true");
@@ -6456,15 +6465,17 @@ async function main() {
 			await flushSwitch();
 			record(
 				"R-BG-09",
-				"开关打开后视频**真的在轮**（每次只前进 1 格、按清单顺序、绕回第 1 支），关掉立刻停；**手动换片只重置一次计时器**（不叠加、不打架）",
-				on.enabled === true &&
+				"访客拨「关」立刻停、拨回「开」视频**真的在轮**（每次只前进 1 格、按清单顺序、绕回第 1 支）；**手动换片只重置一次计时器**（不叠加、不打架）",
+				visitorOff.enabled === false &&
+					visitorOff.running === false &&
+					on.enabled === true &&
 					on.running === true &&
 					distinct.length >= 3 &&
 					sequential &&
 					wrapped &&
 					serialReset &&
 					afterOff.running === false,
-				`开关开：enabled=${on.enabled}、running=${on.running}、starts=${on.starts}｜定时器响 ${tickDelta} 次、索引 #${before.idx}→#${after.idx}（期望 == (${before.idx}+${tickDelta})%${count}=${(before.idx + tickDelta) % count}，每次正好 1 格=${sequential}）｜采样到 ${distinct.length} 支、绕回 #0=${wrapped}（采样序列 ${seq.join("→")}，0.33 秒采一次而定时器 0.3 秒一跳，偶有一跳采不到属正常）｜手动 step(1)：starts ${startsBefore}→${afterStep.starts}（期望 +1）、running=${afterStep.running}、索引落在 #${afterStep.idx}｜关掉后 running=${afterOff.running}`,
+				`访客拨关：enabled=${visitorOff.enabled}、running=${visitorOff.running}（都要 false）｜拨回开：enabled=${on.enabled}、running=${on.running}、starts=${on.starts}｜定时器响 ${tickDelta} 次、索引 #${before.idx}→#${after.idx}（期望 == (${before.idx}+${tickDelta})%${count}=${(before.idx + tickDelta) % count}，每次正好 1 格=${sequential}）｜采样到 ${distinct.length} 支、绕回 #0=${wrapped}（采样序列 ${seq.join("→")}，0.33 秒采一次而定时器 0.3 秒一跳，偶有一跳采不到属正常）｜手动 step(1)：starts ${startsBefore}→${afterStep.starts}（期望 +1）、running=${afterStep.running}、索引落在 #${afterStep.idx}｜再关掉后 running=${afterOff.running}`,
 			);
 		}
 	}
