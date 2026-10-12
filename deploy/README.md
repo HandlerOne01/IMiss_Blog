@@ -363,12 +363,12 @@ sudo systemctl stop pet-gateway        # 桌宠会退化成前端本地 mock（�
   ```
   ⚠️ 前端**没有**这条路：站点是产物目录 `/var/www/imiss-blog/dist`，不是仓库，回滚只能本地重新构建后再发布。
 
-**② 服务器自检要打回环地址，不要打公网域名（腾讯云回环 NAT）。**
+**② 服务器自检要打回环地址 —— ⚠️ v1.120 更正：这里原来写的"腾讯云回环 NAT"是错的。**
 
-- **现象**：在服务器上 `curl https://imissblog.cn/api/agent/ok` → **超时**（`curl: (28)`，10 s），但同一时刻从外网打 → **200 `{"ok":true}`**。
-- **原因**：`getent hosts imissblog.cn` → `43.133.230.71`，而 `43.133.230.71` **就是这台机器自己的公网 IP** —— 自己打自己的公网 IP 走不通（云厂商回环 NAT），**不是服务坏了**。
-- **写法**：服务器侧自检一律用回环 —— `curl http://127.0.0.1:8787/api/agent/ok`（实测 **1.7 ms / 200**）、后端 `curl http://127.0.0.1:2024/ok`（**0.8 ms / 200**）；要验证 Nginx/证书就用 `curl --resolve 域名:443:127.0.0.1 https://域名/`。
-- **为什么值得写下来**：这正是 §8 那条"443 到底通不通"排查时的**干扰项之一**。记住三段判据：`ss -lntp | grep :443` 有 LISTEN → `curl --resolve …127.0.0.1` 得 200 → **只有** `curl --resolve …<公网IP>` 超时时，再去怀疑上游防火墙；**服务器上直连公网域名超时本身不构成证据**。
+- **原文（已作废）**：在服务器上 `curl https://imissblog.cn/...` 超时，被解释成"自己打自己的公网 IP 走不通（回环 NAT）"。
+- **为什么它是错的（v1.120 实测）**：同一台机器打**自己的公网 IP** 时 —— **80 端口是通的**（`curl --resolve imissblog.cn:80:43.133.230.71 http://imissblog.cn/` → **301**），**443 端口超时**。若真是回环 NAT，80 也该不通。**80 通、443 不通 ⇒ 拦的是 443 这个端口，不是"回环"这件事** —— 真正的拦路者是**腾讯云轻量控制台的防火墙**（见下面 ⑤）。
+- **仍然成立的那半句**：**服务器侧自检一律打回环** —— `curl http://127.0.0.1:8787/api/agent/ok`（实测 **1.7 ms / 200**）、`curl http://127.0.0.1:2024/ok`（**0.8 ms / 200**）；验证 Nginx 与证书用 `curl --resolve 域名:443:127.0.0.1 https://域名/`（**200**）。因为**这些才是"服务本身好不好"的证据**，而打公网地址会掺进防火墙的因素。
+- **三段判据（保留，判据本身没错，只是结论指向变了）**：`ss -lntp | grep :443` 有 LISTEN → `curl --resolve …127.0.0.1` 得 200 → `curl --resolve …<公网IP>` 超时时，**问题在机器之外**（防火墙/安全组），而不是回环 NAT。
 
 **③ 凭据泄漏审计（2026-10-12）：真实密钥没有进入仓库，也没有进入公开产物。**
 
@@ -399,4 +399,15 @@ sudo systemctl stop pet-gateway        # 桌宠会退化成前端本地 mock（�
 - **处置**：把代理关掉，或给规则里加一条 **`DOMAIN-SUFFIX,imissblog.cn,DIRECT`**。⚠️ 对**取证脚本**来说 `--no-proxy-server` 不管用（TUN 在 IP 层接管，DNS 已经是假的）——只能从代理侧放行，或改用**服务器侧**的 `curl --resolve` 取证据。
 - **一句话**：**服务器侧能 200 + 站点日志里没有你的请求 = 包根本没出你这台机器**，先查本机代理/DNS，别去查站。
 
-> 本节的取证脚本（都在 gitignore 的 `reports/_ops/`）：`96-scan-secrets.mjs`（源码+产物）、`97-locate-hits.mjs`（脱敏定位）、`98-history-secret-scan.mjs`（全历史）、`99-server-secret-audit.sh`（服务器侧文件与权限）、`100-cross-check-secrets.mjs`（拿真实值全文比对，**只输出命中位置、不打印密钥原文**）、`101-server-exposure-check.sh`、`102-check-post-passwords.mjs`、`103-ssh-exposure-detail.sh`、`110-mobile-access-diagnose.sh` / `111-mobile-path-diagnose.sh` / `115-diag-live-storage.mjs`（访问链路排查）。
+> 本节的取证脚本（都在 gitignore 的 `reports/_ops/`）：`96-scan-secrets.mjs`（源码+产物）、`97-locate-hits.mjs`（脱敏定位）、`98-history-secret-scan.mjs`（全历史）、`99-server-secret-audit.sh`（服务器侧文件与权限）、`100-cross-check-secrets.mjs`（拿真实值全文比对，**只输出命中位置、不打印密钥原文**）、`101-server-exposure-check.sh`、`102-check-post-passwords.mjs`、`103-ssh-exposure-detail.sh`、`110-mobile-access-diagnose.sh` / `111-mobile-path-diagnose.sh` / `115-diag-live-storage.mjs`（访问链路排查）、`116-ip-block-audit.sh` / `119-port443-vs-80-sources.sh` / `120-where-is-443-blocked.sh`（端口可达性排查）、`117-external-reachability.sh` / `118-multinode-check.sh`（借第三方多地节点取外网证据）。
+
+**⑤ 【2026-10-12 复查发现，必须记住】443 只对**发起人自己的网络**开放 —— 控制台那条规则的来源被限住了。**
+
+- **发起人的原话**：「你是不是封锁 ip 了，为啥除了我当前的局域网外其他 ip 全登不了」—— **他的观察是对的**，而且不是本机防火墙干的（实例上压根没有 443 规则）。
+- **证据链（四条，互相独立）**：
+  1. **借第三方多地节点取证据**（`reports/_ops/118-multinode-check.sh`，check-host.net 的 6 个节点：以色列 / 哈萨克 / 摩尔多瓦 / 瑞典 / 斯洛文尼亚 / 美国亚特兰大）→ **全部 `Connection timed out`**。
+  2. **站点日志分端口数来源**（`119-port443-vs-80-sources.sh`）：今天 **80 端口有 137 个不同来源 IP**（扫描器 + 各地爬虫，全是外部），而 **443 端口只有 2 个** —— 发起人那个公网 IP（1672 次）与回环。**443 一次外部访问都没有**。
+  3. **服务器打自己的公网 IP**：**80 → 301**（通）、**443 → 超时**（不通）。这条同时推翻了 §8.1 ② 原来的"回环 NAT"解释。
+  4. **实例内部干净**：`iptables-save` 与 `nft list ruleset` 里**一条 443 规则都没有**（58 条封禁全是 22 端口），nginx 里也没有 `deny`；全实例 grep 不到发起人那个 IP（**0 次**）→ **限制不在机器上，在腾讯云控制台的防火墙（边缘 ACL）**。
+- **处置（只能发起人在控制台做）**：腾讯云 → 轻量应用服务器 → 该实例 → **防火墙** → 找到 **TCP 443** 那条规则 → 把**来源**改成 **`0.0.0.0/0`**（若原规则来源填的是某个具体 IP，就是它把全世界挡在外面了）。改完立刻可验：重跑 `118-multinode-check.sh`，6 个节点应从 `Connection timed out` 变成 `200`。
+- **⚠️ 教训（比结论更值钱）：只用**一个网络**测"公网能不能打开"是测不出来的**。本项目此前所有"线上 200"的验证（冒烟 14/14、无头 Chrome 真机取证）**全部来自发起人这一个网络**，而 443 恰好只对他开放 —— 所以它们**全都无法发现**这件事。**判据要换**：① 看站点日志里**该端口**的来源 IP 个数（`grep "HTTP/2" access.log | awk '{print $1}' | sort -u | wc -l`，只有一两个来源就是没对公网开放）；② 借第三方多地节点（check-host.net）取独立证据。这两条已固化进本节。
