@@ -80,6 +80,13 @@ const videoData = {
 	},
 	respectReducedMotion: videoConf?.respectReducedMotion !== false,
 	fadeMs: Number(videoConf?.fadeMs ?? 260),
+	// ── 视频轮播（R-BG-09，v1.118）：间隔与"访客开关"的三个事实 ──────────────
+	// 开关**复用面板那个**（显示设置面板 → 壁纸 → 壁纸轮播），所以这里只搬三个值：
+	// 能不能由访客切换、默认关还是默认开（= common.carousel.enable，本站 false）、
+	// 以及视频自己的间隔（60 秒；图片那套 5 秒对原画太凶）。夹到 ≥5000 防误配。
+	carouselInterval: Math.max(5000, Number(videoConf?.carousel?.interval ?? 60000)),
+	carouselSwitchable: state.bannerCarouselSwitchable === true,
+	carouselDefault: state.bannerCarouselEnabledDefault === true,
 };
 const videoScript = `(function initVideoWallpaper() {
 	var DATA = ${JSON.stringify(videoData)};
@@ -290,7 +297,8 @@ const videoScript = `(function initVideoWallpaper() {
 	window.__imissWallpaperVideo = {
 		count: DATA.items.length,
 		current: function () { return idx; },
-		step: function (dir) { load(idx + dir, true); return idx; },
+		// R-BG-09：手动换片要把轮播的表**重置**（否则刚手动换完，可能马上又被定时器换走）
+		step: function (dir) { load(idx + dir, true); carStart(); return idx; },
 		items: DATA.items.map(function (x) { return x.name; }),
 		// ⚠️ v1.105：把**实际生效**的排序口径与每支的时段挂出来 —— 验收脚本据此断言
 		//    "六档铺满 24 小时、不重不漏"（R-BG-06）。**别从产物 HTML 里正则抠 DATA**：
@@ -311,6 +319,92 @@ const videoScript = `(function initVideoWallpaper() {
 		}
 		return 0;
 	};
+
+	/* ============================================================================
+	 * 视频轮播（R-BG-09，v1.118）—— 六支原画按固定间隔自动换片。
+	 *
+	 * 发起人 2026-10-12 定的三个数：**间隔 60 秒 / 默认关 / 桌面与手机都轮**。
+	 *
+	 * **开关复用访客那个**（显示设置面板 →「壁纸」页签 →「壁纸轮播」）：默认值取
+	 * common.carousel.enable（本站 false），访客点过之后以 localStorage 里的值为准 ——
+	 * 也就是说面板那个开关以前只对"图片幻灯片"有效（视频模式下没有幻灯片，点了没反应），
+	 * 现在它对视频也生效了。
+	 *
+	 * **三种情况不轮**（与视频播放同一套判据，都是省流量/无障碍的理由）：
+	 *   ① document.hidden（切到后台）② prefers-reduced-motion ③ navigator.connection.saveData
+	 * 另外只在 **banner / 全屏 / 覆盖** 三种模式轮 —— 纯色模式没有壁纸，轮了也看不见。
+	 *
+	 * ⚠️ 这段是拼在**模板字符串**里产出的：注释里**不能出现反引号**（会提前闭合，T94）。
+	 * ========================================================================== */
+	var carTimer = null;
+	var carStarts = 0;
+	// 表真正"响"过几次 —— 验收脚本靠它判"每次只前进 1 格、且绕回第 1 支"。
+	// ⚠️ 为什么要有这个计数：验收侧按时间采样（每 0.33 秒看一眼），而定时器是 0.3 秒一跳，
+	//    两者一错位就会"两次跳只采到一次"，采样序列看着像跳号（v1.118 第一版断言就因此假红）。
+	//    正确判据是"**索引前进量 == 跳的次数**"，与采样节奏无关。
+	var carTicks = 0;
+
+	function carouselEnabled() {
+		if (!DATA.carouselSwitchable) return DATA.carouselDefault;
+		var stored = null;
+		try { stored = localStorage.getItem("bannerCarouselEnabled"); } catch (e) { stored = null; }
+		if (stored === null) return DATA.carouselDefault;
+		return stored === "true";
+	}
+	function carouselAllowedHere() {
+		var m = mode();
+		if (m !== "banner" && m !== "fullscreen" && m !== "overlay") return false;
+		if (document.hidden) return false;
+		if (DATA.respectReducedMotion && window.matchMedia &&
+			window.matchMedia("(prefers-reduced-motion: reduce)").matches) return false;
+		var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+		if (conn && conn.saveData) return false;
+		return true;
+	}
+	function carStop() {
+		if (carTimer !== null) { window.clearTimeout(carTimer); carTimer = null; }
+	}
+	/** 起表；override 只给验收脚本用（真实访客走 DATA.carouselInterval = 60 秒） */
+	function carStart(override) {
+		carStop();
+		if (DATA.items.length <= 1) return;
+		if (!carouselEnabled()) return;
+		if (!carouselAllowedHere()) return;
+		var delay = Math.max(200, Number(override) || DATA.carouselInterval);
+		carStarts++;
+		carTimer = window.setTimeout(function tick() {
+			carTicks++;
+			load(idx + 1, true);
+			carTimer = window.setTimeout(tick, delay);
+		}, delay);
+	}
+
+	// 给验收脚本读的事实（与 __imissWallpaperPickAt 同一条约定：不复制判据，直接读真身）
+	window.__imissWallpaperVideo.carousel = {
+		interval: DATA.carouselInterval,
+		defaultEnabled: DATA.carouselDefault,
+		switchable: DATA.carouselSwitchable,
+		enabled: carouselEnabled,
+		allowed: carouselAllowedHere,
+		running: function () { return carTimer !== null; },
+		starts: function () { return carStarts; },
+		ticks: function () { return carTicks; },
+		start: function (override) { carStart(override); return carTimer !== null; },
+		stop: carStop
+	};
+
+	// 切后台就停表、回前台重新起表（与视频暂停同一处判据）
+	document.addEventListener("visibilitychange", function () {
+		if (document.hidden) carStop(); else carStart();
+	});
+	// 访客在显示设置面板里拨那个开关 → 立刻启停
+	window.addEventListener("bannerCarouselChange", function (e) {
+		if (e && e.detail && e.detail.enabled) carStart(); else carStop();
+	});
+	// 换壁纸模式（含切成纯色）也要重算：纯色模式下 carouselAllowedHere() 会拦住
+	window.addEventListener("wallpaperModeChange", function () { window.setTimeout(function () { carStart(); }, 80); });
+
+	carStart();
 
 	// 框变了就重算（旋屏 / 拉窗口 / 切模式）
 	var t = 0;

@@ -6352,6 +6352,121 @@ async function main() {
 			`覆盖模式：点空白 #${ov?.before?.index}→#${ov?.afterClick?.index}｜拖动 →#${ov?.afterDrag?.index}（共 ${ov?.before?.count} 张）`,
 		);
 	}
+	// ── R-BG-09 视频轮播（v1.118）：面板那个「壁纸轮播」开关对**视频**也生效 ──────────
+	// 发起人 2026-10-12 定的三个数：「**60秒 默认关 都轮**」（桌面与手机都轮）。
+	//
+	// 为什么单钉这两条：**v1.117 之前，视频模式下那个开关是个空开关** ——
+	//   图片那套轮播切的是 `.slide-item`，而视频模式的容器里一个都没有，
+	//   `changeToSlide()` 第一行 `if (slides.length <= 1) return;` 直接返回，
+	//   所以访客把开关拨开「什么都不会发生」（v1.117 真机取证：`reports/_ops/112-carousel-switch-probe.mjs`
+	//   16 秒里壁纸一支都没换）。现在开关留着、接到视频上，这两条就是防它再退化成空开关。
+	//
+	// ⚠️ 开关的三个副作用（localStorage + html 属性 + bannerCarouselChange 事件）在这里**手工复现**，
+	//    与 `setting-utils.ts` 的 `setBannerCarouselEnabled()` 逐条相同；面板那一下**真点**的证据
+	//    在 `reports/_ops/114-video-carousel-verify.mjs`（它走访客路径点的是真按钮）。
+	{
+		const carState = async () =>
+			(
+				await cdp.send("Runtime.evaluate", {
+					expression: `(() => {
+						const v = document.getElementById("wallpaper-video");
+						const h = window.__imissWallpaperVideo;
+						const c = h && h.carousel;
+						if (!c) return { missing: true };
+						return {
+							src: v ? (v.currentSrc || v.src || "").split("/").pop() : null,
+							idx: h.current(),
+							count: h.count,
+							interval: c.interval,
+							defaultEnabled: c.defaultEnabled,
+							switchable: c.switchable,
+							enabled: c.enabled(),
+							running: c.running(),
+							starts: c.starts(),
+							ticks: c.ticks(),
+							stored: localStorage.getItem("bannerCarouselEnabled"),
+						};
+					})()`,
+					returnByValue: true,
+				})
+			).result.value;
+		const carCmd = async (expr) =>
+			(await cdp.send("Runtime.evaluate", { expression: expr, returnByValue: true })).result.value;
+		const flushSwitch = () =>
+			carCmd(`(() => { localStorage.removeItem("bannerCarouselEnabled"); return true; })()`);
+
+		// (a) 默认口径：开关没动过时不许轮（连 start() 都绕不过去），间隔是配置里的 60 秒
+		if (!(await carState()).missing) {
+			await flushSwitch();
+			await carCmd(`window.dispatchEvent(new CustomEvent("bannerCarouselChange", { detail: { enabled: false } }))`);
+			await sleep(200);
+			const off = await carState();
+			const forced = await carCmd("window.__imissWallpaperVideo.carousel.start(300)");
+			await sleep(900);
+			const stillOff = await carState();
+			record(
+				"R-BG-09",
+				"视频轮播**默认关**：开关没动过时不起表（`start()` 也绕不过去），且间隔 = 配置里的 **60 秒**（不是图片那套 5 秒）",
+				off.interval === 60000 &&
+					off.defaultEnabled === false &&
+					off.switchable === true &&
+					off.enabled === false &&
+					off.running === false &&
+					forced === false &&
+					stillOff.running === false,
+				`interval=${off.interval}（期望 60000）｜defaultEnabled=${off.defaultEnabled}｜switchable=${off.switchable}｜enabled=${off.enabled}｜running=${off.running}｜强行 start(300) 返回 ${forced}（期望 false）｜0.9 秒后仍 running=${stillOff.running}`,
+			);
+
+			// (b) 打开开关 → 真的按顺序换片且能循环；关掉就停；手动换片只重置一次表（不叠加）
+			await carCmd(`(() => {
+				localStorage.setItem("bannerCarouselEnabled", "true");
+				document.documentElement.setAttribute("data-banner-carousel-enabled", "true");
+				window.dispatchEvent(new CustomEvent("bannerCarouselChange", { detail: { enabled: true } }));
+				return true;
+			})()`);
+			await sleep(400);
+			const on = await carState();
+			// 把 60 秒压成 300 毫秒跑几轮 —— 验的是"真的会换"，不是"等得起 60 秒"
+			await carCmd("window.__imissWallpaperVideo.carousel.start(300)");
+			const before = await carState();
+			const seq = [];
+			for (let i = 0; i < 9; i++) {
+				await sleep(330);
+				seq.push((await carState()).idx);
+			}
+			const after = await carState();
+			const distinct = [...new Set(seq)];
+			const wrapped = seq.some((x, i) => i > 0 && x === 0);
+			// ⚠️ v1.118 修正：判据是「**索引前进量 == 定时器响过的次数**」，不是"采样序列逐格递增" ——
+			//    定时器 0.3 秒一跳、采样 0.33 秒一次，两者一错位就会"两跳只采到一格"，
+			//    按采样序列判会**假红**（第一版就是这么红的：序列 1→2→3→4→5→0→1→3→4）。
+			const tickDelta = after.ticks - before.ticks;
+			const count = on.count || 6;
+			const sequential = tickDelta >= 3 && after.idx === (before.idx + tickDelta) % count;
+			const startsBefore = after.starts;
+			await carCmd("window.__imissWallpaperVideo.step(1)");
+			await sleep(150);
+			const afterStep = await carState();
+			const serialReset =
+				afterStep.starts === startsBefore + 1 && afterStep.running === true && afterStep.idx === (after.idx + 1) % count;
+			await carCmd(`window.dispatchEvent(new CustomEvent("bannerCarouselChange", { detail: { enabled: false } }))`);
+			await sleep(300);
+			const afterOff = await carState();
+			await flushSwitch();
+			record(
+				"R-BG-09",
+				"开关打开后视频**真的在轮**（每次只前进 1 格、按清单顺序、绕回第 1 支），关掉立刻停；**手动换片只重置一次计时器**（不叠加、不打架）",
+				on.enabled === true &&
+					on.running === true &&
+					distinct.length >= 3 &&
+					sequential &&
+					wrapped &&
+					serialReset &&
+					afterOff.running === false,
+				`开关开：enabled=${on.enabled}、running=${on.running}、starts=${on.starts}｜定时器响 ${tickDelta} 次、索引 #${before.idx}→#${after.idx}（期望 == (${before.idx}+${tickDelta})%${count}=${(before.idx + tickDelta) % count}，每次正好 1 格=${sequential}）｜采样到 ${distinct.length} 支、绕回 #0=${wrapped}（采样序列 ${seq.join("→")}，0.33 秒采一次而定时器 0.3 秒一跳，偶有一跳采不到属正常）｜手动 step(1)：starts ${startsBefore}→${afterStep.starts}（期望 +1）、running=${afterStep.running}、索引落在 #${afterStep.idx}｜关掉后 running=${afterOff.running}`,
+			);
+		}
+	}
 	// ── R-BG-02 动态壁纸：原画不压缩 / 真的在播 / 无限循环（v1.70）──────────────
 	// 发起人 2026-10-09 交来 5 支动态壁纸（**v1.105 增到 6 支**），原话四条：替换所有静态图 / 首尾帧要能无限循环 /
 	// 能不裁就不裁且人物居中 / **不可压缩，我要原画**。这一节验前三条里"能机械判定的部分"。
