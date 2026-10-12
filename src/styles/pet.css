@@ -356,6 +356,20 @@
 	overflow-wrap: anywhere;
 }
 
+/* v1.114：气泡里的**站内路径**是链接（她报出 `/posts/xxx/` 时可以直接点）。
+   配色沿用站点的强调色；下划线只在 hover / 键盘聚焦时出现，免得一屏十几个下划线太吵。 */
+.pet-chat-link {
+	color: var(--primary, #ea7b7c);
+	text-decoration: none;
+	border-bottom: 1px solid color-mix(in srgb, var(--primary, #ea7b7c) 45%, transparent);
+	overflow-wrap: anywhere;
+}
+.pet-chat-link:hover,
+.pet-chat-link:focus-visible {
+	text-decoration: underline;
+	border-bottom-color: transparent;
+}
+
 /* 超长答复（> petConfig.chat.collapseChars）默认折叠，「展开全文」再放开。
    ⚠️ 阈值定得比真后端实测的 439~496 字高 —— 折叠与"面板可滚"是**互相抵消**的两种
    长答复策略：折得太早，R-AGT-07 那条"500 字可滚"的断言就会因为"没内容可滚"而变红。 */

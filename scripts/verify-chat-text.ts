@@ -11,7 +11,7 @@
  *
  * 用法：`pnpm verify:chat-text`（退出码 0 = 全过）
  */
-import { cleanMarkdown } from "../src/utils/pet-chat-text";
+import { cleanMarkdown, splitChatLinks } from "../src/utils/pet-chat-text";
 
 type Case = {
 	name: string;
@@ -77,5 +77,54 @@ for (const c of CASES) {
 	record("幂等性", once === twice, once === twice ? "两遍一致 ✓" : `一遍=${JSON.stringify(once)} 两遍=${JSON.stringify(twice)}`);
 }
 
-console.log(`\n聊天文本清洗 ${CASES.length + 1} 项：通过 ${CASES.length + 1 - failed}，失败 ${failed}`);
+// ── v1.114：站内路径要能被切成"可点的链接段" ────────────────────────────────
+const LINK_CASES: Array<{ name: string; input: string; ok: (segs: ReturnType<typeof splitChatLinks>) => boolean; show: (segs: ReturnType<typeof splitChatLinks>) => string }> = [
+	{
+		name: "站内文章路径 → 链接段（前后文本保留）",
+		input: "《C++基础语法》 · C/C++ · 约 8903 字\n/posts/cpp/cpp-jichuyufa/\n打底用的，先啃这篇。",
+		ok: (s) => {
+			const links = s.filter((x) => x.kind === "link").map((x) => x.value);
+			return links.length === 1 && links[0] === "/posts/cpp/cpp-jichuyufa/";
+		},
+		show: (s) => s.map((x) => `${x.kind === "link" ? "🔗" : "  "}${x.value}`).join(" ⏎ "),
+	},
+	{
+		name: "多路径 → 多个链接段，且拼接回来与原串逐字相同",
+		input: "一、/posts/cpp/list/ 二、/projects/boost-search-engine/ 三、/roadmap/",
+		ok: (s) => {
+			const links = s.filter((x) => x.kind === "link").map((x) => x.value);
+			const roundTrip = s.map((x) => x.value).join("");
+			return links.length === 3 && links[1] === "/projects/boost-search-engine/" && links[2] === "/roadmap/" && roundTrip === "一、/posts/cpp/list/ 二、/projects/boost-search-engine/ 三、/roadmap/";
+		},
+		show: (s) => s.map((x) => `${x.kind === "link" ? "🔗" : "  "}${x.value}`).join(" ⏎ "),
+	},
+	{
+		name: "完整域名里的路径**不**单独变成链接（人设禁完整域名，也不该切出半截链接）",
+		input: "见 https://imissblog.cn/posts/cpp/list/ 这篇",
+		ok: (s) => s.every((x) => x.kind === "text"),
+		show: (s) => s.map((x) => `${x.kind === "link" ? "🔗" : "  "}${x.value}`).join(" ⏎ "),
+	},
+	{
+		name: "括号/顿号包着的路径照样认（中文标点不是 URL 字符）",
+		input: "（/posts/cpp/leiheduixiang/）、还有「/posts/cpp/mubanjinjie/」。",
+		ok: (s) => {
+			const links = s.filter((x) => x.kind === "link").map((x) => x.value);
+			return links.length === 2 && links[0] === "/posts/cpp/leiheduixiang/" && links[1] === "/posts/cpp/mubanjinjie/";
+		},
+		show: (s) => s.map((x) => `${x.kind === "link" ? "🔗" : "  "}${x.value}`).join(" ⏎ "),
+	},
+	{
+		name: "没有路径时原样返回（不产生空段）",
+		input: "嗯，我在。",
+		ok: (s) => s.length === 1 && s[0].kind === "text" && s[0].value === "嗯，我在。",
+		show: (s) => s.map((x) => x.value).join(""),
+	},
+];
+for (const c of LINK_CASES) {
+	const segs = splitChatLinks(c.input);
+	record(c.name, c.ok(segs), c.show(segs));
+}
+
+const total = CASES.length + 1 + LINK_CASES.length;
+console.log(`\n聊天文本清洗 ${CASES.length + 1} 项 + 站内链接切段 ${LINK_CASES.length} 项：共 ${total} 项，失败 ${failed}`);
 process.exit(failed === 0 ? 0 : 1);

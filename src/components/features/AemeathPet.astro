@@ -163,7 +163,7 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 <script>
 	import { petConfig } from "@/config";
 	import { askAemeath, classifyAsk, resetSession, type AgentTurn } from "@/utils/agent-client";
-	import { cleanMarkdown, cleanUserText, formatClock, shouldCollapse } from "@/utils/pet-chat-text";
+	import { cleanMarkdown, cleanUserText, formatClock, shouldCollapse, splitChatLinks } from "@/utils/pet-chat-text";
 	import {
 		PET_COLS,
 		PET_FLIGHT_POSE,
@@ -1112,7 +1112,20 @@ const petHideScript = `(function(){try{if(${hideOnMobile}&&window.matchMedia("(m
 			meta.append(who, at);
 			const textEl = document.createElement("div");
 			textEl.className = "pet-chat-text";
-			textEl.textContent = line.text;
+			// v1.114：站内路径渲染成**可点的链接**（发起人：「链接可以支持点击后跳转吗」）。
+			// ⚠️ 不用 innerHTML：全部走 createTextNode / createElement，答案里的任何字符都不可能
+			//    变成标记（`splitChatLinks()` 只切段，不做任何 HTML 解析）。
+			for (const seg of splitChatLinks(line.text)) {
+				if (seg.kind === "text") {
+					textEl.appendChild(document.createTextNode(seg.value));
+					continue;
+				}
+				const a = document.createElement("a");
+				a.className = "pet-chat-link";
+				a.href = seg.value;
+				a.textContent = seg.value;
+				textEl.appendChild(a);
+			}
 			row.append(meta, textEl);
 			// 长答复：默认折叠 + 「展开全文」（阈值见 petConfig.chat.collapseChars 的注释：
 			// 定得比"真后端实测的 439~496 字"高，常规答复不折，只兜极端长文）

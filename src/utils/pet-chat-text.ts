@@ -136,6 +136,35 @@ export function shouldCollapse(text: string, collapseChars: number): boolean {
 	return text.length > collapseChars;
 }
 
+/**
+ * 站内路径（v1.114 新增）：爱弥斯经常把文章地址原样报出来（`/posts/cpp/cpp-jichuyufa/`），
+ * 以前它在气泡里只是**纯文本、点了没反应** —— 发起人：「链接好像点不了，链接可以支持点击后跳转吗」。
+ * 这里只做**切段**（纯函数，方便单测），渲染交给组件；规则：
+ *   · 只认本站的一级段（posts / projects / gallery / …）+ URL 安全字符，**不认完整域名**
+ *     （人设禁止出现完整域名，所以 `https://imissblog.cn/posts/x/` 里的 `/posts/x/` 也**不**变成链接）
+ *   · 前面紧跟字母/数字/`.`/`:` 的不算（那是别的 URL 的一部分，不是独立站内路径）
+ */
+const SITE_PATH_RE =
+	/(?<![A-Za-z0-9.:])\/(?:posts|projects|gallery|dynamic|booknav|archive|about-site|about|roadmap|vndb|myanimelist|bangumi|bilibili)(?:\/[A-Za-z0-9._~%+-]*)*\/?/g;
+
+export type ChatTextSegment = { kind: "text" | "link"; value: string };
+
+/** 把一段气泡文本切成「普通文本」与「站内链接」两种段（顺序保留、拼接回来与原串逐字相同） */
+export function splitChatLinks(text: string): ChatTextSegment[] {
+	const out: ChatTextSegment[] = [];
+	let last = 0;
+	for (const m of text.matchAll(SITE_PATH_RE)) {
+		const idx = m.index ?? 0;
+		const value = m[0];
+		// 只要「/」结尾的裸一级段（`/posts/`）也算链接；长度 1 的空段直接跳过
+		if (idx > last) out.push({ kind: "text", value: text.slice(last, idx) });
+		if (value.length > 1) out.push({ kind: "link", value });
+		last = idx + value.length;
+	}
+	if (last < text.length) out.push({ kind: "text", value: text.slice(last) });
+	return out;
+}
+
 /** 时间戳（`21:04`）——历史区每行都挂一个，方便回溯多轮 */
 export function formatClock(at: number): string {
 	const d = new Date(at);
