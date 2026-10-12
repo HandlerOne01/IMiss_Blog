@@ -4643,7 +4643,28 @@ async function main() {
 	record("R-WDG-01", `站点统计只剩 ${EXPECT_STAT_ROWS} 行`, home.statRows === EXPECT_STAT_ROWS, `实际 ${home.statRows} 行`);
 	record("R-WDG-01", "站点统计不含已删文案", EXPECT_ABSENT_STAT_TEXT.every((t) => !(home.statText ?? "").includes(t)), "运行时长/最后活动/天前 均未出现");
 	record("R-WDG-02", "日历热力图已关闭", home.heatmapExists === false, `#heatmap-container ${home.heatmapExists ? "仍存在" : "不存在"}`);
-	record("R-WDG-03", "站点信息占位模式", (home.infoText ?? "").includes("站点尚未部署") && (home.infoText ?? "").includes("—"), (home.infoText ?? "").slice(0, 80));
+	// ⚠️ v1.117（P6-6）翻转：原来这条钉的是**占位模式**（"站点尚未部署" + 值全是 "—"）。
+	//    站点 2026-10-12 已上线（v1.113 换真域名 + HTTPS）→ 就地翻成**真实值断言**：
+	//    ① 占位提示必须消失；② 值里不许再出现 "—"；③ 站点域名必须真回填进这一格；
+	//    ④ 构建平台那一格必须等于配置里的显式值（期望值**从配置现场读**，不写死 —— 换平台只改配置，
+	//       这条会自己跟上，就像 R-ID-03 读 site_url 那样）。
+	//    为什么值得钉：占位开关漏关过一次（P6-6 挂了整整一个月没人看见），
+	//    而漏关的表现就是"侧栏一堆横杠"，正是这条断言现在会立刻报红的东西。
+	{
+		const sidebarCfg = await fs.readFile(path.resolve("src/config/sidebarConfig.ts"), "utf8");
+		const expectPlatform = /buildPlatform:\s*"([^"]+)"/.exec(sidebarCfg)?.[1] ?? "";
+		const info = home.infoText ?? "";
+		const noPlaceholderHint = !info.includes("站点尚未部署");
+		const noDash = !info.includes("—");
+		const hasDomain = info.includes("imissblog.cn");
+		const hasPlatform = !!expectPlatform && info.includes(expectPlatform);
+		record(
+			"R-WDG-03",
+			"站点信息已切回真实值（占位提示与「—」全消失，域名与构建平台都真回填）",
+			noPlaceholderHint && noDash && hasDomain && hasPlatform,
+			`提示消失=${noPlaceholderHint}｜无「—」=${noDash}｜含域名=${hasDomain}｜含构建平台「${expectPlatform}」=${hasPlatform}｜infoText=${info.slice(0, 120)}`,
+		);
+	}
 	// R-ID-08：许可关闭后侧栏也不该再出现 CC / "None" 这种假值
 	record(
 		"R-ID-08",

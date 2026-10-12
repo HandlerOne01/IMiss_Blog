@@ -50,10 +50,20 @@ export type DynamicWidgetConfig = {
 export type SiteInfoConfig = {
 	unknownBuildPlatform?: string; // 未识别的构建平台显示文本，默认 "Unknown CI"
 	/**
+	 * IMiss Blog 新增（v1.117 / P6-6）：部署平台与运行环境的**显式值**。
+	 * 本站是自建部署（本地构建 → SSH 上传到腾讯云 Nginx），既不在 Vercel 也不在任何 CI，
+	 * 自动识别只会得到 "Local"，对访客没有意义 —— 所以这两格由配置直接给真名。
+	 * 留空则回落到自动识别（`detectBuildPlatform()` / `process.platform`）。
+	 */
+	buildPlatform?: string;
+	systemInfo?: string;
+	/**
 	 * IMiss Blog 新增（R-WDG-03）：占位模式。
 	 * 站点还没部署，构建平台 / 系统架构 / 构建时间这些值都是本机的临时信息，
 	 * 开着它时这些字段统一显示 "—"，并在卡片底部提示"部署后自动填充"；
-	 * 本地配置项（文章许可）照常显示。部署后把 siteConfig 的这两处开关改成 false 即可回填真实值。
+	 * 本地配置项（文章许可）照常显示。部署后把 sidebarConfig 的这两处开关改成 false 即可回填真实值。
+	 * ⚠️ v1.117（P6-6）：2026-10-12 站点已上线，两处都已改成 false —— 留着这个开关是为了
+	 * 将来换域名/换机器时还能一键退回占位（那时若显示本机信息会让人误以为站点还没上线）。
 	 */
 	placeholder?: boolean;
 };

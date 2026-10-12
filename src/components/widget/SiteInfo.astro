@@ -59,13 +59,18 @@ const buildTime = formatDateI18nWithTime(new Date());
 // 构建平台检测（使用 ci-info 自动识别 CI 环境）
 const unknownBuildPlatform =
 	widgetConfig?.specificConfig?.siteInfo?.unknownBuildPlatform || "Unknown CI";
-const buildPlatform = detectBuildPlatform({
-	env: process.env,
-	isCI: ci.isCI,
-	ciName: ci.name,
-	isDev: import.meta.env.DEV,
-	unknownBuildPlatform,
-});
+// v1.117（P6-6）：本站是自建部署（本地构建 → SSH 上传到腾讯云 Nginx），不在任何 CI 里，
+// 自动识别只会得到 "Local" —— 所以优先取配置里的显式值（见 sidebarConfig 的注释）。
+const buildPlatformOverride = widgetConfig?.specificConfig?.siteInfo?.buildPlatform;
+const buildPlatform =
+	buildPlatformOverride?.trim() ||
+	detectBuildPlatform({
+		env: process.env,
+		isCI: ci.isCI,
+		ciName: ci.name,
+		isDev: import.meta.env.DEV,
+		unknownBuildPlatform,
+	});
 
 // 系统信息（平台 + 架构）
 const platformMap: Record<string, string> = {
@@ -82,7 +87,11 @@ const archMap: Record<string, string> = {
 };
 const osName = platformMap[process.platform] || process.platform;
 const archName = archMap[process.arch] || process.arch;
-const systemInfo = `${osName} / ${archName}`;
+// v1.117（P6-6）：这一格问的是"站点跑在哪"，不是"我在哪台机器上构建" ——
+// 自动值是**构建机**（本机是 Windows / x86_64），而站点实际跑在腾讯云的 Ubuntu 上，
+// 所以同样优先取配置里的显式值；配置留空时才是构建机口径。
+const systemInfoOverride = widgetConfig?.specificConfig?.siteInfo?.systemInfo;
+const systemInfo = systemInfoOverride?.trim() || `${osName} / ${archName}`;
 
 // 站点域名（去掉协议前缀）
 const siteDomain = siteConfig.site_url

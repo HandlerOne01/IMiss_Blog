@@ -139,10 +139,15 @@ export const sidebarLayoutConfig: SidebarLayoutConfig = {
 				siteInfo: {
 					// 未能识别的构建平台回退显示文本，可自定义
 					unknownBuildPlatform: "Unknown CI",
-					// IMiss Blog（R-WDG-03）：站点还没部署，先进入占位模式——
-					// 构建平台/系统架构/构建时间等一律显示 "—"，并提示"部署后自动填充"。
-					// 部署后改成 false 即可显示真实值（见 PROJECT_STATUS P6-6）
-					placeholder: true,
+					// v1.117（P6-6）：站点已上线（v1.113 换真域名 + HTTPS），占位模式关闭 → 回填真实值。
+					// 为什么不用自动识别：自动识别得到的是"本机 Local"或"构建机 Windows"，
+					// 而这一格问的是**站点跑在哪** —— 本站是自建部署（本地构建 → SSH 上传到腾讯云 Nginx），
+					// 所以显式给真名。换机器/换平台时改这两行即可。
+					buildPlatform: "腾讯云 · Nginx",
+					systemInfo: "Linux / x86_64",
+					// ⚠️ 换域名或换服务器期间可以临时改回 true：那时这两格会显示 "—"，
+					// 避免把上一台机器的信息当成现状展示。
+					placeholder: false,
 				},
 			},
 		},
@@ -316,9 +321,11 @@ export const sidebarLayoutConfig: SidebarLayoutConfig = {
 				siteInfo: {
 					// 未能识别的构建平台回退显示文本，可自定义
 					unknownBuildPlatform: "Unknown CI",
-					// IMiss Blog（R-WDG-03）：占位模式。这一处属于**移动端底部组件**
-					// （mobileBottomComponents），与右侧栏那份是两处独立配置，都要改才一致。
-					placeholder: true,
+					// v1.117（P6-6）：占位模式关闭，与上面右侧栏那份保持**逐字一致**
+					// （这是 mobileBottomComponents 的第二处独立配置，两处都改才一致）。
+					buildPlatform: "腾讯云 · Nginx",
+					systemInfo: "Linux / x86_64",
+					placeholder: false,
 				},
 			},
 		},
