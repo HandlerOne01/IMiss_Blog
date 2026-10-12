@@ -344,3 +344,52 @@ sudo systemctl stop pet-gateway        # 桌宠会退化成前端本地 mock（�
 ③ 换成完整版 `deploy/nginx-site.conf`（填 `__DOMAIN__` / `__CERT_PATH__`）→ `nginx -t` → reload；
 另把 `PET_ALLOWED_ORIGINS` 加上 `https://imissblog.cn` 并 `systemctl restart pet-gateway`。
 （以上三步 2026-10-12 已全部完成 ✅ —— 保留这段是为了将来换域名时照做。）
+
+---
+
+### 8.1 上线后复查（2026-10-12，v1.116）
+
+**① 服务器上后端那份 clone 原来是浅克隆，已补全 —— 不补就没有回滚能力。**
+
+- **怎么发现的**：`git -C ~/agent log` 只有 **1 条**，但 Gitee 上是 **16 提交**。看着像"提交丢了"，其实是当初 clone 带了 `--depth 1`：**只下最新快照、不下祖先历史**。
+- **判据（两条一起看）**：`git -C ~/agent rev-parse --is-shallow-repository` → `true`；`cat ~/agent/.git/shallow` → 内容正好是那唯一可见的提交 `11d28c6988e959…`。
+- **代码没受影响（重要）**：浅克隆只砍历史、不砍文件 —— 服务器与本机**被跟踪文件都是 72 个**，`HEAD^{tree}` 两边同为 `65b0c4564f7bb03635b22c1ac2a4d66fa2126b12` → 逐字节同一份代码。所以「服务跑的是不是最新代码」这个问题，用 **tree hash 对撞**回答最干脆，别用 `git log` 的条数回答。
+- **处置**：`git -C ~/agent fetch --unshallow --tags` → 提交条数 **1 → 16**、`.git` **3.6 MB → 6.8 MB**；**HEAD 与 tree 都没变**，因此 systemd 认为"代码没动"，**不需要重启**（实测 `langgraph` 仍 `active`、MainPID 未变、`/api/agent/ok` 200）。
+- **补全后才有的能力 —— 服务器上紧急回滚**：
+  ```bash
+  git -C ~/agent log --oneline -5          # 挑一个上一个好版本
+  git -C ~/agent checkout <提交>
+  sudo systemctl restart langgraph
+  ```
+  ⚠️ 前端**没有**这条路：站点是产物目录 `/var/www/imiss-blog/dist`，不是仓库，回滚只能本地重新构建后再发布。
+
+**② 服务器自检要打回环地址，不要打公网域名（腾讯云回环 NAT）。**
+
+- **现象**：在服务器上 `curl https://imissblog.cn/api/agent/ok` → **超时**（`curl: (28)`，10 s），但同一时刻从外网打 → **200 `{"ok":true}`**。
+- **原因**：`getent hosts imissblog.cn` → `43.133.230.71`，而 `43.133.230.71` **就是这台机器自己的公网 IP** —— 自己打自己的公网 IP 走不通（云厂商回环 NAT），**不是服务坏了**。
+- **写法**：服务器侧自检一律用回环 —— `curl http://127.0.0.1:8787/api/agent/ok`（实测 **1.7 ms / 200**）、后端 `curl http://127.0.0.1:2024/ok`（**0.8 ms / 200**）；要验证 Nginx/证书就用 `curl --resolve 域名:443:127.0.0.1 https://域名/`。
+- **为什么值得写下来**：这正是 §8 那条"443 到底通不通"排查时的**干扰项之一**。记住三段判据：`ss -lntp | grep :443` 有 LISTEN → `curl --resolve …127.0.0.1` 得 200 → **只有** `curl --resolve …<公网IP>` 超时时，再去怀疑上游防火墙；**服务器上直连公网域名超时本身不构成证据**。
+
+**③ 凭据泄漏审计（2026-10-12）：真实密钥没有进入仓库，也没有进入公开产物。**
+
+> 背景：两个 Gitee 仓库都是**公开**仓库（`GET /api/v5/repos/a2186988646/<repo>` 匿名 200、`private: false`），所以"历史上有没有提交过密钥"必须当成对全世界可见来查。
+
+| 检查 | 结论 |
+| --- | --- |
+| 源码 + 产物模式扫描（`src` `public` `deploy` `scripts` `dist` 等 **789 个文本文件**） | **0 个真实密钥**。唯一 `sk-` 命中是 `scripts/verify-gateway.mjs` 里的 **`FAKE_SECRET` 诱饵**（"网关不回吐密钥"那条断言用的假密钥）；`password` 类命中全是字段名 / 事件名（如 `password:decrypted`）/ 教程里的 `os.getenv(...)` 取样 |
+| 两仓库**全历史**（博客 212 提交 / 1211 个曾出现的文件；后端 16 提交 / 160 个） | **`.env` 从未进入任何历史**。命中的环境类文件名只有 `.env.example`（全占位，且文件里明写"真实密钥别放这"）与 `.npmrc`（只有一行 pnpm 配置） |
+| **把 `.env` 里 6 个真实值拿去全文比对**（`LANGSMITH_API_KEY` / `DeepSeek_API_KEY` / `GuiJiLiuDong_API_KEY` / `DB_PASSWORD` / `REDIS_URI` / `DATABASE_URI`） | **不在任何仓库的历史、工作区或公开产物中**。出现位置只有三处：服务器 `~/agent/.env`、本机后端 `.env`（`gitignore` 覆盖）、`reports/_ops/` 下我自己的运维副本（`reports/` 已 gitignore） |
+| 公开产物 | `dist/` 里 `.env` 与 `.map` **各 0 个**；`api/allPostMeta.json` 的 `password` 字段 **138 条全是布尔 `false`**（站点没有加密文章，源文件里非空 `password` 为 0 篇）；站点 HTML 里带值密码/密钥 **0 处** |
+| 公网直取敏感路径 | `/.env`、`/agent/.env`、`/.my.cnf`、`/.git/config`、`/package.json`、`/src/config/siteConfig.ts`、`/deploy/README.md`、`/nginx.conf`、`/pet-gateway.mjs` —— **9 条全部 404** |
+| 网关 | `/opt/imiss-gateway/pet-gateway.mjs`（`644 root:root`）**零硬编码凭据**；systemd `Environment=` 里含 `KEY/TOKEN/SECRET/PASSWORD` 的条目 **0 条**；`/api/agent/ok` 响应体 0 处密钥字段 |
+| 文件权限 | `~/agent/.env` 与 `~/.my.cnf` 都是 `600 kiana`；`www-data` **读不到** `.env`、连 `/home/kiana` 都进不去（网关以 `www-data` 跑，天然拿不到后端密钥） |
+| 暴露面 | 公网 LISTEN 只有 **22 / 80 / 443**；MySQL 3306、LangGraph 2024、网关 8787 **都只听回环** |
+
+**唯一需要动作的是 SSH（不是密钥泄漏，是加固）：**
+
+- 现状：`passwordauthentication yes` + `permitrootlogin yes`、**没有 fail2ban**。
+- 实测规模（**没有被攻进来**）：24 h 内 **37 次失败口令 + 33 次无效用户**（互联网背景扫描，来源分散；腾讯云自带的 `YJ-FIREWALL-INPUT` 链已自动封了若干扫描 IP）；**7 天内成功登录只有一个来源**（发起人自己的 IP `120.229.98.227`，105 次）。
+- 建议三件事：① 关掉密码登录只留密钥（**先确认自己的机器已装公钥再关**）；② `PermitRootLogin prohibit-password`；③ 装 `fail2ban` 兜扫描。
+- 额外理由：本仓库 `deploy/README.md` 本身就在**公开**仓库里，服务器 IP、登录用户名、`PermitRootLogin yes` 这些都能被人读到 —— 把"口令登录"这条路关掉，公开这些信息的代价就降到接近零。
+
+> 本节的取证脚本（都在 gitignore 的 `reports/_ops/`）：`96-scan-secrets.mjs`（源码+产物）、`97-locate-hits.mjs`（脱敏定位）、`98-history-secret-scan.mjs`（全历史）、`99-server-secret-audit.sh`（服务器侧文件与权限）、`100-cross-check-secrets.mjs`（拿真实值全文比对，**只输出命中位置、不打印密钥原文**）、`101-server-exposure-check.sh`、`102-check-post-passwords.mjs`、`103-ssh-exposure-detail.sh`。
