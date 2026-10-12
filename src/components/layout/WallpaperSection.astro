@@ -83,8 +83,8 @@ const videoData = {
 	// ── 视频轮播（R-BG-09，v1.118）：间隔与"访客开关"的三个事实 ──────────────
 	// 开关**复用面板那个**（显示设置面板 → 壁纸 → 壁纸轮播），所以这里只搬三个值：
 	// 能不能由访客切换、默认关还是默认开（= common.carousel.enable，本站 false）、
-	// 以及视频自己的间隔（60 秒；图片那套 5 秒对原画太凶）。夹到 ≥5000 防误配。
-	carouselInterval: Math.max(5000, Number(videoConf?.carousel?.interval ?? 60000)),
+	// 以及视频自己的间隔（v1.119 起 30 秒；图片那套 5 秒对原画太凶）。夹到 ≥5000 防误配。
+	carouselInterval: Math.max(5000, Number(videoConf?.carousel?.interval ?? 30000)),
 	carouselSwitchable: state.bannerCarouselSwitchable === true,
 	carouselDefault: state.bannerCarouselEnabledDefault === true,
 };
@@ -323,7 +323,8 @@ const videoScript = `(function initVideoWallpaper() {
 	/* ============================================================================
 	 * 视频轮播（R-BG-09，v1.118）—— 六支原画按固定间隔自动换片。
 	 *
-	 * 发起人 2026-10-12 定的三个数：**间隔 60 秒 / 默认关 / 桌面与手机都轮**。
+	 * 发起人 2026-10-12 定的参数：**间隔 30 秒 / 默认关 / 桌面与手机都轮**
+	 * （先定 60 秒，v1.119 他改口「**改成30s切换下一张吧**」→ 30 秒）。
 	 *
 	 * **开关复用访客那个**（显示设置面板 →「壁纸」页签 →「壁纸轮播」）：默认值取
 	 * common.carousel.enable（本站 false），访客点过之后以 localStorage 里的值为准 ——
@@ -364,7 +365,7 @@ const videoScript = `(function initVideoWallpaper() {
 	function carStop() {
 		if (carTimer !== null) { window.clearTimeout(carTimer); carTimer = null; }
 	}
-	/** 起表；override 只给验收脚本用（真实访客走 DATA.carouselInterval = 60 秒） */
+	/** 起表；override 只给验收脚本用（真实访客走 DATA.carouselInterval = 30 秒） */
 	function carStart(override) {
 		carStop();
 		if (DATA.items.length <= 1) return;

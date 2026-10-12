@@ -6353,7 +6353,8 @@ async function main() {
 		);
 	}
 	// ── R-BG-09 视频轮播（v1.118）：面板那个「壁纸轮播」开关对**视频**也生效 ──────────
-	// 发起人 2026-10-12 定的三个数：「**60秒 默认关 都轮**」（桌面与手机都轮）。
+	// 发起人 2026-10-12 定的参数：「**30秒 / 默认关 / 都轮**」（桌面与手机都轮）。
+	// ⚠️ 他先定的是 60 秒，v1.119 改口「改成30s切换下一张吧」→ 这条断言跟着改成 30000。
 	//
 	// 为什么单钉这两条：**v1.117 之前，视频模式下那个开关是个空开关** ——
 	//   图片那套轮播切的是 `.slide-item`，而视频模式的容器里一个都没有，
@@ -6395,7 +6396,7 @@ async function main() {
 		const flushSwitch = () =>
 			carCmd(`(() => { localStorage.removeItem("bannerCarouselEnabled"); return true; })()`);
 
-		// (a) 默认口径：开关没动过时不许轮（连 start() 都绕不过去），间隔是配置里的 60 秒
+		// (a) 默认口径：开关没动过时不许轮（连 start() 都绕不过去），间隔是配置里的 30 秒
 		if (!(await carState()).missing) {
 			await flushSwitch();
 			await carCmd(`window.dispatchEvent(new CustomEvent("bannerCarouselChange", { detail: { enabled: false } }))`);
@@ -6406,15 +6407,15 @@ async function main() {
 			const stillOff = await carState();
 			record(
 				"R-BG-09",
-				"视频轮播**默认关**：开关没动过时不起表（`start()` 也绕不过去），且间隔 = 配置里的 **60 秒**（不是图片那套 5 秒）",
-				off.interval === 60000 &&
+				"视频轮播**默认关**：开关没动过时不起表（`start()` 也绕不过去），且间隔 = 配置里的 **30 秒**（不是图片那套 5 秒）",
+				off.interval === 30000 &&
 					off.defaultEnabled === false &&
 					off.switchable === true &&
 					off.enabled === false &&
 					off.running === false &&
 					forced === false &&
 					stillOff.running === false,
-				`interval=${off.interval}（期望 60000）｜defaultEnabled=${off.defaultEnabled}｜switchable=${off.switchable}｜enabled=${off.enabled}｜running=${off.running}｜强行 start(300) 返回 ${forced}（期望 false）｜0.9 秒后仍 running=${stillOff.running}`,
+				`interval=${off.interval}（期望 30000）｜defaultEnabled=${off.defaultEnabled}｜switchable=${off.switchable}｜enabled=${off.enabled}｜running=${off.running}｜强行 start(300) 返回 ${forced}（期望 false）｜0.9 秒后仍 running=${stillOff.running}`,
 			);
 
 			// (b) 打开开关 → 真的按顺序换片且能循环；关掉就停；手动换片只重置一次表（不叠加）
@@ -6426,7 +6427,7 @@ async function main() {
 			})()`);
 			await sleep(400);
 			const on = await carState();
-			// 把 60 秒压成 300 毫秒跑几轮 —— 验的是"真的会换"，不是"等得起 60 秒"
+			// 把 30 秒压成 300 毫秒跑几轮 —— 验的是"真的会换"，不是"等得起 30 秒"
 			await carCmd("window.__imissWallpaperVideo.carousel.start(300)");
 			const before = await carState();
 			const seq = [];

@@ -392,4 +392,11 @@ sudo systemctl stop pet-gateway        # 桌宠会退化成前端本地 mock（�
 - 建议三件事：① 关掉密码登录只留密钥（**先确认自己的机器已装公钥再关**）；② `PermitRootLogin prohibit-password`；③ 装 `fail2ban` 兜扫描。
 - 额外理由：本仓库 `deploy/README.md` 本身就在**公开**仓库里，服务器 IP、登录用户名、`PermitRootLogin yes` 这些都能被人读到 —— 把"口令登录"这条路关掉，公开这些信息的代价就降到接近零。
 
-> 本节的取证脚本（都在 gitignore 的 `reports/_ops/`）：`96-scan-secrets.mjs`（源码+产物）、`97-locate-hits.mjs`（脱敏定位）、`98-history-secret-scan.mjs`（全历史）、`99-server-secret-audit.sh`（服务器侧文件与权限）、`100-cross-check-secrets.mjs`（拿真实值全文比对，**只输出命中位置、不打印密钥原文**）、`101-server-exposure-check.sh`、`102-check-post-passwords.mjs`、`103-ssh-exposure-detail.sh`。
+**④ 本机代理会拦掉对本站的访问（2026-10-12 实战，和"手机代理"是同一个病）。**
+
+- **现象**：同一时刻，服务器侧 `curl --resolve imissblog.cn:443:127.0.0.1` 是 **200**、站点日志里一个请求都没有，而本机 `https://imissblog.cn` 打不开；无头 Chrome 取证脚本拿到的是 `chrome-error://chromewebdata/`（导航失败页，`localStorage` 还会抛 `SecurityError`，看着像站点把存储搞坏了 —— 其实是错误页的**不透明源**）。
+- **判据（一条就够）**：本机 `Resolve-DnsName imissblog.cn` 返回 **`198.18.x.x`**（Clash 的 fake-IP 段）而不是 `43.133.230.71` —— 连直接问 `223.5.5.5` 也返回 fake IP，因为 DNS 被 TUN 模式接管了。站点没问题，是本机在跑代理（`verge-mihomo` 之类）。
+- **处置**：把代理关掉，或给规则里加一条 **`DOMAIN-SUFFIX,imissblog.cn,DIRECT`**。⚠️ 对**取证脚本**来说 `--no-proxy-server` 不管用（TUN 在 IP 层接管，DNS 已经是假的）——只能从代理侧放行，或改用**服务器侧**的 `curl --resolve` 取证据。
+- **一句话**：**服务器侧能 200 + 站点日志里没有你的请求 = 包根本没出你这台机器**，先查本机代理/DNS，别去查站。
+
+> 本节的取证脚本（都在 gitignore 的 `reports/_ops/`）：`96-scan-secrets.mjs`（源码+产物）、`97-locate-hits.mjs`（脱敏定位）、`98-history-secret-scan.mjs`（全历史）、`99-server-secret-audit.sh`（服务器侧文件与权限）、`100-cross-check-secrets.mjs`（拿真实值全文比对，**只输出命中位置、不打印密钥原文**）、`101-server-exposure-check.sh`、`102-check-post-passwords.mjs`、`103-ssh-exposure-detail.sh`、`110-mobile-access-diagnose.sh` / `111-mobile-path-diagnose.sh` / `115-diag-live-storage.mjs`（访问链路排查）。
