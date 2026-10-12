@@ -52,10 +52,10 @@ export const siteConfig: SiteConfig = {
 	subtitle: "爱弥斯的小站",
 
 	// 站点 URL
-	// ⚠️ v1.111（2026-10-12 首次真机部署）：域名 `imissblog.cn` **还在实名审核**，
-	//    所以先用腾讯云首尔那台机器的**公网 IP** 上线；域名过审后改成 `https://imissblog.cn`
-	//    并重建重发（sitemap / RSS / OG 卡片 / canonical / 分享二维码 全都吃这个值）。
-	site_url: "http://43.133.230.71",
+	// ⚠️ v1.113（2026-10-12）：域名 **imissblog.cn 已实名通过并解析到本机**，站点切到
+	//    `https://imissblog.cn`（HTTPS 证书由 certbot 签，80 自动 301 跳 https）。
+	//    改这个值会影响 sitemap / RSS / OG 卡片 / canonical / 分享二维码 —— 改完必须重建重发。
+	site_url: "https://imissblog.cn",
 
 	// 站点描述
 	// ⚠️ v1.41（P2R）：原文后半句是"外加定期更新的番剧排行榜"——排行模块已整体删除（R-PATH-06），

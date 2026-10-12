@@ -308,7 +308,7 @@ sudo systemctl stop pet-gateway        # 桌宠会退化成前端本地 mock（�
 | 数据库 | 本机 MySQL 8.4.11：库 `my_blog`、用户 `kiana_mysql`（**库名/用户/密码与原来一致**）；已从 `106.52.158.48` 迁入并**逐项对账**（两表各 138 行、视图/外键/全文索引/3 个触发器齐全、两侧 MD5 指纹一致） |
 | systemd | `langgraph.service`（:2024，User=kiana，**去掉了模板里的 `ProtectHome=true`** —— 服务在 `/home` 下）+ `pet-gateway.service`（:8787，User=www-data，`/opt/imiss-gateway/pet-gateway.mjs`，`PET_ALLOWED_ORIGINS` 先填 IP、`TRUST_PROXY=1`） |
 | 发布命令 | `node deploy/publish.mjs --server kiana@43.133.230.71 --key-file reports/_ops/imiss_deploy --web-root /var/www/imiss-blog/dist --stage-root /home/kiana/.imiss-publish`（首次整包 1079 文件 / 445,024,548 字节 / **92.7 秒**；之后是增量） |
-| 上线冒烟 | `node reports/_ops/50-smoke.mjs http://43.133.230.71` → **14/14 通过**（首页/目录路由/真 404/掐存根/隐藏文件/缓存头/大素材逐字节/搜索索引/sitemap·robots·llms/真值 URL/同源 `/api/agent`/三段链路/桌宠 SSE 首块 679 ms） |
+| 上线冒烟 | `node reports/_ops/50-smoke.mjs https://imissblog.cn` → **14/14 通过**（首页 200 / 目录路由 / 真 404 / 掐存根 / 隐藏文件 / 缓存头 / 大素材逐字节 / 搜索索引 / sitemap·robots·llms / **绝对地址 = 真域名** / 同源 `/api/agent` / 三段链路 / 桌宠 SSE 首块 718 ms）；`http://` 那条 **301 → https**。IP 阶段那次的 14/14 用的是 `http://43.133.230.71` |
 
 **首次上真机踩到的坑（都记进 PROJECT_STATUS v1.112，这里只列要点）**：
 
@@ -321,7 +321,26 @@ sudo systemctl stop pet-gateway        # 桌宠会退化成前端本地 mock（�
 4. **触发器要用 root 建**：binlog 开启时应用用户没有 SUPER（`ERROR 1419`）。
 5. **web root 权限**：发布用户要能写、Nginx（www-data）要能读 → `chown kiana:www-data` + `chmod -R g+rX` + 目录 `g+s`。
 
+**域名切换（2026-10-12 完成，v1.113）**：`imissblog.cn` 实名通过后，发起人在 DNSPod 加了
+`@` 与 `www` 两条 A → `43.133.230.71`；随后用**一键脚本** `~/70-switch-to-domain.sh` 完成切换
+（DNS 前置检查 → `certbot certonly --webroot` → 填占位符装 HTTPS 配置 → 停用 IP 阶段配置并启用 → 网关加 origin → 续期演练），
+证书在 `/etc/letsencrypt/live/imissblog.cn/`（到期 2027-01-10，timer 自动续期），站点重建后重发、
+`site_url` 已是 `https://imissblog.cn`。
+
+> ⚠️ **上真机时最容易漏的一步：控制台防火墙要放行 443**。本案就是被它卡住的 ——
+> 现象是"本机 `nginx -t`/回环 https 都 200，但公网怎么都连不上"，且**服务器自己从公网打自己的 443 也超时**，
+> 而系统 iptables 里没有任何拦 443 的规则。判据三段：`ss -lntp | grep :443` 有 LISTEN、`curl --resolve … 127.0.0.1` 得 200、
+> `curl --resolve … <公网IP>` 超时 → **只可能是上游防火墙**。处置：控制台 → 轻量应用服务器 → 该实例 → **防火墙** → 加 TCP 443 允许（来源 `0.0.0.0/0`）。
+> **顺序建议**：先放行 443，再切 Nginx 配置 —— 否则会出现"80 已 301 跳到 https、而 https 又连不上"的**短暂不可访问**窗口。
+>
+> ⚠️ **实战补充（2026-10-12 真的踩了）**：那次为了避开上面这个"不可访问窗口"，把 Nginx **整份切回**了 IP 阶段的 80 直服配置 ——
+> **但那份没有 443 段**，于是 nginx 干脆不监听 443 了。发起人随后放行防火墙、反馈"还是打不开"，
+> 排查半天才发现**根因是没人在听 443，而不是防火墙没生效**。
+> **两条教训**：① "等 443 放行"期间**不要撤掉 443 的监听**；真要保可用性，就让 **80 直接服务站点、同时保留 443 段**（`server_name _` 的 80 段 + 域名 443 段可以共存），而不是整份换掉。
+> ② 判断"是不是防火墙"之前，先看**服务器自己**：`ss -lntp | grep :443` 必须有 LISTEN、`curl --resolve 域名:443:127.0.0.1 https://域名/` 必须 200 —— 这两条不过，就别去怪防火墙。
+
 **域名过审后要做的三件事**（届时按 §2 第 1/4/5 步走）：① `site_url` → `https://imissblog.cn` 并**重建**；
 ② `certbot certonly --webroot -w /var/www/acme -d imissblog.cn -d www.imissblog.cn`；
 ③ 换成完整版 `deploy/nginx-site.conf`（填 `__DOMAIN__` / `__CERT_PATH__`）→ `nginx -t` → reload；
 另把 `PET_ALLOWED_ORIGINS` 加上 `https://imissblog.cn` 并 `systemctl restart pet-gateway`。
+（以上三步 2026-10-12 已全部完成 ✅ —— 保留这段是为了将来换域名时照做。）

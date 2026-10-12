@@ -2,7 +2,7 @@
 
 以《鸣潮》角色 **爱弥斯** 为主题的个人技术博客。站点名 **IMiss** 取自「爱弥斯」（**A**i **M**i **S**i）的谐音。
 
-> **项目状态**：**已上线（v1.112，2026-10-12）** —— 站点与桌宠 Agent 跑在腾讯云首尔那台机器上：<http://43.133.230.71/>（域名 `imissblog.cn` 实名过审后切 HTTPS）。阶段、进度、下一步与阻塞项一律以 [`PROJECT_STATUS.md`](./PROJECT_STATUS.md) 为准；上线细节（真实填值、踩坑、域名后的三步）见 [`deploy/README.md`](./deploy/README.md) **§8 真机部署实况**。
+> **项目状态**：**已上线（v1.113，2026-10-12）** —— 站点与桌宠 Agent 跑在腾讯云首尔那台机器上，域名 **<https://imissblog.cn/>**（HTTPS，证书 Let's Encrypt 自动续期）。阶段、进度、下一步与阻塞项一律以 [`PROJECT_STATUS.md`](./PROJECT_STATUS.md) 为准；上线细节（真实填值、踩坑、域名切换）见 [`deploy/README.md`](./deploy/README.md) **§8 真机部署实况**。
 > **需求与设计**：[`prd.md`](./prd.md)（需求编号 R-xxx）、[`ARCH.md`](./ARCH.md)（改动落点与子系统设计）。
 
 本站基于一个开源 Astro 博客模板（**上游基线 v6.16.8**）二次开发（Astro 7 + Svelte 5，静态输出），统一主题名「爱弥斯 / IMiss」（见 `prd.md` R-ID-01）。
