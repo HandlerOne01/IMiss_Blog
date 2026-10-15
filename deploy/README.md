@@ -112,11 +112,28 @@ sudo systemctl reload nginx
 # 先空跑一遍，看清楚它要执行哪几条命令（不会连服务器、不会写任何东西）
 node deploy/publish.mjs --server blog@<服务器IP> --web-root /var/www/imiss-blog/dist --dry-run
 
-# 真发（增量：只传变化的文件；远端会留 2 份回滚备份）
+# 真发（远端会留 2 份回滚备份）
 node deploy/publish.mjs --server blog@<服务器IP> --web-root /var/www/imiss-blog/dist
-# 需要整包重传时加 --full-upload；已经构建好了不想再构建加 --skip-build
+# 已经自己构建好了（而且带上了构建期环境变量）→ 用 --assume-built：跳过构建、仍走差异比对
+node deploy/publish.mjs --server <同样的参数> --assume-built
+# 需要整包重传时加 --full-upload
 # 全部参数：node deploy/publish.mjs --help
 ```
+
+> ⚠️ **"增量"到底省了什么（v1.122 实测更正，别再误解）**：`publish.mjs` 的传输**每次都是整包**
+> （`dist/` 打成 tar.gz，本站 **424.7 MiB → 压缩后 348.4 MiB**），差异比对发生在**上传之后** ——
+> 它决定的是"暂存目录里哪些文件需要替换进线上目录 + 哪些远端多余文件要删"，**不是"少传多少字节"**。
+> 所以：**带宽是瓶颈时，增量帮不上忙**（本轮实测链路掉到 **0.18 MB/s**，一次发布要 30 分钟以上）；
+> 真要省，得先把链路弄好（例如本机代理放行服务器 IP，见 §8.1 ④）。
+>
+> ⚠️ **`--skip-build` 与 `--assume-built` 的区别（v1.122 新增后者）**：`--skip-build` 会**降级成整包覆盖**
+> （脚本的保守设计：本地 `dist/` 不保证是刚构建的完整产物，宁可不删也不误删），
+> `--assume-built` 同样跳过构建但**保留差异比对**。两者的上传量**一样**（见上一条）。
+>
+> ⚠️ **Windows + Node ≥ 22 的一个真 bug（v1.122 修）**：脚本原来用 `spawnSync("pnpm.cmd", …)`
+> 跑构建，而 Node 20.12 / 22 起为 CVE-2024-27980 **拒绝不带 shell 直接 spawn `.cmd`**，实测报
+> `spawnSync pnpm.cmd EINVAL` —— 也就是**不带 `--skip-build` / `--assume-built` 的发布会当场失败**。
+> 已改成 Windows 上带 shell 跑（并把命令拼成单个字符串，避开 Node ≥ 22 的 DEP0190 警告）。
 
 它会打印本地/远端的**文件数与总字节**，两者应当一致（不一致会在最后一行 `⚠️` 提示）。
 纯静态覆盖**不需要 reload Nginx**；只有改了 Nginx 配置才需要。

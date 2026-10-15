@@ -134,7 +134,10 @@ const getDynamicNavBarConfig = (): NavBarConfig => {
 			},
 			{
 				name: "GitHub",
-				url: "https://github.com/a13824367931-alt",
+				// v1.122（2026-10-12）：发起人说「**我的 github 链接变了**」→
+				// 旧号 `a13824367931-alt` 换成 **`HandlerOne01`**（与其他几处**必须逐字一致**：
+				// `profileConfig.links` 里那一份、`verify-ui.mjs` 的 `EXPECT_LINK_CHILDREN`）。
+				url: "https://github.com/HandlerOne01",
 				external: true,
 				icon: "simple-icons:github",
 			},

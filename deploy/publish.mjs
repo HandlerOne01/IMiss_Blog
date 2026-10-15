@@ -162,9 +162,15 @@ function echoBlock(text) {
 	for (const line of text.split("\n")) console.log(`[publish]    ${line.trimEnd()}`);
 }
 
-// Windows 上 pnpm 是 `pnpm.cmd` 这个批处理垫片：直接 spawn `pnpm` 会 ENOENT，
-// 而 spawnSync(..., { shell: true }) 在 Node ≥ 22 会触发 DEP0190 警告 —— 所以显式写 `pnpm.cmd`。
-const PNPM = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+// Windows 上 pnpm 是 `pnpm.cmd` 这个批处理垫片：直接 spawn `pnpm` 会 ENOENT。
+// ⚠️ v1.122 修：光把名字写成 `pnpm.cmd` 在 **Node ≥ 22 上会直接 EINVAL** ——
+//    Node 20.12 / 22 起为 CVE-2024-27980 拒绝"不带 shell 直接 spawn .cmd/.bat"，
+//    实测报错：`[publish] ❌ pnpm.cmd 起不来：spawnSync pnpm.cmd EINVAL`。
+//    所以 Windows 上必须带 shell 跑；而"带 shell + 参数数组"在 Node ≥ 22 会发 DEP0190
+//    警告（只是警告，不改变行为）—— 这里按 Node 的建议把整条命令拼成一个字符串，
+//    既避开 EINVAL，也不再触发 DEP0190。
+const IS_WIN = process.platform === "win32";
+const PNPM = IS_WIN ? "pnpm.cmd" : "pnpm";
 
 /**
  * 跑一个本地命令，**边跑边打印**输出（用于 pnpm build 这种要看进度的）。
@@ -172,7 +178,9 @@ const PNPM = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
  */
 function runVisible(exe, args, { allowFail = false } = {}) {
 	say(`$ ${exe} ${args.join(" ")}`);
-	const r = spawnSync(exe, args, { stdio: "inherit" });
+	const r = IS_WIN
+		? spawnSync([exe, ...args].join(" "), { stdio: "inherit", shell: true })
+		: spawnSync(exe, args, { stdio: "inherit" });
 	if (r.error) die(`${exe} 起不来：${r.error.message}`);
 	const code = r.status ?? 1;
 	if (code !== 0 && !allowFail) die(`${exe} 退出码 ${code}`);
@@ -227,7 +235,11 @@ const OPTION_SPEC = {
 	},
 };
 const BOOL_SPEC = {
-	"--skip-build": { key: "skipBuild", desc: "跳过 pnpm build（dist/ 已是最新的、或只想重传一次）" },
+	"--skip-build": { key: "skipBuild", desc: "跳过 pnpm build（dist/ 已是最新的、或只想重传一次）；⚠️ 会让本次降级成整包覆盖" },
+"--assume-built": {
+	key: "assumeBuilt",
+	desc: "dist/ 已是最新（跳过 pnpm build）但**仍做差异比对**（只传变化的文件，适合慢链路）",
+},
 	"--dry-run": { key: "dryRun", desc: "空跑：只打印将要执行的命令 + 本地清点，不连服务器、不写任何东西" },
 	"--full-upload": { key: "fullUpload", desc: "不做差异比对，整包解到 web root（首次部署/远端清单不可信时用）" },
 	"--allow-mass-delete": { key: "allowMassDelete", desc: "允许单次删除超过 --mass-delete-limit 个文件（**危险**）" },
@@ -458,6 +470,8 @@ if (opts.dryRun) {
 step("本地构建：pnpm build");
 if (opts.skipBuild) {
 	warn(`--skip-build：跳过构建，直接用现有的 ${opts.distDir}/`);
+} else if (opts.assumeBuilt) {
+	warn(`--assume-built：跳过构建、直接用现有的 ${opts.distDir}/，但**照常做差异比对**（只传变化文件）`);
 } else if (opts.dryRun) {
 	say("（--dry-run：跳过）");
 } else {
@@ -540,6 +554,11 @@ step("差异比对：本地 sha256 清单 vs 远端清单");
 //   · --full-upload：用户明确要求
 //   · --skip-build：惰性降级 —— 本地的 dist/ 不保证是"刚构建的完整产物"，
 //     拿它当基准去算"远端多余文件"风险太大（**宁可不删，也不能误删**）
+//   ⚠️ v1.122 新增 `--assume-built`：同样跳过构建，但**保留增量模式** ——
+//      给"我已经自己 `pnpm build` 过了（而且带上了构建期环境变量）"这种情形用。
+//      为什么需要它：`--skip-build` 会降级成整包覆盖，本站产物 **445 MB**，
+//      在慢链路上要传 40 分钟；而增量只传变化的文件（这轮是十几 MB）。
+//      安全性靠既有的两道闸门兜着：删除前缀白名单 + 单次删除 200 条上限。
 const fullMode = Boolean(opts.fullUpload) || Boolean(opts.skipBuild);
 if (fullMode && !opts.fullUpload) {
 	warn("--skip-build：本次自动降级为整包覆盖（不做差异比对、**不删除**远端任何文件）");

@@ -51,7 +51,9 @@ export const profileConfig: ProfileConfig = {
 	// ⚠️ 这 4 条同时进 JSON-LD 的 `Person.sameAs`（`filterAbsoluteLinks()`，见 schema-utils.ts）。
 	links: [
 		{ name: "Gitee", url: "https://gitee.com/a2186988646", icon: "simple-icons:gitee" },
-		{ name: "GitHub", url: "https://github.com/a13824367931-alt", icon: "simple-icons:github" },
+		// v1.122（2026-10-12）：发起人「我的 github 链接变了」→ `a13824367931-alt` → `HandlerOne01`
+		// （与 `navBarConfig.ts` 那一份**逐字一致**，R-WDG-05 会比对两者）
+		{ name: "GitHub", url: "https://github.com/HandlerOne01", icon: "simple-icons:github" },
 		{ name: "CSDN", url: "https://blog.csdn.net/is_ko_nois_ko", icon: "simple-icons:csdn" },
 		{ name: "洛谷", url: "https://www.luogu.com.cn/user/1726221", icon: "simple-icons:luogu" },
 	],

@@ -136,7 +136,7 @@ const EXPECT_TOP_NAV = ["主页", "文章", "学习路线", "我的", "链接", 
 //    所以同一块里另有一条**配置层**判据（EXPECT_LINK_RAW_IP_URL / EXPECT_LINK_HTTPS_HINT）兜着。
 const EXPECT_LINK_CHILDREN = [
 	{ name: "Gitee", href: "https://gitee.com/a2186988646" },
-	{ name: "GitHub", href: "https://github.com/a13824367931-alt" },
+	{ name: "GitHub", href: "https://github.com/HandlerOne01" },
 	{ name: "CSDN", href: "https://blog.csdn.net/is_ko_nois_ko" },
 	{ name: "洛谷", href: "https://www.luogu.com.cn/user/1726221" },
 	{ name: "Boost 搜索引擎", href: "http://106.52.158.48:8081/" },
