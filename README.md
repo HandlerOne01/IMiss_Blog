@@ -1,17 +1,180 @@
-# IMiss Blog
+<div align="center">
 
-以《鸣潮》角色 **爱弥斯** 为主题的个人技术博客。站点名 **IMiss** 取自「爱弥斯」（**A**i **M**i **S**i）的谐音。
+<a href="https://imissblog.cn/">
+  <img src="./src/assets/images/logo/imiss-light.webp" alt="IMiss Blog 纸飞机" width="112" />
+</a>
 
-> **项目状态**：**已上线（v1.113，2026-10-12）** —— 站点与桌宠 Agent 跑在腾讯云首尔那台机器上，域名 **<https://imissblog.cn/>**（HTTPS，证书 Let's Encrypt 自动续期）。阶段、进度、下一步与阻塞项一律以 [`PROJECT_STATUS.md`](./PROJECT_STATUS.md) 为准；上线细节（真实填值、踩坑、域名切换）见 [`deploy/README.md`](./deploy/README.md) **§8 真机部署实况**。
-> **需求与设计**：[`prd.md`](./prd.md)（需求编号 R-xxx）、[`ARCH.md`](./ARCH.md)（改动落点与子系统设计）。
+<h1>IMiss Blog</h1>
 
-本站基于一个开源 Astro 博客模板（**上游基线 v6.16.8**）二次开发（Astro 7 + Svelte 5，静态输出），统一主题名「爱弥斯 / IMiss」（见 `prd.md` R-ID-01）。
-**上游出处与许可**：`LICENSE`（MIT，保留原作者版权声明）与 `README.upstream.zh.md` / `README.en.md`——上游主题名与作者名只在这几处出现，源码与产物里一律用中性称呼。
-上游完整文档保留为 [`README.upstream.zh.md`](./README.upstream.zh.md)（中文）与 [`README.en.md`](./README.en.md)（English），本文件只描述**本站自己的**约定。
+<p><b>爱弥斯的小站 · 把学过的知识，写成可以再次出发的路。</b></p>
+
+<p>以《鸣潮》角色爱弥斯为主题的个人技术博客，记录 C/C++、Linux、算法与 AI 应用。</p>
+
+<p>
+  <a href="https://astro.build/"><img src="https://img.shields.io/badge/Astro-7-BC52EE?style=flat-square&amp;logo=astro&amp;logoColor=white" alt="Astro 7" /></a>
+  <a href="https://svelte.dev/"><img src="https://img.shields.io/badge/Svelte-5-FF3E00?style=flat-square&amp;logo=svelte&amp;logoColor=white" alt="Svelte 5" /></a>
+  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&amp;logo=typescript&amp;logoColor=white" alt="TypeScript 6" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-EAA7C2?style=flat-square" alt="MIT License" /></a>
+</p>
+
+<p>
+  <a href="https://imissblog.cn/"><b>访问网站 ↗</b></a>
+  &nbsp; · &nbsp;
+  <a href="https://imissblog.cn/roadmap/">探索学习路线</a>
+  &nbsp; · &nbsp;
+  <a href="https://imissblog.cn/about-site/">关于本站</a>
+</p>
+
+</div>
 
 ---
 
-## 环境要求
+<p align="center">
+  <a href="#网站预览">网站预览</a> ·
+  <a href="#功能亮点">功能亮点</a> ·
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#项目结构">项目结构</a> ·
+  <a href="#开发与维护">开发与维护</a>
+</p>
+
+## 网站预览
+
+<a href="https://imissblog.cn/">
+  <img src="./docs/images/readme/homepage.jpg" alt="IMiss Blog 首页：爱弥斯动态壁纸、文章列表与侧栏" width="100%" />
+</a>
+
+<p align="center"><sub>首页 · 动态壁纸、技术笔记与爱弥斯的日常陪伴</sub></p>
+
+<table>
+  <tr>
+    <td width="50%">
+      <a href="https://imissblog.cn/roadmap/">
+        <img src="./docs/images/readme/roadmap.jpg" alt="学习路线：按主线和阶段组织技术文章" width="100%" />
+      </a>
+    </td>
+    <td width="50%">
+      <a href="https://imissblog.cn/booknav/">
+        <img src="./docs/images/readme/bookmarks.jpg" alt="书签导航：分类整理常用网站和学习工具" width="100%" />
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><b>学习路线</b><br /><sub>从基础到实战，把零散的笔记连成路径。</sub></td>
+    <td align="center"><b>书签导航</b><br /><sub>把常用的开发工具与学习资源放在一起。</sub></td>
+  </tr>
+</table>
+
+> 截图采自 [线上站点](https://imissblog.cn/)，时间为 **2026-10-15**；壁纸会随时段和轮播切换，实际画面以网站为准。
+
+## 功能亮点
+
+| | 这里有什么 |
+| --- | --- |
+| 📚 **技术笔记** | C/C++、STL、Linux、网络、MySQL、算法与 AI 应用，支持分类、标签、归档和全文搜索。 |
+| 🧭 **学习路线** | 按「主线 → 阶段 → 篇目」串联文章，方便从头学习，也方便回头查漏补缺。 |
+| 💬 **AI 桌宠** | 爱弥斯像素桌宠支持拖动、互动和聊天，连接独立的 LangGraph 博客助手。 |
+| 🌸 **动态壁纸** | 视频背景、手动切换与多种展示模式，配合主题色和明暗外观。 |
+| 🎵 **个人空间** | 音乐盒、动态、项目展示、相册和书签导航，记录学习之外的日常。 |
+| ✍️ **Markdown 写作** | 文件即内容，支持代码高亮、数学公式与图表；静态构建，交互按需加载。 |
+
+<p align="center"><b>138 篇技术笔记</b> &nbsp; / &nbsp; <b>8 条学习主线</b> &nbsp; / &nbsp; <b>141 个停靠点</b></p>
+<p align="center"><sub>内容概况截至 2026-10-15，后续更新以网站为准。</sub></p>
+
+## 快速开始
+
+需要 **Node.js ≥ 22.23** 和 **pnpm 11.x**。仓库声明的包管理器版本为 `pnpm@11.22.0`。
+
+```bash
+git clone https://github.com/HandlerOne01/imiss_-blog.git
+cd imiss_-blog
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+打开 **<http://localhost:4321/>** 即可预览。依赖下载较慢时，可将安装命令替换为：
+
+```bash
+pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com
+```
+
+<details>
+<summary><b>构建、预览与搜索索引</b></summary>
+
+```bash
+pnpm build       # 生成静态站点和搜索索引
+pnpm preview     # 预览生产构建
+```
+
+开发服务与生产预览默认使用同一端口，请先停止其中一个再启动另一个。开发模式需要真实搜索结果时，先完成构建，再运行 `pnpm index:dev`。
+
+前端可独立运行；桌宠的真实对话依赖单独部署的 Agent 服务。未连接后端时会使用本地台词，接入方法见 [ARCH.md 第 8 章](./ARCH.md)。
+
+</details>
+
+## 项目结构
+
+```text
+imiss_-blog/
+├── src/
+│   ├── assets/                  # 图片、图标、字体等构建资源
+│   ├── components/              # 页面组件、功能组件与桌宠
+│   ├── config/                  # 站点配置入口
+│   │   ├── siteConfig.ts        # 站点信息、主题与页面开关
+│   │   ├── navBarConfig.ts      # 顶部导航
+│   │   ├── roadmapConfig.ts     # 学习路线与篇目顺序
+│   │   ├── backgroundWallpaper.ts # 壁纸与背景模式
+│   │   ├── petConfig.ts         # 桌宠形象、动作与聊天面板
+│   │   └── agentConfig.ts       # Agent 地址与连接配置
+│   ├── content/
+│   │   ├── posts/              # Markdown 技术文章
+│   │   ├── projects/           # 项目展示
+│   │   ├── dynamic/            # 短动态
+│   │   └── spec/               # 关于等独立页面内容
+│   ├── layouts/                # 页面布局
+│   ├── pages/                  # 路由与页面
+│   ├── styles/                 # 全局与模块样式
+│   ├── types/                  # TypeScript 类型
+│   └── utils/                  # 搜索、内容与 Agent 等工具
+├── public/                     # 原样发布的图片、视频、音乐等
+├── agent/                      # 爱弥斯人设与研究资料
+├── server/                     # 桌宠 Agent 的同源网关
+├── deploy/                     # Nginx、服务配置与发布脚本
+├── scripts/                    # 内容处理、构建与验收工具
+├── design/                     # 纸飞机标识、头像等设计源文件
+├── docs/                       # 设计记录、参考文档与 README 截图
+├── astro.config.mjs            # Astro 构建配置
+├── ARCH.md                     # 架构、接口契约与技术约定
+├── prd.md                      # 需求与验收标准
+└── PROJECT_STATUS.md           # 项目进度与待办
+```
+
+### 常用配置
+
+| 想做什么 | 从哪里开始 |
+| --- | --- |
+| 修改站点名称、描述、主题色 | [`src/config/siteConfig.ts`](./src/config/siteConfig.ts) |
+| 调整导航和侧栏组件 | [`navBarConfig.ts`](./src/config/navBarConfig.ts) · [`sidebarConfig.ts`](./src/config/sidebarConfig.ts) |
+| 更换壁纸、头像和个人资料 | [`backgroundWallpaper.ts`](./src/config/backgroundWallpaper.ts) · [`profileConfig.ts`](./src/config/profileConfig.ts) |
+| 新增文章或维护学习路线 | [`src/content/posts/`](./src/content/posts/) · [`roadmapConfig.ts`](./src/config/roadmapConfig.ts) |
+| 调整桌宠与 AI 连接 | [`petConfig.ts`](./src/config/petConfig.ts) · [`agentConfig.ts`](./src/config/agentConfig.ts) |
+| 发布到服务器 | [`deploy/README.md`](./deploy/README.md) |
+
+## 开发与维护
+
+| 文档 | 内容 |
+| --- | --- |
+| [架构说明](./ARCH.md) | 模块设计、Agent 契约与配置约定 |
+| [需求说明](./prd.md) | 功能边界与验收标准 |
+| [项目状态](./PROJECT_STATUS.md) | 当前进度、已知问题与待办 |
+| [部署指南](./deploy/README.md) | 构建发布、Nginx 与服务配置 |
+| [站内维护手册](https://imissblog.cn/posts/project/boke-shiyong-yu-weihu-shouce/) | 文章、动态、项目和素材的日常维护 |
+
+<details>
+<summary><b>展开完整开发与维护说明</b> · 启动、写作、内容迁移、壁纸、桌宠与验收</summary>
+
+以下保留原 README 中的操作说明。涉及环境、数量或历史版本的细节，请结合当前配置与 [项目状态](./PROJECT_STATUS.md) 阅读。
+
+### 环境要求
 
 | 工具 | 要求 | 当前开发机 |
 | --- | --- | --- |
@@ -20,9 +183,9 @@
 
 > 包管理器由 `preinstall` 脚本强制为 pnpm；`pnpm-workspace.yaml` 里已允许 `esbuild` / `workerd` 的构建脚本。
 
-## 我自己怎么把它跑起来（手把手）
+### 我自己怎么把它跑起来（手把手）
 
-### 第 0 步：打开一个终端，进到本目录
+#### 第 0 步：打开一个终端，进到本目录
 
 在文件资源管理器里打开 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\imiss_-blog`，
 在地址栏输入 `powershell` 回车（或右键空白处 →「在终端中打开」）。
@@ -32,7 +195,7 @@
 pwd    # 应输出 D:\HuaweiMoveData\Users\HUAWEI\Desktop\imiss_-blog
 ```
 
-### 第 1 步：装依赖（**只需一次**，装过就跳过）
+#### 第 1 步：装依赖（**只需一次**，装过就跳过）
 
 ```powershell
 pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com
@@ -40,7 +203,7 @@ pnpm install --frozen-lockfile --registry=https://registry.npmmirror.com
 
 不加镜像会失败（本机直连 npmjs 只有 32–46 KiB/s，会超时）。
 
-### 第 2 步：起开发服务器（日常就用这个）
+#### 第 2 步：起开发服务器（日常就用这个）
 
 ```powershell
 pnpm dev
@@ -53,7 +216,7 @@ pnpm dev
 - 想用手机看（同一 WiFi）：`pnpm dev --host`，它会多打印一行 `Network http://192.168.x.x:4321/`，手机就访问这个地址
 - **停止：在这个终端窗口按 `Ctrl + C`**
 
-### 第 3 步（可选）：看"上线后的样子"
+#### 第 3 步（可选）：看"上线后的样子"
 
 `pnpm dev` 是开发模式，和最终产物不完全一样。想看真实产物：
 
@@ -64,7 +227,7 @@ pnpm preview    # 用 dist/ 起本地服务，同样是 http://localhost:4321/
 
 `dev` 和 `preview` **占同一个端口，不要同时开**。端口冲突时：`pnpm dev --port 4322`。
 
-### 第 4 步（可选）：跑一遍验收脚本
+#### 第 4 步（可选）：跑一遍验收脚本
 
 它会自己开一个无头 Chrome，把需求逐条断言一遍，并截图到 `reports/screenshots/`：
 
@@ -116,7 +279,7 @@ pnpm verify:gateway # 期望输出：`网关检查 51 项：通过 51 / 失败 0
 > 共 15 项检查（**原 17 项** —— v1.41 删掉排行模块时摘掉了两条排行专属检查）。
 > 其中第 11 项「文件编码」查的是**受版本控制的文本文件不带 UTF-8 BOM**：**v1.56 起按内容判文本**（`git ls-files` 全量、逐个读前 8KB、含 NUL 字节即跳过二进制），所以 `.sh` / `.ps1` / `.conf` / `.service` 这类不常见扩展名与 `.gitignore` / `LICENSE` 这类**无扩展名**文件都在扫描面内；改之前它只认扩展名白名单，**漏掉了 18 个真文本文件**。
 
-### 常见问题
+#### 常见问题
 
 | 现象 | 原因 / 解决 |
 | --- | --- |
@@ -127,7 +290,7 @@ pnpm verify:gateway # 期望输出：`网关检查 51 项：通过 51 / 失败 0
 | 换了 `pnpm dev --port 4322` 之后启动明显变慢（多等半分钟） | **`--port` 会改 Astro 配置摘要 → 清空内容缓存 → 多付一次 32 秒的全量内容同步**（v1.110 实测，见 **T93** 第 3 条）：`content-layer.js` 把"除 `vite`/`integrations`/`adapter` 之外的整个配置"做摘要存进内容库，端口一变摘要就变。**建议**：端口被占时优先**关掉占用它的那个窗口**；确实要用别的端口，就一次连着用完，别在两种启动方式之间来回切 |
 | ~~现在**还没有**真实内容~~ **（v1.97 更正：这一行早就过期了）** | 站上现在真的有：**138 篇文章 / 8 条主线 141 站的学习路线 / 4 个项目 / 1 条动态 / 相册 9 张原图 / 书签 6 组 39 个 / 3 首音乐 / 会聊天的桌宠（连不上后端时走本地台词）**；评论区与留言**明确不做**（v1.89）。仍然空着的是**番剧 / 轻小说两页的开关**（要 MAL 的 `username`+`Client ID` 与 VNDB 的 `userId`，阻塞项 **B-05**），以及「按北京时间选首屏素材」（**R-BG-06**，等时段规则）—— 都在 `PROJECT_STATUS.md` §4 |
 
-## 常用命令
+### 常用命令
 
 | 命令 | 作用 |
 | --- | --- |
@@ -158,31 +321,11 @@ pnpm verify:gateway # 期望输出：`网关检查 51 项：通过 51 / 失败 0
 
 > ⚠️ **v1.104 补上了一个曾经的例外**：文章正文里的**外链图片**本身不参与构建，但 `/og/*` 那一层在本机到 `cdn.jsdelivr.net` 的 TLS 被重置时曾把整条 `pnpm build` 拖挂（v1.102 / v1.103 两轮只能**临时关掉 `generateOgImages`** 才跑完）。八股那批的 **226 张正文图已转存到站内** `public/images/posts/<slug>/`（正文改相对路径）之后，构建与访客访问都不再依赖别人的图床 —— 见上面「图片外链自检」与 `PROJECT_STATUS.md` §4 的 B-13 行。
 
-## 目录说明（本站相关部分）
+### 目录说明
 
-```
-src/config/          所有可配置项（改站点基本只动这里）
-  siteConfig.ts        站点名、描述、主题色、页面开关
-  navBarConfig.ts      导航结构（本站已按需求重构；第 3 格是「学习路线」→ `/roadmap/`）
-  roadmapConfig.ts     学习路线数据（8 条主线 × 阶段 × 篇目 —— 唯一需要手工维护的内容数据）
-  backgroundWallpaper.ts  壁纸（图片期 / 视频期两套配置）
-  sidebarConfig.ts     侧边栏组件与顺序
-  profileConfig.ts     资料卡：头像 / 作者名 / 签名 / 社交链接
-                       （v1.98 起签名 =「おかえり」、链接 = 导航「链接」下拉**前 4 条**的副本 ——
-                        两处要一起改，`verify:ui` 的 R-WDG-05 会逐字比对；它们同时进 JSON-LD）
-  pioConfig.ts         模板自带看板娘（本站保持关闭，改用桌宠）
-src/content/posts/   博客文章（Markdown）
-src/content/spec/    关于页、留言页等特殊页面内容
-src/content/dynamic/ 动态（短消息）
-src/assets/images/  需要构建期优化的图（壁纸 / 封面 / 桌宠图集）
-public/images/posts/ 文章内图片（不参与构建期优化）
-public/assets/videos/ 背景视频（原片 + 无缝兜底版）
-agent/               博客专用 Agent（Python，规划中，见 PROJECT_STATUS）
-deploy/              生产 Nginx 配置（规划中）
-docs/                上游主题文档（多语言 README）
-```
+目录树与常用配置入口见上方[项目结构](#项目结构)。`agent/` 保存人设资料，独立 Agent 服务的接入见 `ARCH.md` 第 8 章；部署文件位于 `deploy/`。
 
-## 写一篇文章
+### 写一篇文章
 
 在 `src/content/posts/` 下新建 `.md`，frontmatter 至少要有：
 
@@ -204,7 +347,7 @@ tags: [Linux, 进程]
 
 > 为什么不放 `src/assets/`：文章图片数量大，进构建期图片优化管线会显著拖长构建时间；只有壁纸、封面、桌宠图集这些少量图才交给 Astro 优化。
 
-## 迁移旧笔记（Obsidian → 本站）
+### 迁移旧笔记（Obsidian → 本站）
 
 旧笔记放在 `D:\HuaweiMoveData\Users\HUAWEI\Desktop\my_-blog\dosc\blog`（**全程只读，脚本绝不改源文件**）。迁移脚本会把每篇转成带 frontmatter 的文章、把配图复制进 `public/images/posts/<slug>/` 并把正文里的引用改写成站内路径。
 
@@ -229,7 +372,7 @@ pnpm verify:posts                                # 落盘后校验
 **它会替你处理的 Obsidian 语法**：文首标签行 `#标签`（转成 frontmatter 的 `tags` 并从正文摘掉）、行内 `#标签`、`![[图片]]`、`![[]]` 之外的 `[[双链]]`（按标题索引改写成站内链接，解析不到的原样保留）、相邻两行图片之间补空行（否则会被解析进同一个段落并排显示）。`==高亮==` **不会**被改写——本语料里 `==` 全是 C++ 相等比较。
 
 
-## 怎么换壁纸 / 加壁纸
+### 怎么换壁纸 / 加壁纸
 
 壁纸配置在 `src/config/backgroundWallpaper.ts`：
 
@@ -246,7 +389,7 @@ pnpm verify:posts                                # 落盘后校验
 **怎么用**：桌面端鼠标移到横幅**最左/最右边缘**会淡出一个箭头，点它换上一张/下一张（可循环）；也可以**按住横幅左右拖**。
 手机端不显示箭头，**左右滑动**换图。键盘：Tab 能聚焦到两侧箭头，按 Enter / 空格换图。
 
-### 桌宠怎么调
+#### 桌宠怎么调
 
 右下角那只爱弥斯是常驻组件（`src/components/features/AemeathPet.astro` + `src/styles/pet.css`），配置在 **`src/config/petConfig.ts`**：
 
@@ -282,7 +425,7 @@ pnpm verify:posts                                # 落盘后校验
 > 素材是 Codex 自定义宠物图集（8 列 × 9 行、单格 144×156，MIT）。第 2 行与第 1 行逐像素相同，
 > 所以左走用第 1 行 + `scaleX(-1)`。**不要同时开模板自带的 Live2D / Spine 看板娘**（R-PET-04）。
 
-## 怎么维护学习路线（`/roadmap/`）
+### 怎么维护学习路线（`/roadmap/`）
 
 导航第 3 格「学习路线」→ `/roadmap/` 是**一个纯静态单页**：8 条主线 → 阶段 → 篇目；页顶一行站点数字 —— **`138 篇 · 8 条主线 · 141 个停靠点（3 处跨线复用）· 约 70 小时`**（四个数**构建期实算、不许硬编码**，其中"总时长 = 各线表头小时数之和"）；篇目行显示的是**分类显示名**（文章 frontmatter 的 `category`，与面包屑 / `/categories/` 一致），不是 `src/content/posts/` 下的目录名；页内 **0 张图**、0 个 Svelte 岛、关掉 JS 也全可读。内容**只在一个文件里**：`src/config/roadmapConfig.ts`。
 
@@ -302,7 +445,7 @@ pnpm verify:posts                                # 落盘后校验
 
 改完跑收工三连：`pnpm verify:posts`（文章没问题）→ `pnpm build`（解析不到会直接抛错）→ `pnpm verify:ui`（路线页全项断言）。**不需要碰任何组件或样式**；真要改版式才动 `src/pages/roadmap.astro` 与 `src/styles/pages/roadmap.css`。
 
-## 桌宠与 Agent
+### 桌宠与 Agent
 
 桌宠是页面右下角的爱弥斯像素角色，配置在 `src/config/petConfig.ts`（开关、缩放、台词、Agent 地址）。
 它连接的博客专用 Agent 是独立的 Python 服务（LangGraph + DeepSeek），**没有后端时桌宠走本地 mock，不会报错**。接入方式见 [`ARCH.md`](./ARCH.md) 第 8 章。
@@ -312,7 +455,7 @@ pnpm verify:posts                                # 落盘后校验
 `enable` / `rounds` / `maxCharsPerMessage`）。⚠️ 只在"失效重建"这条路径上重放 ——
 正常轮次线程自己就带着上下文，每轮重放等于把同一段历史反复塞进去（上下文翻倍、白烧 token）。
 
-## 部署
+### 部署
 
 本站目标是**自建服务器 + Nginx 静态托管**：
 
@@ -329,14 +472,22 @@ pnpm build                       # → dist/
 
 首次部署后需要回填站点信息组件与 `siteConfig.site_url`（真实域名），否则 sitemap / RSS / OG 仍是占位值。
 
-## 与上游模板的关系
+### 与上游模板的关系
 
 - 本站 = 上游基线 v6.16.8 + 本站改动。改动集中在 `src/config/*` 与**新增文件**，核心组件只做最小编辑（便于将来跟随上游升级）。
 - 上游升级步骤：拉取上游新版 → 用 `git diff` 核对 `src/components`、`src/utils`、`scripts` 的冲突 → 保留本站的 `src/config/*`、`src/content/*`、`public/*` 与新增组件。
 - 首页横幅文字、导航、页面开关等差异都在配置层，升级时不需要改代码。
 
+</details>
+
 ## 许可与致谢
 
-- 主题：上游模板（MIT，仓库地址见 `LICENSE` 与 `README.upstream.zh.md`），它基于 [Fuwari](https://github.com/saicaca/fuwari)。
-- 桌宠像素素材：[aemeath-mini-codex-pet](https://github.com/cuNuo/aemeath-mini-codex-pet)（MIT），其像素小人来源 [lzy-buaa-jdi/ameath](https://gitee.com/lzy-buaa-jdi/ameath)（MIT）。
-- 免责声明：本站为非官方粉丝项目；爱弥斯、《鸣潮》及相关官方视觉设定归其权利方（库洛游戏）所有。
+IMiss 取自「爱弥斯」（Ai Mi Si）的谐音。这个小站基于开源 Astro 博客模板二次开发，保留原作者的版权与许可声明。
+
+- **代码许可**：[MIT](./LICENSE)。上游主题说明见 [中文文档](./README.upstream.zh.md) 与 [English](./README.en.md)，主题基于 [Fuwari](https://github.com/saicaca/fuwari)。
+- **桌宠素材**：[aemeath-mini-codex-pet](https://github.com/cuNuo/aemeath-mini-codex-pet)，像素小人来源于 [lzy-buaa-jdi/ameath](https://gitee.com/lzy-buaa-jdi/ameath)，遵循各自的 MIT 许可。
+- **角色与素材**：本站为非官方粉丝项目；爱弥斯、《鸣潮》及相关官方视觉设定归其权利方（库洛游戏）所有。
+
+---
+
+<p align="center"><sub>おかえり。欢迎来到 <a href="https://imissblog.cn/">IMiss Blog</a>。</sub></p>
