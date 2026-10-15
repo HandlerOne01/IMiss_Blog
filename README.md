@@ -40,7 +40,7 @@
 ## 网站预览
 
 <a href="https://imissblog.cn/">
-  <img src="./docs/images/readme/homepage.jpg" alt="IMiss Blog 首页：爱弥斯动态壁纸、文章列表与侧栏" width="100%" />
+  <img src="./docs/images/readme/homepage.png" alt="IMiss Blog 首页：爱弥斯动态壁纸、文章列表与侧栏" width="100%" />
 </a>
 
 <p align="center"><sub>首页 · 动态壁纸、技术笔记与爱弥斯的日常陪伴</sub></p>
@@ -49,22 +49,22 @@
   <tr>
     <td width="50%">
       <a href="https://imissblog.cn/roadmap/">
-        <img src="./docs/images/readme/roadmap.jpg" alt="学习路线：按主线和阶段组织技术文章" width="100%" />
+        <img src="./docs/images/readme/roadmap.png" alt="学习路线：按主线和阶段组织技术文章" width="100%" />
       </a>
     </td>
     <td width="50%">
-      <a href="https://imissblog.cn/booknav/">
-        <img src="./docs/images/readme/bookmarks.jpg" alt="书签导航：分类整理常用网站和学习工具" width="100%" />
+      <a href="https://imissblog.cn/tags/">
+        <img src="./docs/images/readme/ai-pet.png" alt="AI 桌宠：标签页上的爱弥斯聊天面板" width="100%" />
       </a>
     </td>
   </tr>
   <tr>
     <td align="center"><b>学习路线</b><br /><sub>从基础到实战，把零散的笔记连成路径。</sub></td>
-    <td align="center"><b>书签导航</b><br /><sub>把常用的开发工具与学习资源放在一起。</sub></td>
+    <td align="center"><b>AI 桌宠</b><br /><sub>页面里的爱弥斯，随时可以打开聊天面板。</sub></td>
   </tr>
 </table>
 
-> 截图采自 [线上站点](https://imissblog.cn/)，时间为 **2026-10-15**；壁纸会随时段和轮播切换，实际画面以网站为准。
+> 以上为网站实景截图，分别展示首页、学习路线与 AI 桌宠；壁纸会随时段和轮播切换，实际画面以[线上站点](https://imissblog.cn/)为准。
 
 ## 功能亮点
 
