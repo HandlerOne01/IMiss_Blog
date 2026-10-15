@@ -422,7 +422,7 @@ pnpm verify:posts                                # 落盘后校验
 > 飞行间隔 / 单次时长 / 浮动幅度与周期都在同一段 `movement` 里（默认 20~60 秒飞一次、单次 2.6 秒、上下浮动 ±6px）；`pnpm dev` 下改完自动生效，生产要重新 `pnpm build`。
 > 浏览器里存的旧位置记忆（`localStorage["imiss.pet.pos"]`）**不会**盖掉配置里的模式——只有"同一模式存下的坐标"才会被复用。
 
-> 素材是 Codex 自定义宠物图集（8 列 × 9 行、单格 144×156，MIT）。第 2 行与第 1 行逐像素相同，
+> 桌宠素材来源于 [EnlightenedAddOne/ameath_DesktopPet](https://github.com/EnlightenedAddOne/ameath_DesktopPet)，当前网页使用 8 列 × 9 行、单格 144×156 的动画图集。第 2 行与第 1 行逐像素相同，
 > 所以左走用第 1 行 + `scaleX(-1)`。**不要同时开模板自带的 Live2D / Spine 看板娘**（R-PET-04）。
 
 ### 怎么维护学习路线（`/roadmap/`）
@@ -482,10 +482,11 @@ pnpm build                       # → dist/
 
 ## 许可与致谢
 
-IMiss 取自「爱弥斯」（Ai Mi Si）的谐音。这个小站基于开源 Astro 博客模板二次开发，保留原作者的版权与许可声明。
+IMiss 取自「爱弥斯」（Ai Mi Si）的谐音。这个小站基于 Firefly 二次开发，保留原作者的版权与许可声明。
 
-- **代码许可**：[MIT](./LICENSE)。上游主题说明见 [中文文档](./README.upstream.zh.md) 与 [English](./README.en.md)，主题基于 [Fuwari](https://github.com/saicaca/fuwari)。
-- **桌宠素材**：[aemeath-mini-codex-pet](https://github.com/cuNuo/aemeath-mini-codex-pet)，像素小人来源于 [lzy-buaa-jdi/ameath](https://gitee.com/lzy-buaa-jdi/ameath)，遵循各自的 MIT 许可。
+- **主题基于**：[CuteLeaf/Firefly](https://github.com/CuteLeaf/Firefly)。
+- **桌宠素材**：[EnlightenedAddOne/ameath_DesktopPet](https://github.com/EnlightenedAddOne/ameath_DesktopPet)。
+- **代码许可**：[MIT](./LICENSE)。上游主题说明见 [中文文档](./README.upstream.zh.md) 与 [English](./README.en.md)。
 - **角色与素材**：本站为非官方粉丝项目；爱弥斯、《鸣潮》及相关官方视觉设定归其权利方（库洛游戏）所有。
 
 ---
