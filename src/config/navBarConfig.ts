@@ -111,6 +111,10 @@ const getDynamicNavBarConfig = (): NavBarConfig => {
 	//    `external: true` / children）**原样重建**，子项名字取短名，顺序即他给的顺序。
 	// v1.61：发起人原话「**把下拉链接换成接下来我给你的链接**」→ **整批换成下面这 6 条**，
 	//    顺序就是他给的顺序：Gitee → GitHub → CSDN → 洛谷 → Boost 搜索引擎 → HTTP 服务器。
+	// ⚠️ **v1.123（2026-10-16）：最后两条并成一条** —— 发起人把「搜索引擎」和「HTTP 服务器」
+	//    合成一个可跑的服务（端口 8081 → **8080**），并给了新名字 **Boost Search Engine**
+	//    → 现在这个下拉是 **5 条**：Gitee → GitHub → CSDN → 洛谷 → Boost Search Engine。
+	//    下面注释里的历史一律保留（v1.57 那 8 条、v1.61 那 6 条都是真发生过的）。
 	//    上一版那 8 条（DeepSeek / ChatGPT / Claude / GitHub / 洛谷 / 力扣 / CSDN /
 	//    Hugging Face）里只有 **GitHub / 洛谷 / CSDN** 三个名字留下（URL 全换），另 5 条退场。
 	//    两条照办的细节：① **CSDN 去掉跟踪参数**（他给的原始 URL 尾巴是
@@ -157,25 +161,22 @@ const getDynamicNavBarConfig = (): NavBarConfig => {
 				icon: "simple-icons:luogu",
 			},
 			{
-				// ⚠️ **裸 IP + 非标准端口 + HTTP —— 这是发起人给的地址，照原样收录**（2026-10-04，不是笔误）。
-				// 代价写在明处：① `106.52.158.48` 同时是**本站后端数据库所在的那台机器** ——
-				//    把这条挂在导航上，等于把本站服务器地址公开给每一个访客（爬虫也能读到）；
-				// ② `http://` 没有 TLS，浏览器地址栏会标「不安全」（Chrome 对非标准端口还会先给一次警告）。
-				// **建议（有域名之后）**：换成 `https://<域名>/` —— 只改这一个字符串，其余 5 条纹丝不动。
-				// 在他给新地址之前**不许**自作主张删掉或改写这一条。
+				// v1.123（2026-10-16）：发起人「**这个链接下拉把服务器和搜索引擎链接删了，添加一个
+				// http://106.52.158.48:8080/ 这个链接 名字为 Boost Search Engine**」——
+				// 原来那两条（「Boost 搜索引擎」`http://106.52.158.48:8081/` + 「HTTP 服务器」
+				// `gitee.com/a2186988646/my_server`）本来就是**同一个项目的两半**（搜索 + 服务器），
+				// 他把两半合成了一个可跑的服务，端口也从 8081 换成 **8080** → 两条并成这一条。
+				//
+				// ⚠️ 仍是**裸 IP + 非标准端口 + HTTP**（他给的地址，照原样收录，不是笔误）。
+				//    代价照旧写在明处：① `106.52.158.48` **同时是本站后端数据库所在的那台机器** ——
+				//    挂在导航上等于把服务器地址公开给每个访客；② `http://` 没有 TLS，浏览器会标「不安全」。
+				//    **建议（有域名之后）**：换成 `https://<域名>/` —— 只改这一个字符串。
+				//    在他给新地址之前**不许**自作主张删掉或改写这一条。
 				// 无品牌图标 → 用含义图标：放大镜 = 搜索，`material-symbols:search-rounded`。
-				name: "Boost 搜索引擎",
-				url: "http://106.52.158.48:8081/",
+				name: "Boost Search Engine",
+				url: "http://106.52.158.48:8080/",
 				external: true,
 				icon: "material-symbols:search-rounded",
-			},
-			{
-				// 发起人自己那台 HTTP 服务器的源码/说明仓库（Gitee 上的 `my_server`）。
-				// 无品牌图标 → 用含义图标：机柜 = 服务器，`material-symbols:dns-rounded`。
-				name: "HTTP 服务器",
-				url: "https://gitee.com/a2186988646/my_server",
-				external: true,
-				icon: "material-symbols:dns-rounded",
 			},
 		],
 	});

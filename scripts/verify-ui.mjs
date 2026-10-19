@@ -139,14 +139,16 @@ const EXPECT_LINK_CHILDREN = [
 	{ name: "GitHub", href: "https://github.com/HandlerOne01" },
 	{ name: "CSDN", href: "https://blog.csdn.net/is_ko_nois_ko" },
 	{ name: "洛谷", href: "https://www.luogu.com.cn/user/1726221" },
-	{ name: "Boost 搜索引擎", href: "http://106.52.158.48:8081/" },
-	{ name: "HTTP 服务器", href: "https://gitee.com/a2186988646/my_server" },
+	// v1.123（2026-10-16）：原来这里是两条（Boost 搜索引擎 :8081 / HTTP 服务器 my_server），
+	// 发起人把「搜索引擎 + HTTP 服务器」合成一个服务（端口 8081 → 8080）→ 两条并这一条，共 **5 条**。
+	{ name: "Boost Search Engine", href: "http://106.52.158.48:8080/" },
 ];
-// ─── v1.61：「链接」新 6 条的两条"照办的细节"，各自的判据本体 ─────────────────
+// ─── v1.61：「链接」那批的两条"照办的细节"，各自的判据本体（v1.123 只换值不动形状）─────
 // ① 那个裸 IP 的地址是**发起人的选择**（他的站），所以它不是"待修的错"，而是**必须原样在**；
 // ② 同一条上必须留一条"有域名后换 `https://<域名>/`"的建议注释 —— 只钉 URL 的话，
 //    下一个人把注释删掉（或把它换成 https 而不告诉他）两边都不会红，正是 T77 那类判据空过。
-const EXPECT_LINK_RAW_IP_URL = "http://106.52.158.48:8081/";
+// ⚠️ v1.123（2026-10-16）：端口 8081 → **8080**（「搜索引擎 + HTTP 服务器」合成一个服务）。
+const EXPECT_LINK_RAW_IP_URL = "http://106.52.158.48:8080/";
 // 注释里的建议形态（`https://<域名>/`）；`<域名>` 是字面占位符，不是某个真域名。
 const EXPECT_LINK_HTTPS_HINT = /https:\/\/<域名>\/?/;
 const EXPECT_MY_CHILDREN = [
@@ -3923,30 +3925,33 @@ async function main() {
 	const about = home.navTops.find((t) => t.name === "关于");
 	record("R-NAV-04", "顶层「关于」下拉的两个子项（关于我 + 关于本站，顺序一致）", !!about && same(about.children, EXPECT_ABOUT_CHILDREN), JSON.stringify(about?.children ?? null));
 	record("R-NAV-01~04", "已删除的导航项不再出现", EXPECT_ABSENT_LABELS.every((l) => !home.allLabels.includes(l)), home.allLabels.filter((l) => EXPECT_ABSENT_LABELS.includes(l)).join(",") || "无残留");
-	// ── v1.57（B-10 关闭）「链接」下拉重建；**v1.61 整批换成发起人的 6 条** ────────
+	// ── v1.57（B-10 关闭）「链接」下拉重建；**v1.61 整批换成发起人的 6 条**；**v1.123 末两条并一条 → 5 条** ──
 	// 位置由上面那条「顶层导航顺序」钉住（第 5 格、在「我的」与「关于」之间），
-	// 这里钉**内容**：6 条的名字 + href + 顺序，一条不对就红。
-	// ⚠️ 子项名字是**短名**（「洛谷」/「CSDN」/「Boost 搜索引擎」），不是书签页那 39 张卡的全名 ——
+	// 这里钉**内容**：期望条数与每条名字 + href + 顺序，一条不对就红。
+	// ⚠️ 子项名字是**短名**（「洛谷」/「CSDN」/「Boost Search Engine」），不是书签页那 39 张卡的全名 ——
 	//    两边故意不同（导航栏放不下「力扣 LeetCode」那类全名），别把它和 EXPECT_BOOKNAV_CARDS 对齐。
 	{
 		const link = home.navTops.find((t) => t.name === "链接");
 		record(
 			"R-NAV-01~04",
-			"「链接」下拉的 6 条外链（名字 + href + 顺序）与发起人清单一致",
+			`「链接」下拉的 ${EXPECT_LINK_CHILDREN.length} 条外链（名字 + href + 顺序）与发起人清单一致`,
 			!!link && same(link.children, EXPECT_LINK_CHILDREN),
 			`实际 ${JSON.stringify(link?.children ?? null)}`,
 		);
-		// 这 6 条**都不是站内页面**：必须带 external（外链新开页 + 主题的图标/rel 处理），
+		// 这几条**都不是站内页面**：必须带 external（外链新开页 + 主题的图标/rel 处理），
 		// 且不许挂 pageKey（挂了会被 siteConfig.pages 过滤掉、整组可能一声不响地消失）。
-		// 这一条同时是"空组"判据的正面版：children 存在且 6 条都在。
+		// 这一条同时是"空组"判据的正面版：children 存在且条条都在。
+		// ⚠️ v1.123：期望条数**从 `EXPECT_LINK_CHILDREN.length` 推导**，不再写死 6 ——
+		//    这一轮把末两条并成一条（6 → 5），写死的那份当场就红了（`external: true 出现 5 次（期望 6）`）。
 		const navSrc = await fs.readFile(path.resolve("src/config/navBarConfig.ts"), "utf8");
 		const linkBlock = navSrc.match(/name:\s*"链接",[\s\S]*?\n\t\}\);/)?.[0] ?? "";
 		const externals = (linkBlock.match(/external:\s*true/g) ?? []).length;
+		const expectExternals = EXPECT_LINK_CHILDREN.length;
 		record(
 			"R-NAV-01~04",
-			"「链接」组 6 条都标了 external: true、且都没有 pageKey",
-			externals === 6 && !/pageKey/.test(linkBlock),
-			`external: true 出现 ${externals} 次（期望 6）｜ 块内含 pageKey=${/pageKey/.test(linkBlock)}`,
+			`「链接」组 ${expectExternals} 条都标了 external: true、且都没有 pageKey`,
+			externals === expectExternals && !/pageKey/.test(linkBlock),
+			`external: true 出现 ${externals} 次（期望 ${expectExternals}）｜ 块内含 pageKey=${/pageKey/.test(linkBlock)}`,
 		);
 		// ── v1.61 新增：两条"照办的细节"的**配置层**判据（上面钉的是渲染出来的 DOM）──
 		// 为什么光钉 DOM 不够（T77 那类"判据空过"）：`EXPECT_LINK_CHILDREN` 只能证明
@@ -10545,6 +10550,16 @@ async function main() {
 			// 四张卡的四个字段：标题 / 状态文案 / 外链 href / 详情链接（逐字来自四份 md 的 frontmatter）
 			const EXPECT_PROJECTS = [
 				{
+					title: "Boost Search Engine",
+					status: "已发布",
+					links: [
+						"https://github.com/HandlerOne01/search_engine",
+						"https://gitee.com/a2186988646/search_server",
+						"http://106.52.158.48:8080/",
+					],
+					detail: "/projects/boost-search-engine-merged/",
+				},
+				{
 					title: "仿 muduo 实现的高并发服务器",
 					status: "已发布",
 					links: ["https://gitee.com/a2186988646/my_server"],
@@ -10678,13 +10693,14 @@ async function main() {
 			const tops = home.navTops || [];
 			// ⚠️ 这条断言在 v1.47~v1.56 期间是反的（"不再有「链接」组"）。翻转的理由与证据：
 			//    v1.57 发起人给出清单、B-10 关闭 —— 现在**要求它存在且子项数对得上**。
-			//    ⚠️ 判据必须同时看"有没有这一格"与"里面是不是 6 条"：只看前者的话，
+			//    ⚠️ 判据必须同时看"有没有这一格"与"里面条数对不对"：只看前者的话，
 			//    一个 children 被过滤光的空「链接」壳子也能过（而那正是 v1.47 注释里担心的形态）。
-			//    v1.61：条数由 8 → **6**，但**判据形状一字未动**（数量仍与内容表 EXPECT_LINK_CHILDREN 对齐）。
+			//    v1.61：条数由 8 → 6；**v1.123：末两条并一条 → 5**，判据形状一字未动
+			//    （数量仍与内容表 EXPECT_LINK_CHILDREN 对齐，描述文字也改成推导，不再写死数字）。
 			const link = tops.find((t) => t.name === "链接");
 			record(
 				"R-NAV-01~04",
-				"「链接」组已按 B-10 重建：在导航里且含 6 条子项",
+				`「链接」组已按 B-10 重建：在导航里且含 ${EXPECT_LINK_CHILDREN.length} 条子项`,
 				!!link &&
 					home.allLabels.includes("链接") &&
 					(link.children?.length ?? 0) === EXPECT_LINK_CHILDREN.length,
