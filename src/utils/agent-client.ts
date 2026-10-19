@@ -452,7 +452,9 @@ interface WireMessage {
  */
 function wireMessages(messages: unknown): WireMessage[] {
 	if (!Array.isArray(messages)) return [];
-	return messages.filter((m): m is WireMessage => Boolean(m) && typeof m === "object");
+	return messages.filter(
+		(m): m is WireMessage => Boolean(m) && typeof m === "object",
+	);
 }
 
 /**
@@ -479,10 +481,15 @@ function lastAiMessage(
 	const from = afterIndex < 0 ? 0 : Math.min(afterIndex + 1, list.length);
 	for (let i = list.length - 1; i >= from; i--) {
 		const m = list[i];
-		if (m.type !== "ai" || typeof m.content !== "string" || !m.content.trim()) continue;
+		if (m.type !== "ai" || typeof m.content !== "string" || !m.content.trim())
+			continue;
 		const hit = leakMarkerIn(m.content);
 		if (hit) return { text: "", blocked: hit, id: null };
-		return { text: m.content, blocked: null, id: typeof m.id === "string" ? m.id : null };
+		return {
+			text: m.content,
+			blocked: null,
+			id: typeof m.id === "string" ? m.id : null,
+		};
 	}
 	return { text: "", blocked: null, id: null };
 }
@@ -653,8 +660,7 @@ async function runRound(
 			// `updates` 是 `interrupt` 的第二来源；**不用它渲染任何东西**
 			const o = parseJSON(e.data) as Record<string, unknown> | null;
 			const payload = interruptPayload(o?.__interrupt__);
-			if (payload)
-				round.interrupt = makeInterrupt(payload, "updates");
+			if (payload) round.interrupt = makeInterrupt(payload, "updates");
 		}
 		// `messages/*` 一律不碰：`messages/metadata` 是模型名 / 节点名（内部信息），
 		// `messages/partial` 是半成品 tool_calls，`messages/complete` 与 `values` 重复。
@@ -751,7 +757,12 @@ async function interruptFromState(
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
 		const res = await Promise.race([
-			requestOnce(`${baseUrl}/threads/${thread}/state`, jsonInit("GET"), budget, signal),
+			requestOnce(
+				`${baseUrl}/threads/${thread}/state`,
+				jsonInit("GET"),
+				budget,
+				signal,
+			),
 			new Promise<null>((resolve) => {
 				timer = setTimeout(() => resolve(null), budget);
 			}),
@@ -793,7 +804,8 @@ async function interruptFromState(
  *    §8.9.7 未决项 #9）；认出 `_ask_which` 的三句问法：首次反问、两次尝试之间的重问。
  */
 export function classifyAsk(ask: string): "choice" | "resume-word" {
-	if (/回我序号|对上好几篇|你说的是哪一篇|没认出你回的是哪篇/.test(ask)) return "choice";
+	if (/回我序号|对上好几篇|你说的是哪一篇|没认出你回的是哪篇/.test(ask))
+		return "choice";
 	return "resume-word";
 }
 
@@ -811,8 +823,10 @@ export function classifyAsk(ask: string): "choice" | "resume-word" {
  */
 function replyForAsk(ask: string): string {
 	// 后端反问"要不要收进本子"= 它准备把结果落盘，这时回 `需要` 是明确的"收下"
-	if (/收进本子|收进本|存下来|记下来/.test(ask)) return agentConfig.resumeWords.provide;
-	if (/多少字|字数|篇幅|多长|时长|看多久/.test(ask)) return agentConfig.resumeWords.provide;
+	if (/收进本子|收进本|存下来|记下来/.test(ask))
+		return agentConfig.resumeWords.provide;
+	if (/多少字|字数|篇幅|多长|时长|看多久/.test(ask))
+		return agentConfig.resumeWords.provide;
 	return agentConfig.resumeWords.default;
 }
 
@@ -834,13 +848,12 @@ function makeInterrupt(
 	// 该回哪个词：**只在后端给的候选里挑**（`options` 是白名单、`default` 是它的推荐值），
 	// 前提是那个词得真的是我们配置的约定词（后端换了词表也不会发出一个我们不认识的暗号）。
 	const words: string[] = Object.values(agentConfig.resumeWords);
-	const fromBackend = [
-		payload.default ?? "",
-		...(payload.options ?? []),
-	].find((w) => w && words.includes(w));
+	const fromBackend = [payload.default ?? "", ...(payload.options ?? [])].find(
+		(w) => w && words.includes(w),
+	);
 	const reply =
 		kind === "choice"
-			? payload.default ?? agentConfig.resumeWords.default
+			? (payload.default ?? agentConfig.resumeWords.default)
 			: (fromBackend ?? replyForAsk(payload.ask));
 	return {
 		ask: payload.ask,
@@ -904,10 +917,13 @@ function nextFallbackLead(): string {
 export function fallbackReply(message: string): string {
 	const text = message.trim();
 	let tail = "你刚才那句我先收着。";
-	if (/^(在吗|在不在|在么|hi|hello|你好|嗨|喂)[?？!！。~，,]*$/i.test(text)) tail = "我在的。";
+	if (/^(在吗|在不在|在么|hi|hello|你好|嗨|喂)[?？!！。~，,]*$/i.test(text))
+		tail = "我在的。";
 	else if (/谢谢|多谢|辛苦/.test(text)) tail = "谢什么，这不就是我的活儿嘛。";
 	// 找东西 / 要推荐：给"我真的在翻"的在场感，别装傻
-	else if (/推荐|找几篇|有没有|搜一下|搜下|找找|来几篇|看看.*(文章|博客)/.test(text))
+	else if (
+		/推荐|找几篇|有没有|搜一下|搜下|找找|来几篇|看看.*(文章|博客)/.test(text)
+	)
 		tail = "文章还没翻到手，等接上了就给你找。";
 	return `${nextFallbackLead()}${tail}`;
 }
@@ -1044,7 +1060,8 @@ export function buildReplayMessages(
 	const turns = history.filter((t) => t.role === "human" || t.role === "ai");
 	const current = message.trim();
 	const last = turns[turns.length - 1];
-	if (last && last.role === "human" && last.text.trim() === current) turns.pop();
+	if (last && last.role === "human" && last.text.trim() === current)
+		turns.pop();
 	const tail = turns.slice(Math.max(0, turns.length - cfg.rounds * 2));
 	// 只保留"从一轮的开头（human）起"的那一段
 	while (tail.length && tail[0].role === "ai") tail.shift();
@@ -1132,9 +1149,7 @@ export async function askAemeath(
 	// 后端认不出会**再问一次**（它的 `_ask_which` 本来就是两次尝试）—— 比替用户编一个词诚实。
 	const lastWasChoiceAsk = opts.lastAskKind
 		? opts.lastAskKind === "choice"
-		: Boolean(
-				opts.lastReply && classifyAsk(opts.lastReply) === "choice",
-			);
+		: Boolean(opts.lastReply && classifyAsk(opts.lastReply) === "choice");
 	const answeringInterrupt = Boolean(
 		opts.lastReply &&
 			(lastWasChoiceAsk ||
@@ -1288,10 +1303,13 @@ export async function askAemeath(
 					fromCommand: wasCommand,
 				});
 			} else if (wasCommand) {
-				payload = { input: { messages: [{ type: "human", content: message }] } };
+				payload = {
+					input: { messages: [{ type: "human", content: message }] },
+				};
 				debugLog("replay", {
 					messages: 1,
-					reason: "没有可重放的历史（或 contextReplay 关掉）→ 至少别拿 command 打新线程",
+					reason:
+						"没有可重放的历史（或 contextReplay 关掉）→ 至少别拿 command 打新线程",
 				});
 			}
 			// 重试一次**同一个 payload**：上一轮根本没跑起来（4xx），谈不上"重放半截答复"；
@@ -1304,8 +1322,7 @@ export async function askAemeath(
 		if (r.status >= 400) return mock(`契约不符：${r.error ?? r.status}`);
 		if (r.error) return mock(`契约不符：${r.error}`);
 		// 取到的"答复"命中了禁词表（DB 内部输出）→ 一个字都不上屏，按降级处理（D-6）
-		if (r.blockedAnswer)
-			return mock(`答复命中禁词闸门：${r.blockedAnswer}`);
+		if (r.blockedAnswer) return mock(`答复命中禁词闸门：${r.blockedAnswer}`);
 
 		// ③ 三层检测的第三层：**只在"前两层没有信号、且本轮答复为空"时才问一次
 		//    `GET .../state`**（复核 D-4）。为什么不能在正常轮次里无条件多打一次：
@@ -1313,7 +1330,12 @@ export async function askAemeath(
 		//    用户要等满它的超时才能看到那句**早就到手**的答复（实测 60079ms）。
 		//    有答复的轮次根本不需要判 interrupt（形态 A 的答复+反问都从 `values` 里拿）。
 		if (!r.interrupt && !r.answer.trim()) {
-			const payload = await interruptFromState(base, liveThread, cfg.timeoutMs, signal);
+			const payload = await interruptFromState(
+				base,
+				liveThread,
+				cfg.timeoutMs,
+				signal,
+			);
 			if (payload) r.interrupt = makeInterrupt(payload, "state");
 		}
 		// ④ 命中 `interrupt`，分两种形态（§8.9.5 描述了前一种，第二种是 P5-1 接线时实测到的，

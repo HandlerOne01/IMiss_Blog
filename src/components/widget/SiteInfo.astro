@@ -61,7 +61,8 @@ const unknownBuildPlatform =
 	widgetConfig?.specificConfig?.siteInfo?.unknownBuildPlatform || "Unknown CI";
 // v1.117（P6-6）：本站是自建部署（本地构建 → SSH 上传到腾讯云 Nginx），不在任何 CI 里，
 // 自动识别只会得到 "Local" —— 所以优先取配置里的显式值（见 sidebarConfig 的注释）。
-const buildPlatformOverride = widgetConfig?.specificConfig?.siteInfo?.buildPlatform;
+const buildPlatformOverride =
+	widgetConfig?.specificConfig?.siteInfo?.buildPlatform;
 const buildPlatform =
 	buildPlatformOverride?.trim() ||
 	detectBuildPlatform({
@@ -108,7 +109,8 @@ const licenseName = licenseConfig.enable ? licenseConfig.name : "";
 // 保留不替换的：主题版本（读 package.json 的静态事实）与文章许可（本地配置）。
 // 部署完成后把 src/config/sidebarConfig.ts 里两处 siteInfo.placeholder 改成 false 即可回填真实值。
 // （这段必须放在 mainItems / detailItems 之前，两者都用到 ph()）
-const placeholderMode = widgetConfig?.specificConfig?.siteInfo?.placeholder === true;
+const placeholderMode =
+	widgetConfig?.specificConfig?.siteInfo?.placeholder === true;
 const PH = "—";
 const ph = (v: string): string => (placeholderMode ? PH : v);
 

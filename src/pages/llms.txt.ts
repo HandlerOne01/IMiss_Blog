@@ -80,7 +80,11 @@ const KEY_PAGES: KeyPage[] = [
 	// P4-8（v1.47）：`/sponsor/` 条目已删除（打赏整条移除，页面文件也没了）。
 	// 学习路线（本站新增，没有对应 i18n key）：排行模块随 P2R 删除后，这一页顶上它原来的位置
 	// （v1.41：`/rank/{jp,cn,game}/` 与它们的 llms.txt 条目一并移除，`/rank/*` 不做 301）。
-	{ label: "学习路线", path: "/roadmap/", desc: "8 条主线把全站笔记串成一条学习路径（数据全部来自站内文章）" },
+	{
+		label: "学习路线",
+		path: "/roadmap/",
+		desc: "8 条主线把全站笔记串成一条学习路径（数据全部来自站内文章）",
+	},
 ];
 
 export const GET: APIRoute = async ({ site }) => {
@@ -100,9 +104,12 @@ export const GET: APIRoute = async ({ site }) => {
 		"## Key Pages",
 	];
 	for (const pageEntry of enabledPages) {
-		const label = pageEntry.label ?? (pageEntry.labelKey ? i18n(pageEntry.labelKey) : pageEntry.path);
+		const label =
+			pageEntry.label ??
+			(pageEntry.labelKey ? i18n(pageEntry.labelKey) : pageEntry.path);
 		const link = abs(pageEntry.path);
-		const desc = pageEntry.desc ?? (pageEntry.descKey ? i18n(pageEntry.descKey) : "");
+		const desc =
+			pageEntry.desc ?? (pageEntry.descKey ? i18n(pageEntry.descKey) : "");
 		lines.push(
 			desc ? `- [${label}](${link}): ${desc}` : `- [${label}](${link})`,
 		);

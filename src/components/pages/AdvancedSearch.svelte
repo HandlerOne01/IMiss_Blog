@@ -33,7 +33,8 @@ const fallbackResult: SearchResult[] = import.meta.env.PROD
 			{
 				url: formatUrl("/"),
 				meta: { title: "搜索暂时用不了" },
-				excerpt: "站内搜索这会儿没能载入，你可以在「文章」下拉里按归档、分类或标签找。",
+				excerpt:
+					"站内搜索这会儿没能载入，你可以在「文章」下拉里按归档、分类或标签找。",
 			},
 		]
 	: [
