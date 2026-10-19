@@ -84,7 +84,10 @@ const videoData = {
 	// 开关**复用面板那个**（显示设置面板 → 壁纸 → 壁纸轮播），所以这里只搬三个值：
 	// 能不能由访客切换、默认关还是默认开（= common.carousel.enable，本站 false）、
 	// 以及视频自己的间隔（v1.119 起 30 秒；图片那套 5 秒对原画太凶）。夹到 ≥5000 防误配。
-	carouselInterval: Math.max(5000, Number(videoConf?.carousel?.interval ?? 30000)),
+	carouselInterval: Math.max(
+		5000,
+		Number(videoConf?.carousel?.interval ?? 30000),
+	),
 	carouselSwitchable: state.bannerCarouselSwitchable === true,
 	carouselDefault: state.bannerCarouselEnabledDefault === true,
 };

@@ -78,7 +78,8 @@ export function cleanMarkdown(raw: string): string {
 			lines.push("");
 			continue;
 		}
-		if (TABLE_SEP_RE.test(line) && line.includes("|") && line.includes("-")) continue; // 表格分隔行整行丢
+		if (TABLE_SEP_RE.test(line) && line.includes("|") && line.includes("-"))
+			continue; // 表格分隔行整行丢
 		let out = line.replace(HEADING_RE, "").replace(QUOTE_RE, "");
 		if (isTableRow(out)) {
 			out = out
@@ -93,7 +94,9 @@ export function cleanMarkdown(raw: string): string {
 		// —— 后端那句「回序号就行」要求访客能看见序号。这个取代是幂等的：
 		//    再洗一遍时 `1. ` 仍匹配 LIST_RE，输出还是 `1. `。
 		out = out.replace(LIST_RE, (_m, indent: string, marker: string) =>
-			/^\d/.test(marker) ? `${indent}${marker.replace(/\)$/, ".")} ` : `${indent}· `,
+			/^\d/.test(marker)
+				? `${indent}${marker.replace(/\)$/, ".")} `
+				: `${indent}· `,
 		);
 		lines.push(out);
 	}
@@ -117,7 +120,8 @@ export function cleanMarkdown(raw: string): string {
 		.replace(/\n+$/, "");
 
 	// ④ 极长文本兜底截断（畸形事件 / 长回答）
-	if (text.length > CHAT_TEXT_MAX) text = text.slice(0, CHAT_TEXT_MAX).trimEnd() + TRUNCATED_TAIL;
+	if (text.length > CHAT_TEXT_MAX)
+		text = text.slice(0, CHAT_TEXT_MAX).trimEnd() + TRUNCATED_TAIL;
 	return text;
 }
 

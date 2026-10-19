@@ -49,20 +49,38 @@ export type BrandColorEntry = {
 };
 
 export const BOOKNAV_BRAND_COLORS: Record<string, BrandColorEntry> = {
-	DeepSeek: { light: "#4D6BFE", source: "DeepSeek 品牌蓝（官方站 / 开放平台同一套）" },
-	ChatGPT: { light: "#10A37F", source: "OpenAI 品牌绿（openai.com 主色；ChatGPT 与 Platform 共用）" },
+	DeepSeek: {
+		light: "#4D6BFE",
+		source: "DeepSeek 品牌蓝（官方站 / 开放平台同一套）",
+	},
+	ChatGPT: {
+		light: "#10A37F",
+		source: "OpenAI 品牌绿（openai.com 主色；ChatGPT 与 Platform 共用）",
+	},
 	Claude: { light: "#D97757", source: "Anthropic Claude 品牌橙（官方品牌色）" },
 	Gemini: { light: "#8E75B2", source: "Google Gemini 品牌紫（渐变中段色）" },
 	// ⚠️ Grok 在已装的 5 个图标包里没有独立图标（`grok` 不存在），用 xAI 的 X 标志
 	//    （`simple-icons:x`），因此配色也取 X 的官方蓝 —— 图标与颜色必须指同一个品牌。
 	Grok: { light: "#1D9BF0", source: "X（xAI）官方蓝" },
-	"即梦 AI": { light: "#325AB4", source: "字节跳动品牌蓝（即梦属字节，取母品牌蓝）" },
+	"即梦 AI": {
+		light: "#325AB4",
+		source: "字节跳动品牌蓝（即梦属字节，取母品牌蓝）",
+	},
 	火山方舟: { light: "#1664FF", source: "火山引擎（Volcengine）品牌蓝" },
-	"Hugging Face": { light: "#FFD21E", source: "Hugging Face 品牌黄（官方 emoji 底色）" },
+	"Hugging Face": {
+		light: "#FFD21E",
+		source: "Hugging Face 品牌黄（官方 emoji 底色）",
+	},
 	// LangChain 三条（LangSmith / 中文文档 / 官方文档）同属一个品牌，共用墨绿
 	LangSmith: { light: "#1C3C3C", source: "LangChain 官方墨绿" },
-	"LangChain 中文文档": { light: "#1C3C3C", source: "LangChain 官方墨绿（同品牌）" },
-	"LangChain 官方文档": { light: "#1C3C3C", source: "LangChain 官方墨绿（同品牌）" },
+	"LangChain 中文文档": {
+		light: "#1C3C3C",
+		source: "LangChain 官方墨绿（同品牌）",
+	},
+	"LangChain 官方文档": {
+		light: "#1C3C3C",
+		source: "LangChain 官方墨绿（同品牌）",
+	},
 	// ⚠️ 这两个键是**同品牌另一条卡的别名**，不是新颜色：
 	//    `booknavConfig.ts` 里「DeepSeek 开放平台」写的是 `brandHex("DeepSeek 开放平台")`、
 	//    「OpenAI Platform」写的是 `brandHex("OpenAI Platform")`（各自的卡名原文），
@@ -72,8 +90,14 @@ export const BOOKNAV_BRAND_COLORS: Record<string, BrandColorEntry> = {
 	//        没有这两个键，「DeepSeek 开放平台」与「OpenAI Platform」两张卡会被**静默跳过核对**
 	//        （实测：26 张里只核对了 24 张，总数却照样显示"通过"）。
 	//      · 别名键让"这两张卡该用哪个品牌色"在配置里一眼看得出，而不是靠读者去推断同品牌。
-	"DeepSeek 开放平台": { light: "#4D6BFE", source: "DeepSeek 品牌蓝（同 DeepSeek，别名键）" },
-	"OpenAI Platform": { light: "#10A37F", source: "OpenAI 品牌绿（同 ChatGPT，别名键）" },
+	"DeepSeek 开放平台": {
+		light: "#4D6BFE",
+		source: "DeepSeek 品牌蓝（同 DeepSeek，别名键）",
+	},
+	"OpenAI Platform": {
+		light: "#10A37F",
+		source: "OpenAI 品牌绿（同 ChatGPT，别名键）",
+	},
 	洛谷: { light: "#2F80ED", source: "洛谷官方主色" },
 	"力扣 LeetCode": { light: "#FFA116", source: "LeetCode 官方橙" },
 	GitHub: { light: "#181717", source: "GitHub 品牌黑" },
@@ -82,10 +106,16 @@ export const BOOKNAV_BRAND_COLORS: Record<string, BrandColorEntry> = {
 	// ⚠️ **第 21 条没有"官方品牌色"可查**：chat-sdk.dev 没有公开的品牌规范，
 	//    任务书本身也标了"（无品牌）"。这里取 Tailwind indigo-500 作为显式占位，
 	//    报告里点名说明 —— 它不是查到的事实。
-	"Chat SDK": { light: "#6366F1", source: "无公开品牌规范 → 取 indigo-500 作为显式占位（报告中已点名）" },
+	"Chat SDK": {
+		light: "#6366F1",
+		source: "无公开品牌规范 → 取 indigo-500 作为显式占位（报告中已点名）",
+	},
 	npm: { light: "#CB3837", source: "npm 官方红" },
 	FreeCAD: { light: "#418FDE", source: "FreeCAD 官方蓝" },
-	"腾讯位置服务 · 开发文档": { light: "#0052D9", source: "腾讯位置服务（lbs.qq.com）官方蓝" },
+	"腾讯位置服务 · 开发文档": {
+		light: "#0052D9",
+		source: "腾讯位置服务（lbs.qq.com）官方蓝",
+	},
 	华为云: { light: "#CF0A2C", source: "华为 / 华为云官方红" },
 	Docker: { light: "#2496ED", source: "Docker 官方蓝" },
 	"Canva 可画": { light: "#00C4CC", source: "Canva 官方青" },
@@ -95,7 +125,11 @@ export const BOOKNAV_BRAND_COLORS: Record<string, BrandColorEntry> = {
 	//    取不到任何官方图形；Google s2 兜底拿回来的是**通用地球占位图**（不是品牌图标，
 	//    已按像素哈希识别并丢弃）。所以这一条按任务书允许的例外走**带品牌色的字母块**。
 	//    品牌色取 violet-600 —— 这是"颜色待定"的显式选择，不是查到的事实，报告里点名说明。
-	"BigME.Pro": { light: "#7C3AED", source: "站点不可达 → 品牌色不可考，取 violet-600 作为显式占位（报告中已点名）" },
+	"BigME.Pro": {
+		light: "#7C3AED",
+		source:
+			"站点不可达 → 品牌色不可考，取 violet-600 作为显式占位（报告中已点名）",
+	},
 	// ⚠️ 这一条是**有意不被配置引用**的（`booknavConfig.ts` 里腾讯云走本地 favicon `<img>`，
 	//    自带真彩色，不需要 iconColor）。留着的理由：报告与断言要核对"腾讯云官方蓝"。
 	//    所以 `reports/_bni-audit.mjs` 的"没被引用的键"检查里它是**已知白名单**。
@@ -108,9 +142,14 @@ export const BOOKNAV_BRAND_COLORS: Record<string, BrandColorEntry> = {
 	//    第一版就是短名，实测总数停在 26（27 张 svg 只核对了 26 张）才发现。
 	"MiniMax 媒体平台": {
 		light: "#F52C6B",
-		source: "MiniMax 官网（minimax.io / minimaxi.com）页面里出现的品牌粉红 #f52c6b（官网是渐变品牌色，无单一官方色值；这一支两个站点都有）",
+		source:
+			"MiniMax 官网（minimax.io / minimaxi.com）页面里出现的品牌粉红 #f52c6b（官网是渐变品牌色，无单一官方色值；这一支两个站点都有）",
 	},
-	腾讯云: { light: "#0052D9", source: "腾讯云官方蓝（本卡片用本地 favicon，仅作登记，不被 iconColor 引用）" },
+	腾讯云: {
+		light: "#0052D9",
+		source:
+			"腾讯云官方蓝（本卡片用本地 favicon，仅作登记，不被 iconColor 引用）",
+	},
 };
 
 /** 允许"登记了但不被任何 `iconColor` 引用"的键（其余键没被引用就是打错名字了） */

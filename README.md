@@ -1,10 +1,11 @@
 <div align="center">
 
-<a href="https://imissblog.cn/">
-  <img src="./src/assets/images/logo/imiss-light.webp" alt="IMiss Blog 纸飞机" width="112" />
-</a>
-
 <h1>IMiss Blog</h1>
+
+<p>
+  <a href="https://github.com/HandlerOne01/IMiss_Blog/actions/workflows/build.yml"><img src="https://github.com/HandlerOne01/IMiss_Blog/actions/workflows/build.yml/badge.svg?branch=master" alt="Build and Check" /></a>
+  <a href="https://github.com/HandlerOne01/IMiss_Blog/actions/workflows/biome.yml"><img src="https://github.com/HandlerOne01/IMiss_Blog/actions/workflows/biome.yml/badge.svg?branch=master" alt="Code quality" /></a>
+</p>
 
 <p><b>爱弥斯的小站 · 把学过的知识，写成可以再次出发的路。</b></p>
 
@@ -85,8 +86,8 @@
 需要 **Node.js ≥ 22.23** 和 **pnpm 11.x**。仓库声明的包管理器版本为 `pnpm@11.22.0`。
 
 ```bash
-git clone https://github.com/HandlerOne01/imiss_-blog.git
-cd imiss_-blog
+git clone https://github.com/HandlerOne01/IMiss_Blog.git
+cd IMiss_Blog
 pnpm install --frozen-lockfile
 pnpm dev
 ```
