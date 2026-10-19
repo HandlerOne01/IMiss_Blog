@@ -1,9 +1,5 @@
 <div align="center">
 
-<a href="https://imissblog.cn/">
-  <img src="./src/assets/images/logo/imiss-light.webp" alt="IMiss Blog 纸飞机" width="112" />
-</a>
-
 <h1>IMiss Blog</h1>
 
 <p>
